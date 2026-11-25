@@ -18,6 +18,9 @@ Runs on **Linux** and **macOS**. Single static binary, ~1.5 MB, ~2.5 % of one co
 | 5 | **Open Files** | On-demand lsof queries: by pid, port, path ("who has this file open?") or raw lsof arguments |
 | 6 | **Storage** | Filesystem usage, disk I/O per process, temperature sensors |
 
+`vigil report` prints a **point-in-time report** (Markdown or JSON) for tickets, cron jobs and
+post-mortems; `R` writes the same report from inside the TUI.
+
 The header shows **health badges** on every view (memory, swap, disk, load, CLOSE_WAIT,
 TIME_WAIT, temperature and, on Linux, PSI pressure) as soon as a threshold is crossed.
 
@@ -45,6 +48,8 @@ Requires `lsof` for the Open Files view (preinstalled on macOS; `apt install lso
 
 ```
 vigil [OPTIONS]
+vigil report [-f md|json] [-o FILE] [--top N] [--sample-ms MS] [--fail-on-alert]
+
   -i, --interval <ms>         sampling interval (default 1000)
       --lsof-interval <sec>   socket scan interval (default 3)
   -t, --tab <name>            start view: overview, processes, network, sockets, files, storage
@@ -62,7 +67,23 @@ sudo vigil -t sockets           # straight to the socket table
 sudo vigil -q :5432             # who is using the postgres port?
 vigil -q /var/log/syslog        # who has this log file open?
 vigil --theme ansi              # 16-colour mode for plain SSH / tmux sessions
+sudo vigil report > incident.md # snapshot for a ticket
+vigil report -f json | jq .health
 ```
+
+### Reports
+
+`vigil report` samples the system for one second and prints: health, system info, CPU and
+load, memory and swap, PSI, top processes by CPU and memory (with socket counts), listening
+ports with an **exposed** flag for services bound to every interface, connection states, top
+remote peers, interfaces, filesystems and temperatures.
+
+```bash
+# cron: mail a report only when something is wrong
+*/5 * * * * vigil report --fail-on-alert -o /tmp/vigil.md || mail -s "vigil: $(hostname)" ops@example.com < /tmp/vigil.md
+```
+
+`--fail-on-alert` exits with code 2 when any `[alerts]` threshold is exceeded.
 
 ## Keys
 
@@ -75,6 +96,7 @@ vigil --theme ansi              # 16-colour mode for plain SSH / tmux sessions
 | `/` | filter the current list (`Esc` clears) |
 | `:` | lsof query (see below) |
 | `T` | theme picker with live preview (`b` toggles the background) |
+| `R` | write a Markdown report to `./vigil-report-<time>.md` |
 | `space` | pause / resume |
 | `+` / `-` | refresh interval ±250 ms |
 | `?` | help |
@@ -104,7 +126,13 @@ vigil --theme ansi              # 16-colour mode for plain SSH / tmux sessions
 ## Themes
 
 `tokyo-night` · `catppuccin-mocha` · `gruvbox` · `nord` · `dracula` · `rose-pine` ·
-`solarized-light` · `ansi`
+`solarized-light` · `cyberpunk` · `phosphor` · `ansi`
+
+Themes change glyphs as well as colours:
+
+- **cyberpunk**: neon cyan, magenta and yellow on near-black, thick frames and `▰▱` meters.
+- **phosphor**: a green P1 phosphor CRT. Pure 7-bit ASCII (`+--+`, `###...`, `|-` trees),
+  monochrome green, and severity shown only by brightness, like a VT100.
 
 `ansi` uses your terminal's own 16 colours, so it works over plain SSH, in tmux without
 truecolor and on serial consoles. With `theme = "auto"` (the default), vigil picks `ansi`
@@ -146,7 +174,8 @@ src/
 ├── main.rs            CLI (clap), config precedence, terminal setup, event loop
 ├── app.rs             state, sorting, process tree, caches, alerts, key handling
 ├── config.rs          TOML config, atomic save
-├── theme.rs           8 palettes behind one atomic index, heat gradients
+├── theme.rs           10 palettes + glyph sets behind one atomic index
+├── report.rs          `vigil report` / `R`: Markdown and JSON snapshots
 ├── util.rs            formatting, ring-buffer history, sparklines
 ├── collect/
 │   ├── system.rs      sysinfo sampler + slow thread for disks/sensors, PSI

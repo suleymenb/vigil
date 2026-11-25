@@ -4,6 +4,7 @@
 mod app;
 mod collect;
 mod config;
+mod report;
 mod theme;
 mod ui;
 mod util;
@@ -13,7 +14,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use anyhow::Result;
-use clap::Parser;
+use clap::{Parser, Subcommand};
 use crossterm::event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyEventKind};
 use crossterm::execute;
 
@@ -24,6 +25,9 @@ use collect::system::Sampler;
 #[derive(Parser, Debug)]
 #[command(name = "vigil", version, about = "Modern terminal system monitor with lsof integration")]
 struct Args {
+    #[command(subcommand)]
+    command: Option<Command>,
+
     /// Sampling interval in milliseconds [config: interval_ms, default 1000]
     #[arg(short, long)]
     interval: Option<u64>,
@@ -65,8 +69,48 @@ struct Args {
     lsof_sockets: bool,
 }
 
+#[derive(Subcommand, Debug)]
+enum Command {
+    /// Print a point-in-time system report (Markdown or JSON) and exit
+    Report {
+        /// Output format
+        #[arg(short, long, value_parser = ["md", "markdown", "json"], default_value = "md")]
+        format: String,
+        /// Write to a file instead of stdout
+        #[arg(short, long, value_name = "PATH")]
+        output: Option<std::path::PathBuf>,
+        /// Rows in the top-N tables
+        #[arg(long, default_value_t = 10)]
+        top: usize,
+        /// Sampling window for CPU and rates, in milliseconds
+        #[arg(long, default_value_t = 1000)]
+        sample_ms: u64,
+        /// Exit with code 2 when any health threshold is exceeded (for cron / CI)
+        #[arg(long)]
+        fail_on_alert: bool,
+    },
+}
+
 fn main() -> Result<()> {
     let args = Args::parse();
+    if let Some(Command::Report { format, output, top, sample_ms, fail_on_alert }) = &args.command {
+        let (cfg, warn) = config::load(args.config.as_ref());
+        if let Some(w) = warn {
+            eprintln!("vigil: {w}");
+        }
+        let code = report::run_cli(
+            report::Options {
+                json: format == "json",
+                output: output.clone(),
+                top: (*top).max(1),
+                sample: Duration::from_millis((*sample_ms).clamp(250, 60_000)),
+                fail_on_alert: *fail_on_alert,
+                force_lsof: args.lsof_sockets,
+            },
+            &cfg.alerts,
+        )?;
+        std::process::exit(code);
+    }
     if args.list_themes {
         for t in theme::THEMES {
             println!("{}", t.name);

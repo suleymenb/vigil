@@ -6,9 +6,76 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use ratatui::style::Color;
+use ratatui::symbols::border;
+
+/// Characters a theme draws with. Colours alone can't make a CRT feel like a CRT.
+pub struct Glyphs {
+    pub border: border::Set,
+    pub meter_on: &'static str,
+    pub meter_off: &'static str,
+    /// Area graph, 0..=8 eighths filled.
+    pub graph: [char; 9],
+    /// Downward graph: full, more than half, less than half.
+    pub graph_down: [char; 3],
+    pub spark: [char; 8],
+    pub select: &'static str,
+    pub divider: &'static str,
+    pub track: &'static str,
+    pub thumb: &'static str,
+}
+
+pub const MODERN: Glyphs = Glyphs {
+    border: border::ROUNDED,
+    meter_on: "■",
+    meter_off: "■",
+    graph: [' ', '▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'],
+    graph_down: ['█', '▀', '▔'],
+    spark: ['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'],
+    select: "▌",
+    divider: "│",
+    track: "│",
+    thumb: "┃",
+};
+
+pub const NEON: Glyphs = Glyphs {
+    border: border::THICK,
+    meter_on: "▰",
+    meter_off: "▱",
+    graph: [' ', '▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'],
+    graph_down: ['█', '▀', '▔'],
+    spark: ['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'],
+    select: "▶",
+    divider: "┃",
+    track: "┃",
+    thumb: "█",
+};
+
+/// Pure 7-bit ASCII, as on a VT100 / serial console.
+pub const ASCII: Glyphs = Glyphs {
+    border: border::Set {
+        top_left: "+",
+        top_right: "+",
+        bottom_left: "+",
+        bottom_right: "+",
+        vertical_left: "|",
+        vertical_right: "|",
+        horizontal_top: "-",
+        horizontal_bottom: "-",
+    },
+    meter_on: "#",
+    meter_off: ".",
+    graph: [' ', '_', '_', '.', '.', ':', ':', '#', '#'],
+    graph_down: ['#', ':', '\''],
+    spark: ['_', '.', '-', '~', '=', '+', '*', '#'],
+    select: ">",
+    divider: "|",
+    track: "|",
+    thumb: "#",
+};
 
 pub struct Palette {
     pub name: &'static str,
+    pub glyphs: &'static Glyphs,
     /// Background painted behind the whole UI (`Color::Reset` = terminal's own).
     pub bg: Color,
     pub fg: Color,
@@ -35,6 +102,7 @@ const fn rgb(hex: u32) -> Color {
 pub const THEMES: &[Palette] = &[
     Palette {
         name: "tokyo-night",
+        glyphs: &MODERN,
         bg: rgb(0x1a1b26), fg: rgb(0xc0caf5), dim: rgb(0x565f89), muted: rgb(0x7a84b2),
         border: rgb(0x3b4261), sel_bg: rgb(0x292e42), header_bg: rgb(0x16161e),
         blue: rgb(0x7aa2f7), purple: rgb(0xbb9af7), cyan: rgb(0x7dcfff), teal: rgb(0x73daca),
@@ -43,6 +111,7 @@ pub const THEMES: &[Palette] = &[
     },
     Palette {
         name: "catppuccin-mocha",
+        glyphs: &MODERN,
         bg: rgb(0x1e1e2e), fg: rgb(0xcdd6f4), dim: rgb(0x6c7086), muted: rgb(0x9399b2),
         border: rgb(0x45475a), sel_bg: rgb(0x313244), header_bg: rgb(0x181825),
         blue: rgb(0x89b4fa), purple: rgb(0xcba6f7), cyan: rgb(0x89dceb), teal: rgb(0x94e2d5),
@@ -51,6 +120,7 @@ pub const THEMES: &[Palette] = &[
     },
     Palette {
         name: "gruvbox",
+        glyphs: &MODERN,
         bg: rgb(0x282828), fg: rgb(0xebdbb2), dim: rgb(0x665c54), muted: rgb(0xa89984),
         border: rgb(0x504945), sel_bg: rgb(0x3c3836), header_bg: rgb(0x1d2021),
         blue: rgb(0x83a598), purple: rgb(0xd3869b), cyan: rgb(0x8ec07c), teal: rgb(0x689d6a),
@@ -59,6 +129,7 @@ pub const THEMES: &[Palette] = &[
     },
     Palette {
         name: "nord",
+        glyphs: &MODERN,
         bg: rgb(0x2e3440), fg: rgb(0xd8dee9), dim: rgb(0x616e88), muted: rgb(0x8a96ad),
         border: rgb(0x434c5e), sel_bg: rgb(0x3b4252), header_bg: rgb(0x242933),
         blue: rgb(0x81a1c1), purple: rgb(0xb48ead), cyan: rgb(0x88c0d0), teal: rgb(0x8fbcbb),
@@ -67,6 +138,7 @@ pub const THEMES: &[Palette] = &[
     },
     Palette {
         name: "dracula",
+        glyphs: &MODERN,
         bg: rgb(0x282a36), fg: rgb(0xf8f8f2), dim: rgb(0x6272a4), muted: rgb(0x9aa2c8),
         border: rgb(0x44475a), sel_bg: rgb(0x383a4a), header_bg: rgb(0x21222c),
         blue: rgb(0xbd93f9), purple: rgb(0xff79c6), cyan: rgb(0x8be9fd), teal: rgb(0x6be5c8),
@@ -75,6 +147,7 @@ pub const THEMES: &[Palette] = &[
     },
     Palette {
         name: "rose-pine",
+        glyphs: &MODERN,
         bg: rgb(0x191724), fg: rgb(0xe0def4), dim: rgb(0x6e6a86), muted: rgb(0x908caa),
         border: rgb(0x403d52), sel_bg: rgb(0x26233a), header_bg: rgb(0x1f1d2e),
         blue: rgb(0x9ccfd8), purple: rgb(0xc4a7e7), cyan: rgb(0x9ccfd8), teal: rgb(0x31748f),
@@ -83,16 +156,38 @@ pub const THEMES: &[Palette] = &[
     },
     Palette {
         name: "solarized-light",
+        glyphs: &MODERN,
         bg: rgb(0xfdf6e3), fg: rgb(0x073642), dim: rgb(0x93a1a1), muted: rgb(0x657b83),
         border: rgb(0xc9c2ac), sel_bg: rgb(0xeee8d5), header_bg: rgb(0xeee8d5),
         blue: rgb(0x268bd2), purple: rgb(0x6c71c4), cyan: rgb(0x2aa198), teal: rgb(0x2aa198),
         green: rgb(0x859900), yellow: rgb(0xb58900), orange: rgb(0xcb4b16), red: rgb(0xdc322f),
         pink: rgb(0xd33682),
     },
+    // Night City: neon on near-black, thick frames, ▰▱ meters.
+    Palette {
+        name: "cyberpunk",
+        glyphs: &NEON,
+        bg: rgb(0x0a0a12), fg: rgb(0xe6f7ff), dim: rgb(0x3d4a6b), muted: rgb(0x7f8fb8),
+        border: rgb(0x00b3c4), sel_bg: rgb(0x2a0f3d), header_bg: rgb(0x07070d),
+        blue: rgb(0x00f0ff), purple: rgb(0xff2a6d), cyan: rgb(0x05d9e8), teal: rgb(0x01ffc3),
+        green: rgb(0x39ff14), yellow: rgb(0xfcee0a), orange: rgb(0xff9f1c), red: rgb(0xff003c),
+        pink: rgb(0xff00e6),
+    },
+    // Green phosphor CRT (P1). Monochrome: severity is brightness, not hue.
+    Palette {
+        name: "phosphor",
+        glyphs: &ASCII,
+        bg: rgb(0x040a04), fg: rgb(0x33ff33), dim: rgb(0x146614), muted: rgb(0x1f9a1f),
+        border: rgb(0x1a801a), sel_bg: rgb(0x0f3d0f), header_bg: rgb(0x020502),
+        blue: rgb(0x33ff33), purple: rgb(0x29cc29), cyan: rgb(0x4dff4d), teal: rgb(0x29cc29),
+        green: rgb(0x1fb31f), yellow: rgb(0x66ff66), orange: rgb(0x99ff99), red: rgb(0xd9ffd9),
+        pink: rgb(0x66ff66),
+    },
     // Uses the terminal's own 16 colours: works over plain SSH, tmux without
     // truecolor, serial consoles, and follows whatever scheme the terminal has.
     Palette {
         name: "ansi",
+        glyphs: &MODERN,
         bg: Color::Reset, fg: Color::Reset, dim: Color::DarkGray, muted: Color::Gray,
         border: Color::DarkGray, sel_bg: Color::DarkGray, header_bg: Color::Black,
         blue: Color::Blue, purple: Color::Magenta, cyan: Color::Cyan, teal: Color::LightCyan,
@@ -106,6 +201,25 @@ static CURRENT: AtomicUsize = AtomicUsize::new(0);
 #[inline]
 pub fn pal() -> &'static Palette {
     &THEMES[CURRENT.load(Ordering::Relaxed)]
+}
+
+#[inline]
+pub fn glyphs() -> &'static Glyphs {
+    pal().glyphs
+}
+
+/// True for themes that must stay within 7-bit ASCII.
+pub fn is_ascii() -> bool {
+    std::ptr::eq(glyphs(), &ASCII)
+}
+
+/// Tree connectors: (middle child, last child, continue below middle, continue below last).
+pub fn tree() -> (&'static str, &'static str, &'static str, &'static str) {
+    if is_ascii() {
+        ("|- ", "`- ", "|  ", "   ")
+    } else {
+        ("├─ ", "└─ ", "│  ", "   ")
+    }
 }
 
 pub fn index() -> usize {

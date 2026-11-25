@@ -58,7 +58,7 @@ fn draw_header(f: &mut Frame, app: &App, area: Rect) {
     f.render_widget(Block::new().style(Style::new().bg(theme::header_bg())), top);
 
     let mut spans = vec![
-        Span::styled(" ◆ vigil ", Style::new().fg(theme::header_bg()).bg(theme::blue()).bold()),
+        Span::styled(if theme::is_ascii() { " VIGIL " } else { " ◆ vigil " }, Style::new().fg(theme::header_bg()).bg(theme::blue()).bold()),
         Span::raw(" "),
         Span::styled(s.host.hostname.clone(), Style::new().fg(theme::cyan()).bold()),
         Span::styled(format!("  {}", s.host.os), Style::new().fg(theme::muted())),
@@ -82,7 +82,7 @@ fn draw_header(f: &mut Frame, app: &App, area: Rect) {
         if app.paused {
             Span::styled(" ⏸ PAUSED ", Style::new().fg(theme::header_bg()).bg(theme::yellow()).bold())
         } else {
-            Span::styled("● live", Style::new().fg(theme::green()))
+            Span::styled(if theme::is_ascii() { "* live" } else { "● live" }, Style::new().fg(theme::green()))
         },
         Span::styled(format!("  {}ms ", app.interval.as_millis()), Style::new().fg(theme::dim())),
         if app.is_root {
@@ -109,13 +109,13 @@ fn draw_header(f: &mut Frame, app: &App, area: Rect) {
         .select(app.tab.index())
         .style(Style::new().fg(theme::muted()))
         .highlight_style(Style::new().fg(theme::blue()).bold().underlined())
-        .divider(Span::styled("│", Style::new().fg(theme::border())))
+        .divider(Span::styled(theme::glyphs().divider, Style::new().fg(theme::border())))
         .padding(" ", " ");
     // Health badges, right-aligned on the tab row, visible from every view.
     let alerts = app.alerts();
     let mut badges: Vec<Span> = Vec::new();
     if alerts.is_empty() {
-        badges.push(Span::styled("✓ healthy ", Style::new().fg(theme::green())));
+        badges.push(Span::styled(if theme::is_ascii() { "[ OK ] " } else { "✓ healthy " }, Style::new().fg(theme::green())));
     } else {
         for (text, color) in alerts {
             badges.push(Span::styled(format!(" {text} "), Style::new().fg(theme::header_bg()).bg(color).bold()));
@@ -154,7 +154,7 @@ fn hints(app: &App) -> Vec<(&'static str, &'static str)> {
     if matches!(app.tab, Tab::Processes | Tab::Sockets | Tab::Files) {
         h.push(("/", "filter"));
     }
-    h.extend([(":", "lsof query"), ("T", "theme"), ("space", "pause"), ("?", "help"), ("q", "quit")]);
+    h.extend([(":", "lsof query"), ("R", "report"), ("T", "theme"), ("space", "pause"), ("?", "help"), ("q", "quit")]);
     h
 }
 
@@ -274,7 +274,7 @@ fn draw_signal_dialog(f: &mut Frame, app: &App, area: Rect) {
 }
 
 fn draw_help(f: &mut Frame, area: Rect) {
-    let r = centered(area, 78, 35);
+    let r = centered(area, 78, 36);
     f.render_widget(Clear, r);
     let sec = |t: &str| Line::styled(format!(" {t}"), Style::new().fg(theme::purple()).bold());
     let row = |k: &str, d: &str| {
@@ -292,6 +292,7 @@ fn draw_help(f: &mut Frame, area: Rect) {
         row("space", "pause / resume sampling"),
         row("+ / -", "refresh interval ±250ms"),
         row("T", "theme picker (live preview, b = background on/off)"),
+        row("R", "write a Markdown report to ./vigil-report-<time>.md"),
         row("? / q", "help / quit"),
         sec("Processes"),
         row("c m p n u i o", "sort cpu · mem · pid · name · user · io · conns"),
@@ -379,8 +380,8 @@ mod tests {
             for i in 0..crate::theme::THEMES.len() {
                 crate::theme::set(i);
                 term.draw(|f| super::draw(f, &mut app)).unwrap();
-                if let (Some(d), 180, 0) = (&dir, w, i) {
-                    std::fs::write(format!("{d}/ThemePicker.txt"), dump(&term)).unwrap();
+                if let (Some(d), 180) = (&dir, w) {
+                    std::fs::write(format!("{d}/theme-{}.txt", crate::theme::THEMES[i].name), dump(&term)).unwrap();
                 }
             }
             crate::theme::set(0);

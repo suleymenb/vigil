@@ -4,12 +4,11 @@ use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Style, Stylize};
 use ratatui::text::Span;
-use ratatui::widgets::{Block, BorderType, Widget};
+use ratatui::widgets::{Block, Widget};
 use ratatui::text::Line;
 
 use crate::theme;
 
-const BLOCKS: [char; 9] = [' ', '▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
 
 #[derive(Clone, Copy)]
 pub enum GraphColor {
@@ -57,14 +56,15 @@ impl Widget for AreaGraph<'_> {
                     GraphColor::Gradient(a, b) => theme::lerp(a, b, t),
                 };
                 let (y, ch) = if self.inverted {
+                    let g = theme::glyphs().graph_down;
                     let ch = match filled {
-                        8 => '█',
-                        4..=7 => '▀',
-                        _ => '▔',
+                        8 => g[0],
+                        4..=7 => g[1],
+                        _ => g[2],
                     };
                     (area.y + row as u16, ch)
                 } else {
-                    (area.y + (h - 1 - row) as u16, BLOCKS[filled])
+                    (area.y + (h - 1 - row) as u16, theme::glyphs().graph[filled])
                 };
                 if let Some(cell) = buf.cell_mut((x, y)) {
                     cell.set_char(ch).set_fg(color);
@@ -83,9 +83,9 @@ pub fn meter(pct: f64, width: usize) -> Vec<Span<'static>> {
     for i in 0..width {
         let cell_pct = (i as f64 + 0.5) / width.max(1) as f64 * 100.0;
         if i < full {
-            spans.push(Span::styled("■", Style::new().fg(theme::heat(cell_pct))));
+            spans.push(Span::styled(theme::glyphs().meter_on, Style::new().fg(theme::heat(cell_pct))));
         } else {
-            spans.push(Span::styled("■", Style::new().fg(theme::border())));
+            spans.push(Span::styled(theme::glyphs().meter_off, Style::new().fg(theme::border())));
         }
     }
     spans
@@ -95,14 +95,14 @@ pub fn meter(pct: f64, width: usize) -> Vec<Span<'static>> {
 pub fn meter_solid(pct: f64, width: usize, color: Color) -> Vec<Span<'static>> {
     let full = (pct.clamp(0.0, 100.0) / 100.0 * width as f64).round() as usize;
     vec![
-        Span::styled("■".repeat(full), Style::new().fg(color)),
-        Span::styled("■".repeat(width.saturating_sub(full)), Style::new().fg(theme::border())),
+        Span::styled(theme::glyphs().meter_on.repeat(full), Style::new().fg(color)),
+        Span::styled(theme::glyphs().meter_off.repeat(width.saturating_sub(full)), Style::new().fg(theme::border())),
     ]
 }
 
 pub fn panel(title: impl Into<String>, accent: Color) -> Block<'static> {
     Block::bordered()
-        .border_type(BorderType::Rounded)
+        .border_set(theme::glyphs().border)
         .border_style(Style::new().fg(theme::border()))
         .title(Line::from(vec![
             Span::raw(" "),
@@ -114,7 +114,7 @@ pub fn panel(title: impl Into<String>, accent: Color) -> Block<'static> {
 /// Rounded frame without a default title.
 pub fn frame() -> Block<'static> {
     Block::bordered()
-        .border_type(BorderType::Rounded)
+        .border_set(theme::glyphs().border)
         .border_style(Style::new().fg(theme::border()))
 }
 

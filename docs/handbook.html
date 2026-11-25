@@ -461,7 +461,20 @@ footer { margin-top: 72px; color: var(--muted); font-size: 13px; }
   <div class="swatches" id="swatches" aria-label="Theme previews"></div>
 </div>
 <main class="col">
+  <p style="margin-top:16px">Two themes change the characters as well as the colours. <b>cyberpunk</b> draws thick neon frames and <code>▰▱</code> meters. <b>phosphor</b> turns vigil into a green P1 CRT: pure 7-bit ASCII (<code>+--+</code>, <code>###...</code>, <code>|-</code> trees), monochrome green, and severity shown only by brightness, like a VT100.</p>
   <div class="note"><b>ansi</b> uses your terminal's 16 colours instead of fixed RGB values. Use it over plain SSH, in tmux without truecolor or on a serial console. With <code>theme = "auto"</code>, vigil picks it by itself when the terminal doesn't support truecolor.</div>
+
+  <h2 id="reports">Reports</h2>
+  <p style="margin-top:12px"><code>vigil report</code> samples the system for one second and prints a Markdown report: health, system info, CPU and load, memory, PSI, top processes by CPU and memory, listening ports with an <b>exposed</b> flag, connection states, top peers, interfaces, filesystems and temperatures. Inside the TUI, <kbd>R</kbd> writes the same report to <code>./vigil-report-&lt;time&gt;.md</code>.</p>
+  <div class="tbl"><table>
+    <thead><tr><th>Command</th><th>Use</th></tr></thead>
+    <tbody>
+      <tr><td class="num">sudo vigil report &gt; incident.md</td><td>Attach a snapshot to an incident ticket</td></tr>
+      <tr><td class="num">vigil report -f json | jq .health</td><td>Machine-readable output for scripts and dashboards</td></tr>
+      <tr><td class="num">vigil report --fail-on-alert</td><td>Exits with code 2 when a health threshold is crossed, for cron and CI</td></tr>
+      <tr><td class="num">vigil report --top 25 -o before.md</td><td>Take a before/after pair around a deploy and diff them</td></tr>
+    </tbody>
+  </table></div>
 
   <h2 id="config">Configuration</h2>
   <p style="margin-top:12px">Settings live in <code>~/.config/vigil/config.toml</code>, on macOS too. Command-line flags win over the file, and the file wins over the defaults. A broken file never stops vigil: it starts with defaults and shows a warning in the footer.</p>
@@ -508,7 +521,7 @@ footer { margin-top: 72px; color: var(--muted); font-size: 13px; }
   </table></div>
 
   <h2 id="roadmap">Roadmap</h2>
-  <p style="margin-top:12px">What I'd add next to keep vigil useful for years, in order of priority. Themes, the config file and health badges shipped in v0.2.</p>
+  <p style="margin-top:12px">What I'd add next to keep vigil useful for years, in order of priority. Themes, the config file, health badges and reports shipped in v0.2.</p>
   <div class="road">
     <div class="item"><span class="pri p1">Next</span><div><h3>Containers: Docker, Podman and cgroups</h3><p>A view with CPU, memory and network per container, read from cgroup v2 (<code>/sys/fs/cgroup</code>), so without the Docker daemon. On modern servers almost everything runs in a container.</p></div></div>
     <div class="item"><span class="pri p1">Next</span><div><h3>Linux: netlink <code>sock_diag</code> instead of /proc/net</h3><p>This adds RTT, retransmits, cwnd and the send/receive queue per socket, like <code>ss -ti</code>. For a network engineer that's gold: you see a slow connection before users complain.</p></div></div>
@@ -531,6 +544,7 @@ footer { margin-top: 72px; color: var(--muted); font-size: 13px; }
       <dt><kbd>/</kbd></dt><dd>filter, <kbd>Esc</kbd> clears</dd>
       <dt><kbd>:</kbd></dt><dd>lsof query</dd>
       <dt><kbd>T</kbd></dt><dd>theme picker</dd>
+      <dt><kbd>R</kbd></dt><dd>write a report</dd>
       <dt><kbd>space</kbd></dt><dd>pause</dd>
       <dt><kbd>+</kbd> <kbd>-</kbd></dt><dd>interval ±250 ms</dd>
       <dt><kbd>?</kbd> <kbd>q</kbd></dt><dd>help / quit</dd></dl></div>
@@ -564,6 +578,7 @@ footer { margin-top: 72px; color: var(--muted); font-size: 13px; }
       <dt><code>-i 500</code></dt><dd>interval in ms</dd>
       <dt><code>--theme nord</code></dt><dd>pick a theme</dd>
       <dt><code>--no-save</code></dt><dd>don't write the config</dd>
+      <dt><code>report</code></dt><dd>Markdown / JSON snapshot</dd>
       <dt><code>--lsof-sockets</code></dt><dd>lsof instead of /proc/net</dd></dl></div>
   </div>
 </div>
@@ -601,6 +616,8 @@ footer { margin-top: 72px; color: var(--muted); font-size: 13px; }
     ['dracula', '#282a36', '#f8f8f2', ['#bd93f9','#ff79c6','#8be9fd','#50fa7b','#f1fa8c','#ffb86c','#ff5555']],
     ['rose-pine', '#191724', '#e0def4', ['#9ccfd8','#c4a7e7','#9ccfd8','#8fbf9f','#f6c177','#ea9a97','#eb6f92']],
     ['solarized-light', '#fdf6e3', '#073642', ['#268bd2','#6c71c4','#2aa198','#859900','#b58900','#cb4b16','#dc322f']],
+    ['cyberpunk', '#0a0a12', '#e6f7ff', ['#00f0ff','#ff2a6d','#05d9e8','#39ff14','#fcee0a','#ff9f1c','#ff003c'], 'cpu ▰▰▰▰▰▰▱▱▱▱ 58%'],
+    ['phosphor', '#040a04', '#33ff33', ['#146614','#1f9a1f','#1fb31f','#33ff33','#66ff66','#99ff99','#d9ffd9'], 'cpu [######....] 58%'],
     ['ansi', '#000000', '#e5e5e5', ['#0000ee','#cd00cd','#00cdcd','#00cd00','#cdcd00','#ff5f5f','#cd0000']]
   ];
   var box = document.getElementById('swatches');
@@ -611,7 +628,7 @@ footer { margin-top: 72px; color: var(--muted); font-size: 13px; }
     d.style.color = t[2];
     var dots = t[3].map(function (c) { return '<i style="background:' + c + '"></i>'; }).join('');
     d.innerHTML = '<span class="nm">' + t[0] + '</span><span class="dots">' + dots + '</span>' +
-      '<span style="opacity:.75">' + (t[0] === 'ansi' ? 'your terminal’s 16 colours' : 'cpu ■■■■■■□□□□ 58%') + '</span>';
+      '<span style="opacity:.75">' + (t[0] === 'ansi' ? 'your terminal’s 16 colours' : (t[4] || 'cpu ■■■■■■□□□□ 58%')) + '</span>';
     box.appendChild(d);
   });
 })();

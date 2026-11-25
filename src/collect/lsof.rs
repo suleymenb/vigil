@@ -182,24 +182,41 @@ impl Default for SocketStore {
     }
 }
 
+/// One socket source: native /proc/net on Linux (unless forced off), else `lsof -i`.
+pub struct SocketScanner {
+    #[cfg(target_os = "linux")]
+    native: Option<super::procnet::Scanner>,
+}
+
+impl SocketScanner {
+    pub fn new(force_lsof: bool) -> Self {
+        #[cfg(target_os = "linux")]
+        {
+            Self { native: if force_lsof { None } else { super::procnet::Scanner::new() } }
+        }
+        #[cfg(not(target_os = "linux"))]
+        {
+            let _ = force_lsof;
+            Self {}
+        }
+    }
+
+    pub fn scan(&mut self) -> (Result<(Vec<OpenFile>, Duration), String>, SocketBackend) {
+        #[cfg(target_os = "linux")]
+        if let Some(sc) = self.native.as_mut() {
+            let start = Instant::now();
+            let entries = sc.scan();
+            return (Ok((entries, start.elapsed())), SocketBackend::ProcNet);
+        }
+        (run(&["-nP".into(), "-i".into()]), SocketBackend::Lsof)
+    }
+}
+
 pub fn spawn_socket_worker(store: Arc<Mutex<SocketStore>>, interval: Duration, force_lsof: bool) {
     thread::spawn(move || {
-        #[cfg(target_os = "linux")]
-        let mut native = if force_lsof { None } else { super::procnet::Scanner::new() };
-        #[cfg(not(target_os = "linux"))]
-        let _ = force_lsof;
-
+        let mut scanner = SocketScanner::new(force_lsof);
         loop {
-            let start = Instant::now();
-            #[cfg(target_os = "linux")]
-            let (res, backend) = match native.as_mut() {
-                Some(sc) => (Ok((sc.scan(), start.elapsed())), SocketBackend::ProcNet),
-                None => (run(&["-nP".into(), "-i".into()]), SocketBackend::Lsof),
-            };
-            #[cfg(not(target_os = "linux"))]
-            let (res, backend) = (run(&["-nP".into(), "-i".into()]), SocketBackend::Lsof);
-            let _ = start;
-
+            let (res, backend) = scanner.scan();
             if let Ok(mut s) = store.lock() {
                 s.backend = backend;
                 match res {

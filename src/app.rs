@@ -12,7 +12,7 @@ use sysinfo::Signal;
 
 use crate::collect::lsof::{self, FilesStore, OpenFile, Query, SocketStore};
 use crate::collect::system::{ProcInfo, Sampler};
-use crate::config::Config;
+use crate::config::{Alerts, Config};
 use crate::theme;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -145,6 +145,53 @@ pub const SIGNALS: [(&str, &str, Signal); 9] = [
     ("SIGUSR1", "    user defined 1", Signal::User1),
     ("SIGUSR2", "    user defined 2", Signal::User2),
 ];
+
+/// Every `[alerts]` threshold that is exceeded. Shared by the header badges and `vigil report`.
+pub fn compute_alerts(s: &Sampler, a: &Alerts, close_wait: usize, time_wait: usize) -> Vec<(String, Color)> {
+    let mut out = Vec::new();
+    let pct = |u: u64, t: u64| if t == 0 { 0.0 } else { u as f64 / t as f64 * 100.0 };
+    let mem = pct(s.mem_used, s.mem_total);
+    if a.mem_pct > 0.0 && mem >= a.mem_pct {
+        out.push((format!("MEM {mem:.0}%"), theme::red()));
+    }
+    let swap = pct(s.swap_used, s.swap_total);
+    if a.swap_pct > 0.0 && s.swap_total > 0 && swap >= a.swap_pct {
+        out.push((format!("SWAP {swap:.0}%"), theme::orange()));
+    }
+    if a.disk_pct > 0.0 {
+        if let Some(d) = s
+            .disks_info
+            .iter()
+            .filter(|d| d.total > 0 && d.pct() >= a.disk_pct)
+            .max_by(|x, y| x.pct().total_cmp(&y.pct()))
+        {
+            out.push((format!("DISK {} {:.0}%", d.mount, d.pct()), theme::red()));
+        }
+    }
+    let lpc = s.load.0 / s.ncores().max(1) as f64;
+    if a.load_per_core > 0.0 && lpc >= a.load_per_core {
+        out.push((format!("LOAD {:.1}/core", lpc), theme::orange()));
+    }
+    if a.close_wait > 0 && close_wait >= a.close_wait {
+        out.push((format!("CLOSE_WAIT {}", close_wait), theme::orange()));
+    }
+    if a.time_wait > 0 && time_wait >= a.time_wait {
+        out.push((format!("TIME_WAIT {}", time_wait), theme::yellow()));
+    }
+    if a.temp_c > 0.0 {
+        if let Some(t) = s.temps.first().filter(|t| t.temp >= a.temp_c) {
+            out.push((format!("TEMP {:.0}°C", t.temp), theme::red()));
+        }
+    }
+    if let (Some(p), true) = (s.psi, a.psi_pct > 0.0) {
+        for (name, v) in ["cpu", "mem", "io"].iter().zip(p) {
+            if v >= a.psi_pct {
+                out.push((format!("PSI {name} {v:.0}%"), theme::purple()));
+            }
+        }
+    }
+    out
+}
 
 pub struct ProcRow {
     pub idx: usize,
@@ -288,51 +335,19 @@ impl App {
 
     /// Health badges for the header: every threshold from `[alerts]` that is exceeded.
     pub fn alerts(&self) -> Vec<(String, Color)> {
-        let a = &self.cfg.alerts;
-        let s = &self.sampler;
-        let mut out = Vec::new();
-        let pct = |u: u64, t: u64| if t == 0 { 0.0 } else { u as f64 / t as f64 * 100.0 };
-        let mem = pct(s.mem_used, s.mem_total);
-        if a.mem_pct > 0.0 && mem >= a.mem_pct {
-            out.push((format!("MEM {mem:.0}%"), theme::red()));
+        compute_alerts(&self.sampler, &self.cfg.alerts, self.close_wait, self.time_wait)
+    }
+
+    /// `R`: write a Markdown report of what's on screen right now.
+    fn write_report(&mut self) {
+        let (entries, backend) = match self.sockets.lock() {
+            Ok(s) => (s.entries.clone(), s.backend),
+            Err(_) => (Vec::new(), crate::collect::lsof::SocketBackend::Lsof),
+        };
+        match crate::report::write_from_tui(&self.sampler, &entries, backend, &self.cfg.alerts) {
+            Ok(p) => self.set_status(format!("report written to {}", p.display()), theme::green()),
+            Err(e) => self.set_status(format!("report failed: {e}"), theme::red()),
         }
-        let swap = pct(s.swap_used, s.swap_total);
-        if a.swap_pct > 0.0 && s.swap_total > 0 && swap >= a.swap_pct {
-            out.push((format!("SWAP {swap:.0}%"), theme::orange()));
-        }
-        if a.disk_pct > 0.0 {
-            if let Some(d) = s
-                .disks_info
-                .iter()
-                .filter(|d| d.total > 0 && d.pct() >= a.disk_pct)
-                .max_by(|x, y| x.pct().total_cmp(&y.pct()))
-            {
-                out.push((format!("DISK {} {:.0}%", d.mount, d.pct()), theme::red()));
-            }
-        }
-        let lpc = s.load.0 / s.ncores().max(1) as f64;
-        if a.load_per_core > 0.0 && lpc >= a.load_per_core {
-            out.push((format!("LOAD {:.1}/core", lpc), theme::orange()));
-        }
-        if a.close_wait > 0 && self.close_wait >= a.close_wait {
-            out.push((format!("CLOSE_WAIT {}", self.close_wait), theme::orange()));
-        }
-        if a.time_wait > 0 && self.time_wait >= a.time_wait {
-            out.push((format!("TIME_WAIT {}", self.time_wait), theme::yellow()));
-        }
-        if a.temp_c > 0.0 {
-            if let Some(t) = s.temps.first().filter(|t| t.temp >= a.temp_c) {
-                out.push((format!("TEMP {:.0}°C", t.temp), theme::red()));
-            }
-        }
-        if let (Some(p), true) = (s.psi, a.psi_pct > 0.0) {
-            for (name, v) in ["cpu", "mem", "io"].iter().zip(p) {
-                if v >= a.psi_pct {
-                    out.push((format!("PSI {name} {v:.0}%"), theme::purple()));
-                }
-            }
-        }
-        out
     }
 
     /// Copy the current UI state back into the config (saved on quit).
@@ -461,14 +476,17 @@ impl App {
                 return;
             }
             if let Some(kids) = children.get(&procs[i].pid) {
-                let cont = match branch {
-                    "├─ " => "│  ",
-                    "└─ " => "   ",
-                    _ => "",
+                let (mid, last, cont_mid, cont_last) = theme::tree();
+                let cont = if branch == mid {
+                    cont_mid
+                } else if branch == last {
+                    cont_last
+                } else {
+                    ""
                 };
                 let next_prefix = format!("{prefix}{cont}");
                 for (n, &k) in kids.iter().enumerate() {
-                    let b = if n + 1 == kids.len() { "└─ " } else { "├─ " };
+                    let b = if n + 1 == kids.len() { last } else { mid };
                     walk(k, &next_prefix, b, procs, children, out, depth + 1);
                 }
             }
@@ -760,6 +778,7 @@ impl App {
                 self.theme_before = theme::index();
                 self.mode = Mode::Theme;
             }
+            KeyCode::Char('R') => self.write_report(),
             KeyCode::Tab | KeyCode::Right | KeyCode::Char('L') => {
                 self.tab = Tab::ALL[(self.tab.index() + 1) % Tab::ALL.len()]
             }

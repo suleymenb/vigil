@@ -90,8 +90,7 @@ fn draw_cpu(f: &mut Frame, app: &App, area: Rect) {
     let col_areas = Layout::horizontal(vec![Constraint::Length(col_w as u16); cols]).split(cores_area);
     for (c, ca) in col_areas.iter().enumerate() {
         let mut lines = Vec::new();
-        for i in (c * rows)..((c + 1) * rows).min(n) {
-            let h = &s.cpu_cores[i];
+        for (i, h) in s.cpu_cores.iter().enumerate().skip(c * rows).take(rows) {
             let v = h.last();
             let spark_w = col_w.saturating_sub(20).min(10);
             let bar_w = col_w.saturating_sub(13 + spark_w).max(3);

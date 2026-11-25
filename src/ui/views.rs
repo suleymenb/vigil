@@ -32,8 +32,8 @@ fn scrollbar(f: &mut Frame, area: Rect, len: usize, state: &TableState) {
         Scrollbar::new(ScrollbarOrientation::VerticalRight)
             .begin_symbol(None)
             .end_symbol(None)
-            .track_symbol(Some("│"))
-            .thumb_symbol("┃")
+            .track_symbol(Some(theme::glyphs().track))
+            .thumb_symbol(theme::glyphs().thumb)
             .style(Style::new().fg(theme::border()))
             .thumb_style(Style::new().fg(theme::blue())),
         area.inner(ratatui::layout::Margin { vertical: 1, horizontal: 0 }),
@@ -198,7 +198,7 @@ pub fn processes(f: &mut Frame, app: &mut App, area: Rect) {
     .header(Row::new(head))
     .block(block)
     .row_highlight_style(sel_style())
-    .highlight_symbol("▌");
+    .highlight_symbol(theme::glyphs().select);
     f.render_stateful_widget(t, table_area, &mut local_state(&app.proc_state, off));
     scrollbar(f, table_area, len, &app.proc_state);
 
@@ -283,7 +283,7 @@ pub fn network(f: &mut Frame, app: &mut App, area: Rect) {
     .header(header(&["IFACE", "RX/s", "TX/s", "RX TOTAL", "TX TOTAL", "PACKETS RX/TX", "ERR", "MAC", "ADDRESSES"]))
     .block(panel(format!("interfaces ({})", ifaces.len()), theme::cyan()))
     .row_highlight_style(sel_style())
-    .highlight_symbol("▌");
+    .highlight_symbol(theme::glyphs().select);
     f.render_stateful_widget(t, table_area, &mut app.net_state);
 
     let [graphs, side] = Layout::horizontal([Constraint::Min(30), Constraint::Length(34)]).areas(bottom);
@@ -436,7 +436,7 @@ pub fn sockets(f: &mut Frame, app: &mut App, area: Rect) {
     .header(header(&["PROTO", "LOCAL", "REMOTE", "STATE", "PID", "PROCESS", "USER", "FD"]))
     .block(frame().title(Line::from(title)))
     .row_highlight_style(sel_style())
-    .highlight_symbol("▌");
+    .highlight_symbol(theme::glyphs().select);
     f.render_stateful_widget(t, table_area, &mut local_state(&app.sock_state, off));
     scrollbar(f, table_area, len, &app.sock_state);
 }
@@ -554,7 +554,7 @@ pub fn files(f: &mut Frame, app: &mut App, area: Rect) {
     .header(header(&["PID", "COMMAND", "USER", "FD", "TYPE", "SIZE/OFF", "NODE", "NAME"]))
     .block(frame().title(Line::from(title)))
     .row_highlight_style(sel_style())
-    .highlight_symbol("▌");
+    .highlight_symbol(theme::glyphs().select);
     f.render_stateful_widget(t, table_area, &mut local_state(&app.files_state, off));
     scrollbar(f, table_area, len, &app.files_state);
 }
@@ -648,7 +648,7 @@ pub fn storage(f: &mut Frame, app: &mut App, area: Rect) {
                 Constraint::Length(9),
             ],
         )
-        .header(header(&["PID", "PROCESS", "READ/s", "WRITE/s", "READ Σ", "WRITE Σ"]))
+        .header(header(&["PID", "PROCESS", "READ/s", "WRITE/s", "TOTAL R", "TOTAL W"]))
         .block(io_block),
         io,
     );

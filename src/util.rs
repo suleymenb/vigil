@@ -69,7 +69,6 @@ pub fn fmt_duration(secs: u64) -> String {
     }
 }
 
-const SPARK: [char; 8] = ['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
 
 /// Single-line sparkline string.
 pub fn spark(data: &[f64], max: f64) -> String {
@@ -77,7 +76,7 @@ pub fn spark(data: &[f64], max: f64) -> String {
     data.iter()
         .map(|v| {
             let idx = ((v / max).clamp(0.0, 1.0) * 7.0).round() as usize;
-            SPARK[idx]
+            crate::theme::glyphs().spark[idx]
         })
         .collect()
 }
