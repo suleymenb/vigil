@@ -1,0 +1,542 @@
+<title>vigil veldhandboek</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;600;700&family=Space+Grotesk:wght@500;700&display=swap">
+<style>
+/* Layout: single reading column (~72ch) with wide "terminal" plates that break out to 1100px; cheat sheet as a two-column grid. */
+:root {
+  --bg: #f4f5fa; --surface: #ffffff; --fg: #1f2335; --muted: #5a6182; --line: #d9dcea;
+  --accent: #3d59a1; --accent-2: #7847bd; --code-bg: #e9ebf5;
+  /* terminal palette = vigil's own theme.rs, identical in both page themes */
+  --t-bg: #1a1b26; --t-panel: #16161e; --t-fg: #c0caf5; --t-dim: #565f89; --t-muted: #7a84b2; --t-border: #3b4261; --t-sel: #292e42;
+  --t-blue: #7aa2f7; --t-purple: #bb9af7; --t-cyan: #7dcfff; --t-teal: #73daca; --t-green: #9ece6a; --t-yellow: #e0af68; --t-orange: #ff9e64; --t-red: #f7768e;
+  --ok: #2f7d32; --warn: #a8660a; --bad: #b3263e;
+  --f-display: "Space Grotesk", "IBM Plex Sans", system-ui, sans-serif;
+  --f-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --f-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #13141c; --surface: #1a1b26; --fg: #c8cfee; --muted: #8b93bb; --line: #2c3047;
+  --accent: #7aa2f7; --accent-2: #bb9af7; --code-bg: #22243a;
+  --ok: #9ece6a; --warn: #e0af68; --bad: #f7768e; color-scheme: dark; } }
+:root[data-theme="dark"] {
+  --bg: #13141c; --surface: #1a1b26; --fg: #c8cfee; --muted: #8b93bb; --line: #2c3047;
+  --accent: #7aa2f7; --accent-2: #bb9af7; --code-bg: #22243a;
+  --ok: #9ece6a; --warn: #e0af68; --bad: #f7768e; color-scheme: dark; }
+
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--fg); font: 16px/1.65 var(--f-body);
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 0 64px; }
+.col { max-width: 72ch; margin: 0 auto; }
+.wide { max-width: 1100px; margin: 0 auto; }
+h1, h2, h3 { font-family: var(--f-display); line-height: 1.15; text-wrap: balance; margin: 0; }
+h1 { font-size: clamp(2.4rem, 6vw, 3.6rem); letter-spacing: -0.02em; }
+h2 { font-size: 1.9rem; letter-spacing: -0.01em; margin-top: 72px; }
+h3 { font-size: 1.15rem; }
+p { margin: 0; }
+.stack { display: flex; flex-direction: column; gap: 14px; }
+.eyebrow { font: 600 12px/1 var(--f-mono); letter-spacing: 0.12em; text-transform: uppercase; color: var(--accent-2); }
+code, kbd, .mono { font-family: var(--f-mono); font-size: 0.88em; }
+code { background: var(--code-bg); padding: 1px 6px; border-radius: 4px; }
+kbd { display: inline-block; min-width: 1.7em; text-align: center; padding: 1px 6px; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 5px; background: var(--surface); font-weight: 600; }
+a { color: var(--accent); }
+a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.lead { font-size: 1.15rem; color: var(--muted); }
+
+/* hero */
+header.hero { padding-block: 56px 28px; display: flex; flex-direction: column; gap: 18px; }
+.hero .mark { font-family: var(--f-mono); color: var(--accent); font-weight: 700; }
+.cmds { display: flex; flex-wrap: wrap; gap: 10px; }
+.cmd { font-family: var(--f-mono); font-size: 14px; background: var(--t-bg); color: var(--t-fg); padding: 8px 14px; border-radius: 8px; }
+.cmd b { color: var(--t-green); font-weight: 400; }
+
+/* terminal plates */
+.term-wrap { overflow-x: auto; margin-top: 22px; border-radius: 12px; box-shadow: 0 18px 50px -24px rgba(20, 22, 40, 0.55); }
+.term { min-width: 860px; background: var(--t-bg); color: var(--t-fg); font: 12.5px/1.45 var(--f-mono); padding: 10px 12px 12px; border-radius: 12px; font-variant-numeric: tabular-nums; }
+.term .bar { display: flex; gap: 6px; padding: 2px 2px 10px; }
+.term .bar i { width: 11px; height: 11px; border-radius: 50%; background: var(--t-border); }
+.term pre { margin: 0; font: inherit; white-space: pre; }
+.term-cap { font-size: 13px; color: var(--muted); margin-top: 8px; }
+.b { color: var(--t-blue); } .p { color: var(--t-purple); } .c { color: var(--t-cyan); } .te { color: var(--t-teal); }
+.g { color: var(--t-green); } .y { color: var(--t-yellow); } .o { color: var(--t-orange); } .r { color: var(--t-red); }
+.d { color: var(--t-dim); } .m { color: var(--t-muted); } .bd { color: var(--t-border); } .w { color: var(--t-fg); font-weight: 700; }
+.badge { background: var(--t-blue); color: var(--t-bg); font-weight: 700; }
+.chip-l { background: var(--t-green); color: var(--t-bg); } .chip-e { background: var(--t-cyan); color: var(--t-bg); }
+.chip-t { background: var(--t-yellow); color: var(--t-bg); } .chip-c { background: var(--t-orange); color: var(--t-bg); } .chip-s { background: var(--t-purple); color: var(--t-bg); }
+.sel { background: var(--t-sel); }
+.sig { background: var(--t-red); color: var(--t-bg); font-weight: 700; }
+
+/* views grid */
+.views { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 14px; margin-top: 22px; }
+.view { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 18px; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.view .num { font: 700 13px var(--f-mono); color: var(--accent); }
+.view p { color: var(--muted); font-size: 15px; }
+.view .keys { font-size: 13px; color: var(--muted); }
+
+/* playbooks */
+.tabs { display: flex; gap: 6px; margin-top: 24px; flex-wrap: wrap; }
+.tabs button { font: 600 14px var(--f-body); padding: 8px 16px; border-radius: 999px; border: 1px solid var(--line); background: var(--surface); color: var(--fg); cursor: pointer; }
+.tabs button[aria-selected="true"] { background: var(--accent); border-color: var(--accent); color: var(--surface); }
+.plays { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 14px; margin-top: 16px; }
+.play { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 18px 18px 16px; display: grid; grid-template-rows: auto auto 1fr; gap: 10px; min-width: 0; }
+.play .sym { font-size: 14px; color: var(--muted); }
+.play ol { margin: 0; padding-left: 1.2em; display: flex; flex-direction: column; gap: 6px; font-size: 15px; }
+.play .why { font-size: 13.5px; color: var(--muted); border-top: 1px dashed var(--line); padding-top: 10px; }
+
+/* diagrams */
+.fig { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 18px; margin-top: 22px; overflow-x: auto; }
+.fig svg { display: block; min-width: 720px; width: 100%; height: auto; }
+.fig svg text { font-family: var(--f-mono); }
+.fig .cap { font-size: 13px; color: var(--muted); margin-top: 10px; }
+
+/* tables */
+.tbl { overflow-x: auto; margin-top: 18px; }
+table { border-collapse: collapse; width: 100%; font-size: 15px; }
+th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font: 600 12px var(--f-mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+td.num { font-variant-numeric: tabular-nums; font-family: var(--f-mono); white-space: nowrap; }
+
+/* perf bars */
+.perf { display: flex; flex-direction: column; gap: 16px; margin-top: 22px; }
+.metric { display: grid; grid-template-columns: 190px 1fr; gap: 8px 16px; align-items: center; }
+.metric .lbl { font-size: 14px; }
+.metric .lbl small { display: block; color: var(--muted); font-size: 12.5px; }
+.bars { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.barrow { display: grid; grid-template-columns: 1fr 88px; gap: 10px; align-items: center; }
+.barrow .track { height: 14px; background: var(--code-bg); border-radius: 3px; overflow: hidden; }
+.barrow .fill { height: 100%; border-radius: 3px; }
+.fill.before { background: var(--muted); opacity: 0.55; }
+.fill.after { background: var(--accent); }
+.barrow span { font: 13px var(--f-mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.legend { display: flex; gap: 18px; font-size: 13px; color: var(--muted); }
+.legend i { display: inline-block; width: 12px; height: 12px; border-radius: 2px; vertical-align: -1px; margin-right: 6px; }
+
+/* roadmap */
+.road { display: flex; flex-direction: column; gap: 0; margin-top: 18px; border-top: 1px solid var(--line); }
+.item { display: grid; grid-template-columns: 92px 1fr; gap: 16px; padding: 16px 0; border-bottom: 1px solid var(--line); }
+.pri { font: 600 12px var(--f-mono); letter-spacing: 0.06em; text-transform: uppercase; padding-top: 3px; }
+.pri.p1 { color: var(--bad); } .pri.p2 { color: var(--warn); } .pri.p3 { color: var(--muted); }
+.item p { color: var(--muted); font-size: 15px; margin-top: 4px; }
+
+/* cheat sheet */
+.cheat { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 22px 36px; margin-top: 20px; }
+.cheat h3 { font-size: 14px; font-family: var(--f-mono); color: var(--accent-2); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 8px; }
+.cheat dl { display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; margin: 0; font-size: 14.5px; }
+.cheat dt { white-space: nowrap; }
+.cheat dd { margin: 0; color: var(--muted); }
+
+.note { background: var(--surface); border: 1px solid var(--line); border-left: 3px solid var(--accent-2); border-radius: 6px; padding: 12px 16px; font-size: 15px; margin-top: 18px; }
+footer { margin-top: 72px; color: var(--muted); font-size: 13px; }
+
+@media (max-width: 560px) {
+  .metric { grid-template-columns: 1fr; }
+  .item { grid-template-columns: 1fr; gap: 4px; }
+  h2 { margin-top: 56px; }
+}
+@media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; transition: none !important; } }
+</style>
+
+<header class="hero col">
+  <span class="eyebrow">Veldhandboek · v0.1</span>
+  <h1><span class="mark">◆</span> vigil</h1>
+  <p class="lead">Een terminal-monitor in Rust voor wie servers draait en netwerken debugt. Processen, sockets en open bestanden zitten in één scherm, met <code>lsof</code> erin ingebouwd. Dit handboek laat zien hoe het werkt en hoe je de bekende incidenten ermee oplost.</p>
+  <div class="cmds">
+    <span class="cmd"><b>$</b> cargo install --path .</span>
+    <span class="cmd"><b>$</b> sudo vigil</span>
+    <span class="cmd"><b>$</b> sudo vigil -q :5432</span>
+  </div>
+</header>
+
+<div class="wide">
+  <div class="term-wrap" role="img" aria-label="Voorbeeld van het Overview-scherm van vigil op een webserver">
+    <div class="term"><div class="bar"><i></i><i></i><i></i></div><pre><span class="badge"> ◆ vigil </span> <span class="c w">prod-web-01</span>  <span class="m">Ubuntu 24.04.1 LTS</span>  <span class="d">6.8.0-45-generic x86_64</span>  <span class="d">up</span> <span class="g">41d 06:12</span>  <span class="d">load</span> <span class="g">1.84</span> <span class="g">1.62</span> <span class="g">1.40</span>  <span class="d">procs</span> <span class="p">214</span>        <span class="g">● live</span>  <span class="d">1000ms</span> <span class="sig"> root </span>
+ <span class="d">1</span> <span class="b"><u>Overview</u></span> <span class="bd">│</span> <span class="d">2</span> <span class="m">Processes</span> <span class="bd">│</span> <span class="d">3</span> <span class="m">Network</span> <span class="bd">│</span> <span class="d">4</span> <span class="m">Sockets</span> <span class="bd">│</span> <span class="d">5</span> <span class="m">Open Files</span> <span class="bd">│</span> <span class="d">6</span> <span class="m">Storage</span>
+<span class="bd">╭</span> <span class="b w">cpu  AMD EPYC 7763  8c/16t  54°C</span> <span class="bd">──────────────────────────────────────────────────────────────────────────────────────╮</span>
+<span class="bd">│</span> <span class="d">total</span> <span class="y w"> 38.2%</span>  <span class="g">■■■■■■■■■■</span><span class="y">■■■■</span><span class="bd">■■■■■■■■■■■■■■■■■■■■■■■■■■</span>         <span class="m">C0 </span><span class="g">■■■</span><span class="y">■</span><span class="bd">■■■■</span><span class="y">  44% </span><span class="y">▃▄▅▅▆▄▄▅</span>   <span class="m">C8 </span><span class="g">■■</span><span class="bd">■■■■■■</span><span class="g">  21% </span><span class="g">▂▂▃▂▂▃▂▂</span> <span class="bd">│</span>
+<span class="bd">│</span>                                                       <span class="y">▄▅</span>         <span class="m">C1 </span><span class="g">■■■</span><span class="bd">■■■■■</span><span class="g">  33% </span><span class="g">▂▃▃▄▃▃▃▄</span>   <span class="m">C9 </span><span class="g">■■■</span><span class="bd">■■■■■</span><span class="g">  29% </span><span class="g">▂▃▂▃▃▃▂▃</span> <span class="bd">│</span>
+<span class="bd">│</span>                                  <span class="y">▂▄▅</span>             <span class="y">▄▆██▇▅</span>        <span class="m">C2 </span><span class="g">■■■</span><span class="y">■■</span><span class="o">■</span><span class="bd">■■</span><span class="o">  71% </span><span class="o">▄▅▆▇▇▆▅▇</span>   <span class="m">C10</span><span class="g">■■</span><span class="bd">■■■■■■</span><span class="g">  18% </span><span class="g">▁▂▂▂▁▂▂▂</span> <span class="bd">│</span>
+<span class="bd">│</span>             <span class="g">▃▄</span>        <span class="g">▂▄▅▆</span><span class="y">▇██▇</span>  <span class="g">▃▄▅▆▇</span>  <span class="g">▂▃▅</span><span class="y">▇██████▇▅</span>       <span class="m">C3 </span><span class="g">■■</span><span class="bd">■■■■■■</span><span class="g">  24% </span><span class="g">▂▂▃▃▂▃▂▃</span>   <span class="m">C11</span><span class="g">■■■</span><span class="bd">■■■■■</span><span class="g">  31% </span><span class="g">▃▃▂▃▄▃▃▃</span> <span class="bd">│</span>
+<span class="bd">│</span>  <span class="g">▂▃▄▃▂▂▃▄▅▆▆▅▅▄▃▂▃▄▅▆▇████████████████████████████████████████</span>    <span class="m">C4 </span><span class="g">■■■</span><span class="y">■</span><span class="bd">■■■■</span><span class="y">  47% </span><span class="y">▄▄▅▅▄▅▅▅</span>   <span class="m">C12</span><span class="g">■■</span><span class="bd">■■■■■■</span><span class="g">  22% </span><span class="g">▂▂▂▃▂▂▃▂</span> <span class="bd">│</span>
+<span class="bd">╰───────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯</span>
+<span class="bd">╭</span> <span class="p w">memory</span> <span class="bd">──────────────────────────────────────╮╭</span> <span class="c w">network</span> <span class="bd">─────────────────────────────────────────────</span><span class="d">scale</span> <span class="m">58.2M/s</span> <span class="bd">╮</span>
+<span class="bd">│</span> <span class="m">ram  </span><span class="g">■■■■■■■■■■</span><span class="y">■■■■■■</span><span class="bd">■■■■■■■■</span><span class="y w">  64% </span>20.1G/31.3G <span class="bd">││</span> <span class="g w">▼ rx</span> 41.7M/s      <span class="o w">▲ tx</span> 12.3M/s      <span class="d">peak</span> <span class="m">52.9M/s / 18.0M/s</span>    <span class="bd">│</span>
+<span class="bd">│</span> <span class="m">swap </span><span class="g">■</span><span class="bd">■■■■■■■■■■■■■■■■■■■■■■■</span><span class="g w">   3% </span>128M/4.00G  <span class="bd">││</span>    <span class="te">▃▄▅▆▅▄▃▄▅▆▇▆▅▅▆▇</span><span class="g">██▇▆▆▇█████▇▇▆▇██████▇▆▆▇███████▇</span>       <span class="bd">│</span>
+<span class="bd">│</span> <span class="d">available</span> <span class="g">11.2G</span>                         <span class="bd">││</span> <span class="te">▅▆▇██████████████</span><span class="g">██████████████████████████████████████</span>    <span class="bd">│</span>
+<span class="bd">│</span>              <span class="p">▂▃▃▄▄▅▅▅▅▅▆▆▆▆▆▆▆▆▆▆▆▆▆▆▆▆▆</span> <span class="bd">││</span> <span class="y">▀▀▀███▀▀▀▀▀▀▀▀███▀▀▀▀▀▀</span><span class="o">█████▀▀▀▀▀▀▀▀██████▀▀▀▀▀▀▀▀</span>       <span class="bd">│</span>
+<span class="bd">╰─────────────────────────────────────────────╯╰────────────────────────────────────────────────────────────────────╯</span>
+<span class="bd">╭</span> <span class="g w">top processes</span> <span class="bd">─────────────────────────╮╭</span> <span class="g w">listening ports (6)</span> <span class="bd">──────────────╮╭</span> <span class="c w">connections</span> <span class="bd">───────────╮</span>
+<span class="bd">│</span><span class="b w">PID     NAME           USER        CPU%  MEM </span><span class="bd">││</span><span class="b w">PORT  PROTO PROCESS        PID  </span><span class="bd">││</span> <span class="c">ESTABLISHED</span>   <span class="w">1 284</span>  <span class="bd">│</span>
+<span class="bd">│</span><span class="d">4121</span>    nginx          <span class="m">www-data</span>   <span class="o"> 71.4</span>  <span class="p">212M</span><span class="bd">││</span><span class="g w">22</span>    <span class="c">TCP</span>   sshd           <span class="d">912</span>  <span class="bd">││</span> <span class="y">TIME_WAIT</span>       <span class="w">611</span>  <span class="bd">│</span>
+<span class="bd">│</span><span class="d">2290</span>    postgres       <span class="m">postgres</span>   <span class="y"> 38.0</span>  <span class="p">4.1G</span><span class="bd">││</span><span class="g w">80</span>    <span class="c">TCP</span>   nginx          <span class="d">4120</span> <span class="bd">││</span> <span class="g">LISTEN</span>            <span class="w">6</span>  <span class="bd">│</span>
+<span class="bd">│</span><span class="d">3307</span>    node           <span class="m">deploy</span>     <span class="g"> 22.6</span>  <span class="p">880M</span><span class="bd">││</span><span class="g w">443</span>   <span class="c">TCP</span>   nginx          <span class="d">4120</span> <span class="bd">││</span> <span class="o">CLOSE_WAIT</span>       <span class="w">14</span>  <span class="bd">│</span>
+<span class="bd">│</span><span class="d">1877</span>    redis-server   <span class="m">redis</span>      <span class="g">  4.1</span>  <span class="p">96M </span><span class="bd">││</span><span class="g w">3000</span>  <span class="c">TCP</span>   node           <span class="d">3307</span> <span class="bd">││</span> <span class="p">SYN_SENT</span>          <span class="w">2</span>  <span class="bd">│</span>
+<span class="bd">│</span><span class="d">612 </span>    containerd     <span class="r">root</span>       <span class="g">  1.2</span>  <span class="p">74M </span><span class="bd">││</span><span class="g w">5432</span>  <span class="c">TCP</span>   postgres       <span class="d">2290</span> <span class="bd">││</span> <span class="m">UDP</span>               <span class="w">9</span>  <span class="bd">│</span>
+<span class="bd">╰─────────────────────────────────────────╯╰──────────────────────────────────╯╰───────────────────────╯</span>
+ <span class="b w">:</span> <span class="d">lsof query  </span><span class="b w">space</span> <span class="d">pause  </span><span class="b w">?</span> <span class="d">help  </span><span class="b w">q</span> <span class="d">quit</span></pre></div>
+  </div>
+  <p class="term-cap col">Overview op een fictieve webserver. Alles wat je bij een incident als eerste wilt weten staat in één scherm: CPU, geheugen, verkeer, welke poorten open staan en hoe het met de TCP-verbindingen gaat.</p>
+</div>
+
+<main class="col">
+
+  <h2 id="werking">Hoe het werkt</h2>
+  <div class="stack" style="margin-top:14px">
+    <p>vigil gebruikt drie achtergrond-threads die data verzamelen. De hoofdthread doet niets anders dan toetsen afhandelen en tekenen. Zo bevriest de interface nooit, ook niet als <code>lsof</code> op een drukke server een paar seconden nodig heeft.</p>
+  </div>
+</main>
+
+<div class="wide">
+  <figure class="fig" style="margin-inline:0">
+    <svg viewBox="0 0 1060 360" role="img" aria-label="Architectuur: drie collectors voeden de app-state, die alleen bij wijzigingen hertekent">
+      <defs>
+        <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="var(--muted)"/></marker>
+      </defs>
+      <!-- sources -->
+      <g font-size="12">
+        <text x="20" y="28" fill="var(--muted)" font-size="11" letter-spacing="1.5">BRONNEN</text>
+        <rect x="20" y="44" width="200" height="62" rx="8" fill="var(--code-bg)" stroke="var(--line)"/>
+        <text x="34" y="70" fill="var(--fg)" font-weight="700">kernel / sysinfo</text>
+        <text x="34" y="90" fill="var(--muted)">cpu · mem · procs · net</text>
+        <rect x="20" y="146" width="200" height="62" rx="8" fill="var(--code-bg)" stroke="var(--line)"/>
+        <text x="34" y="172" fill="var(--fg)" font-weight="700">/proc/net  of  lsof -i</text>
+        <text x="34" y="192" fill="var(--muted)">sockets + eigenaar</text>
+        <rect x="20" y="248" width="200" height="62" rx="8" fill="var(--code-bg)" stroke="var(--line)"/>
+        <text x="34" y="274" fill="var(--fg)" font-weight="700">IOKit / hwmon / statfs</text>
+        <text x="34" y="294" fill="var(--muted)">sensoren · disks</text>
+      </g>
+      <!-- threads -->
+      <g font-size="12">
+        <text x="290" y="28" fill="var(--muted)" font-size="11" letter-spacing="1.5">THREADS</text>
+        <rect x="290" y="44" width="230" height="62" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5"/>
+        <text x="304" y="70" fill="var(--accent)" font-weight="700">sampler (main)</text>
+        <text x="304" y="90" fill="var(--muted)">elke tick · ≈4 ms</text>
+        <rect x="290" y="146" width="230" height="62" rx="8" fill="var(--surface)" stroke="var(--accent-2)" stroke-width="1.5"/>
+        <text x="304" y="172" fill="var(--accent-2)" font-weight="700">socket-worker</text>
+        <text x="304" y="192" fill="var(--muted)">elke 3 s · version++</text>
+        <rect x="290" y="248" width="230" height="62" rx="8" fill="var(--surface)" stroke="var(--accent-2)" stroke-width="1.5"/>
+        <text x="304" y="274" fill="var(--accent-2)" font-weight="700">slow-worker</text>
+        <text x="304" y="294" fill="var(--muted)">disks 10 s · sensoren 2–10 s</text>
+        <rect x="290" y="326" width="230" height="30" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-dasharray="4 3"/>
+        <text x="304" y="346" fill="var(--muted)">query-thread (per lsof-query)</text>
+      </g>
+      <!-- state -->
+      <g font-size="12">
+        <text x="590" y="28" fill="var(--muted)" font-size="11" letter-spacing="1.5">APP-STATE</text>
+        <rect x="590" y="44" width="220" height="266" rx="10" fill="var(--code-bg)" stroke="var(--line)"/>
+        <text x="606" y="72" fill="var(--fg)" font-weight="700">App</text>
+        <text x="606" y="100" fill="var(--muted)">history ring-buffers (600)</text>
+        <text x="606" y="124" fill="var(--muted)">proc-rows (sort, boom)</text>
+        <text x="606" y="148" fill="var(--muted)">socket-cache  ⟵ key:</text>
+        <text x="618" y="166" fill="var(--muted)">(version, filter, sort)</text>
+        <text x="606" y="190" fill="var(--muted)">files-cache   ⟵ key:</text>
+        <text x="618" y="208" fill="var(--muted)">(version, filter)</text>
+        <text x="606" y="232" fill="var(--muted)">conn_counts per pid</text>
+        <text x="606" y="256" fill="var(--muted)">Arc&lt;str&gt; per pid</text>
+        <text x="606" y="290" fill="var(--accent)">rebuild alleen bij wijziging</text>
+      </g>
+      <!-- render -->
+      <g font-size="12">
+        <text x="880" y="28" fill="var(--muted)" font-size="11" letter-spacing="1.5">TEKENEN</text>
+        <rect x="880" y="120" width="160" height="110" rx="10" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5"/>
+        <text x="896" y="148" fill="var(--accent)" font-weight="700">draw()</text>
+        <text x="896" y="172" fill="var(--muted)">alleen als dirty:</text>
+        <text x="896" y="192" fill="var(--muted)">toets · tick ·</text>
+        <text x="896" y="212" fill="var(--muted)">nieuwe versie</text>
+        <text x="880" y="266" fill="var(--muted)">alleen zichtbare</text>
+        <text x="880" y="284" fill="var(--muted)">rijen worden gebouwd</text>
+      </g>
+      <g stroke="var(--muted)" stroke-width="1.4" fill="none" marker-end="url(#ar)">
+        <path d="M220 75 H284"/><path d="M220 177 H284"/><path d="M220 279 H284"/>
+        <path d="M520 75 H584"/><path d="M520 177 H584"/><path d="M520 279 H584"/><path d="M520 341 H555 V300 H584"/>
+        <path d="M810 175 H874"/>
+      </g>
+    </svg>
+    <figcaption class="cap">Elke collector publiceert met een versienummer. De hoofdloop tekent alleen opnieuw als er een toets is ingedrukt, een tick voorbij is of een versienummer is veranderd. Doet er niemand iets, dan wordt er ook niets getekend.</figcaption>
+  </figure>
+</div>
+
+<main class="col">
+  <div class="note">Op <b>Linux</b> leest vigil sockets rechtstreeks uit <code>/proc/net/tcp*</code> en <code>/proc/net/udp*</code>. Dat is veel sneller dan <code>lsof -i</code> en laat ook <code>TIME_WAIT</code> zien, wat lsof mist omdat zo'n socket geen eigenaar meer heeft. Wil je toch lsof gebruiken, start dan met <code>--lsof-sockets</code>. Op macOS wordt altijd lsof gebruikt.</div>
+
+  <h2 id="views">De zes views</h2>
+</main>
+<div class="wide">
+  <div class="views">
+    <div class="view"><span class="num">1 · Overview</span><h3>Het hele systeem in één scherm</h3><p>CPU met kleurverloop en per core, RAM/swap, rx/tx, top-processen, luisterende poorten, aantallen per TCP-state en disks.</p><span class="keys">Begin hier bij elk incident.</span></div>
+    <div class="view"><span class="num">2 · Processes</span><h3>Sorteren, boom en signalen</h3><p>CPU, MEM, disk-I/O/s en het aantal sockets per proces. Onderaan een detailpaneel met ppid, exe en het volledige commando.</p><span class="keys"><kbd>c</kbd><kbd>m</kbd><kbd>i</kbd><kbd>o</kbd> sorteren · <kbd>t</kbd> boom · <kbd>↵</kbd> open files · <kbd>x</kbd> signaal</span></div>
+    <div class="view"><span class="num">3 · Network</span><h3>Interfaces en peers</h3><p>Per interface de snelheid, totalen, pakketten, <b>errors</b>, MAC en adressen. Grafiek van de gekozen interface en de remote hosts met de meeste verbindingen.</p><span class="keys"><kbd>↑</kbd><kbd>↓</kbd> interface kiezen</span></div>
+    <div class="view"><span class="num">4 · Sockets</span><h3>Elke verbinding met eigenaar</h3><p>Proto, local, remote, state in kleur, pid, proces, user en fd. Bovenaan staat per state hoeveel sockets er zijn.</p><span class="keys"><kbd>l</kbd> alleen LISTEN · <kbd>s</kbd> sorteren · <kbd>P</kbd> alles op poort</span></div>
+    <div class="view"><span class="num">5 · Open Files</span><h3>lsof op afroep</h3><p>Op pid, poort, pad of met ruwe argumenten. Bovenaan zie je hoeveel bestanden er per type zijn (REG, IPv4, PIPE, unix …).</p><span class="keys"><kbd>:</kbd> query · <kbd>↵</kbd> wie heeft dit nog open · <kbd>r</kbd> opnieuw</span></div>
+    <div class="view"><span class="num">6 · Storage</span><h3>Disks, I/O en temperaturen</h3><p>Gebruik per filesystem, welke processen nu lezen of schrijven, en sensoren met kritieke grenzen.</p><span class="keys">Sensoren verversen hier elke 2 s.</span></div>
+  </div>
+</div>
+
+<main class="col">
+  <h2 id="playbooks">Playbooks</h2>
+  <p class="lead" style="margin-top:12px">Veelvoorkomende incidenten, elk met het symptoom, de toetsen die je indrukt en waarom dat werkt.</p>
+  <div class="tabs" role="tablist" aria-label="Playbook-categorie">
+    <button role="tab" id="tab-devops" aria-selected="true" aria-controls="pane-devops">DevOps &amp; sysadmin</button>
+    <button role="tab" id="tab-net" aria-selected="false" aria-controls="pane-net">Network engineering</button>
+  </div>
+</main>
+
+<div class="wide">
+  <section id="pane-devops" role="tabpanel" aria-labelledby="tab-devops">
+    <div class="plays">
+      <article class="play"><h3>„Address already in use”</h3><p class="sym">Je deploy faalt omdat poort 8080 bezet is.</p>
+        <ol><li><kbd>:</kbd> <code>:8080</code> <kbd>↵</kbd></li><li>Kijk naar PID en COMMAND. Vaak is het een oude instantie die is blijven hangen.</li><li><kbd>x</kbd> → <code>SIGTERM</code>, en pas als dat niet helpt <code>SIGKILL</code>.</li></ol>
+        <p class="why">TERM eerst, zodat het proces zelf nog netjes kan afsluiten. KILL kan het proces niet tegenhouden.</p></article>
+      <article class="play"><h3>Disk vol, maar <code>du</code> vindt niets</h3><p class="sym"><code>df</code> zegt 100%, maar <code>du</code> komt tientallen GB tekort.</p>
+        <ol><li><kbd>:</kbd> <code>+L1</code> <kbd>↵</kbd> toont verwijderde bestanden die nog open zijn.</li><li>Sorteer in gedachten op SIZE/OFF. Meestal is het een geroteerde log die nog openstaat.</li><li>Selecteer het proces en stuur <code>SIGHUP</code> zodat het zijn logs heropent.</li></ol>
+        <p class="why">Een bestand dat is verwijderd terwijl een proces het nog open heeft, blijft ruimte innemen. Pas als de laatste fd dicht is, komt die ruimte vrij.</p></article>
+      <article class="play"><h3>Config herladen zonder downtime</h3><p class="sym">Je hebt de nginx- of haproxy-config aangepast.</p>
+        <ol><li><kbd>2</kbd> <kbd>/</kbd> <code>nginx</code> <kbd>↵</kbd>, <kbd>t</kbd> voor de boom</li><li>Selecteer het <b>master</b>-proces, dus de bovenste in de boom.</li><li><kbd>x</kbd> → <code>SIGHUP</code></li></ol>
+        <p class="why">In de boomweergave zie je meteen welk proces de master is en welke de workers zijn. HUP stuur je alleen naar de master.</p></article>
+      <article class="play"><h3>Geheugenlek opsporen</h3><p class="sym">Swap loopt langzaam vol.</p>
+        <ol><li><kbd>2</kbd> <kbd>m</kbd> sorteert op geheugen.</li><li>Laat het een paar minuten lopen. Het geselecteerde proces blijft geselecteerd, ook als de volgorde verschuift.</li><li>In het detailpaneel kun je RSS en virt vergelijken.</li></ol>
+        <p class="why">Groeit RSS steeds terwijl het verkeer gelijk blijft, dan heb je waarschijnlijk een lek. Groeit alleen virt, dan is er meestal niets aan de hand.</p></article>
+      <article class="play"><h3>Wie schrijft er naar dit bestand?</h3><p class="sym">Een logbestand of database-file groeit snel.</p>
+        <ol><li><kbd>:</kbd> <code>/var/log/app/out.log</code> <kbd>↵</kbd></li><li>De FD-kolom toont <code>w</code> of <code>u</code> bij processen die schrijven.</li><li><kbd>6</kbd> toont per proces hoeveel er nu geschreven wordt.</li></ol>
+        <p class="why">lsof vertelt wie het bestand open heeft, de Storage-view hoeveel. Samen weet je wie de veroorzaker is.</p></article>
+      <article class="play"><h3>Zombies en wezen</h3><p class="sym">Het aantal processen blijft stijgen.</p>
+        <ol><li><kbd>2</kbd> <kbd>t</kbd> zet de boomweergave aan.</li><li>Zoek naar <span class="mono" style="color:var(--bad)">Z</span> in de ST-kolom.</li><li>Stuur een signaal naar de <b>ouder</b>, niet naar de zombie zelf.</li></ol>
+        <p class="why">Een zombie is al dood en reageert op geen enkel signaal. Pas als de ouder <code>wait()</code> aanroept of zelf stopt, verdwijnt hij.</p></article>
+      <article class="play"><h3>Welke container is dit?</h3><p class="sym">Er draait een onbekend proces met veel CPU.</p>
+        <ol><li>Selecteer het en open het detailpaneel. Kijk naar <code>exe</code> en <code>cmd</code>.</li><li><kbd>↵</kbd> toont de open files. Paden onder <code>/var/lib/docker/overlay2</code> of <code>containerd</code> verraden een container.</li><li>Is de ouder <code>containerd-shim</code>? Dan zie je dat in de boom.</li></ol>
+        <p class="why">Zolang er nog geen container-view is, is dit de snelste manier om een proces aan een container te koppelen.</p></article>
+      <article class="play"><h3>Wat draait er onder deze user?</h3><p class="sym">Je doet een audit van een service-account.</p>
+        <ol><li><kbd>:</kbd> <code>-u www-data</code> <kbd>↵</kbd> toont alles wat die user open heeft.</li><li><kbd>/</kbd> <code>IPv</code> filtert dat naar alleen netwerk.</li></ol>
+        <p class="why">Alles wat met <code>-</code> of <code>+</code> begint, gaat ongewijzigd naar lsof. Daarmee kun je elke lsof-optie gebruiken.</p></article>
+    </div>
+  </section>
+
+  <section id="pane-net" role="tabpanel" aria-labelledby="tab-net" hidden>
+    <div class="plays">
+      <article class="play"><h3>TIME_WAIT-storm</h3><p class="sym">Uitgaande verbindingen mislukken af en toe met <code>EADDRNOTAVAIL</code>.</p>
+        <ol><li><kbd>4</kbd> en kijk naar de <span class="mono" style="color:var(--warn)">TIME_WAIT</span>-chip bovenaan.</li><li><kbd>s</kbd> tot je op <b>remote</b> sorteert. Dan zie je naar welke upstream het gaat.</li><li>Tienduizenden naar één backend betekent dat er geen keep-alive of connection pooling is.</li></ol>
+        <p class="why">Elke kortlevende verbinding houdt na het sluiten nog 60 s een ephemeral poort vast. Gebruik pooling of keep-alive, of verruim <code>ip_local_port_range</code>.</p></article>
+      <article class="play"><h3>CLOSE_WAIT-lek</h3><p class="sym">Het aantal CLOSE_WAIT stijgt en zakt niet meer.</p>
+        <ol><li><kbd>4</kbd> <kbd>/</kbd> <code>close_wait</code></li><li>Lees de PROCESS-kolom. Meestal is het steeds dezelfde applicatie.</li><li><kbd>↵</kbd> toont al haar fd's. Groeit dat aantal mee?</li></ol>
+        <p class="why">CLOSE_WAIT betekent dat de andere kant de verbinding heeft gesloten, maar jouw applicatie de socket nooit sluit. Dat is altijd een bug in de app, niet in het netwerk.</p></article>
+      <article class="play"><h3>Hangende SYN_SENT</h3><p class="sym">Verbindingen naar een bepaalde host hangen.</p>
+        <ol><li><kbd>4</kbd> <kbd>/</kbd> <code>syn_sent</code></li><li>Lees het remote IP en de poort.</li><li>Blijft hij in SYN_SENT staan? Dan komt er geen SYN-ACK terug.</li></ol>
+        <p class="why">Een firewall die stil pakketten weggooit, verkeerde routing of een security group. Bij een RST krijg je meteen een fout. Een DROP laat de verbinding hangen.</p></article>
+      <article class="play"><h3>Blootstellingsaudit</h3><p class="sym">Wat is er van buitenaf bereikbaar?</p>
+        <ol><li><kbd>4</kbd> <kbd>l</kbd> toont alleen sockets die luisteren.</li><li><code>*:5432</code> luistert op alle interfaces, <code>127.0.0.1:5432</code> alleen lokaal.</li><li><kbd>P</kbd> op een rij toont alles wat die poort gebruikt.</li></ol>
+        <p class="why">Een database of Redis die op <code>*</code> luistert, is een veelvoorkomend lek. Controleer dit na elke deploy.</p></article>
+      <article class="play"><h3>Interface-errors</h3><p class="sym">Pakketverlies of een trage verbinding.</p>
+        <ol><li><kbd>3</kbd> en kijk naar de ERR-kolom. Die wordt rood zodra hij boven 0 komt.</li><li>Selecteer de interface en bekijk de grafiek op pieken of een plafond.</li><li>Een vlak plafond in de grafiek betekent dat de link verzadigd is.</li></ol>
+        <p class="why">rx-errors die oplopen wijzen op laag 1 of 2: een slechte kabel, een duplex-mismatch of een driverprobleem. Dat los je niet op in de applicatie.</p></article>
+      <article class="play"><h3>Wie praat met wie?</h3><p class="sym">Je wilt weten met welke hosts een server praat.</p>
+        <ol><li><kbd>3</kbd> en kijk naar de lijst <b>top peers</b> rechts.</li><li>Zie je een onbekend IP? <kbd>4</kbd> <kbd>/</kbd> en plak het IP.</li><li>Dan zie je welk proces en welke user de verbinding hebben.</li></ol>
+        <p class="why">Zo vind je ook vergeten cronjobs en verbindingen naar oude endpoints. Bij een security-incident is dit vaak de eerste stap.</p></article>
+      <article class="play"><h3>IPv4 of IPv6?</h3><p class="sym">Een service is wel via IPv4 bereikbaar, maar niet via IPv6.</p>
+        <ol><li><kbd>4</kbd> <kbd>l</kbd> en kijk naar de PROTO-kolom: <code>TCP v4</code> of <code>TCP v6</code>.</li><li>Ontbreekt de v6-listener, dan bindt de service niet op <code>[::]</code>.</li></ol>
+        <p class="why">Op Linux accepteert een socket op <code>[::]</code> standaard ook IPv4, tenzij <code>bindv6only</code> aan staat. Bindt een service alleen op <code>0.0.0.0</code>, dan is hij via IPv6 niet bereikbaar.</p></article>
+      <article class="play"><h3>UDP-services</h3><p class="sym">DNS, syslog of WireGuard doet het niet.</p>
+        <ol><li><kbd>:</kbd> <code>udp:53</code> <kbd>↵</kbd> (of <code>udp:514</code>, <code>udp:51820</code>)</li><li>Kijk welk proces de poort heeft. Bij DNS is dat vaak systemd-resolved op <code>127.0.0.53</code>.</li></ol>
+        <p class="why">UDP heeft geen states. Een socket zonder remote adres wacht gewoon op pakketten, en vigil toont die als luisterend.</p></article>
+    </div>
+  </section>
+</div>
+
+<main class="col">
+  <h2 id="tcp">TCP-states en hun kleuren</h2>
+  <p style="margin-top:12px">In de Sockets-view heeft elke state de kleur uit dit diagram. Problemen herken je zo aan de kleur: oranje stapelt op in je app, geel in de kernel en paars bij de handshake.</p>
+</main>
+<div class="wide">
+  <figure class="fig" style="margin-inline:0">
+    <svg viewBox="0 0 1060 330" role="img" aria-label="TCP state-diagram met de kleuren die vigil gebruikt">
+      <defs><marker id="ar2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="var(--muted)"/></marker></defs>
+      <g font-size="13" font-weight="700">
+        <rect x="20" y="40" width="150" height="40" rx="20" fill="#9ece6a"/><text x="95" y="65" text-anchor="middle" fill="#1a1b26">LISTEN</text>
+        <rect x="20" y="140" width="150" height="40" rx="20" fill="#bb9af7"/><text x="95" y="165" text-anchor="middle" fill="#1a1b26">SYN_SENT</text>
+        <rect x="230" y="40" width="150" height="40" rx="20" fill="#bb9af7"/><text x="305" y="65" text-anchor="middle" fill="#1a1b26">SYN_RECV</text>
+        <rect x="440" y="90" width="170" height="40" rx="20" fill="#7dcfff"/><text x="525" y="115" text-anchor="middle" fill="#1a1b26">ESTABLISHED</text>
+        <rect x="690" y="30" width="150" height="40" rx="20" fill="#e0af68"/><text x="765" y="55" text-anchor="middle" fill="#1a1b26">FIN_WAIT1</text>
+        <rect x="880" y="30" width="150" height="40" rx="20" fill="#e0af68"/><text x="955" y="55" text-anchor="middle" fill="#1a1b26">FIN_WAIT2</text>
+        <rect x="880" y="130" width="150" height="40" rx="20" fill="#e0af68"/><text x="955" y="155" text-anchor="middle" fill="#1a1b26">TIME_WAIT</text>
+        <rect x="690" y="200" width="150" height="40" rx="20" fill="#ff9e64"/><text x="765" y="225" text-anchor="middle" fill="#1a1b26">CLOSE_WAIT</text>
+        <rect x="880" y="200" width="150" height="40" rx="20" fill="#ff9e64"/><text x="955" y="225" text-anchor="middle" fill="#1a1b26">LAST_ACK</text>
+        <rect x="880" y="270" width="150" height="40" rx="20" fill="#f7768e"/><text x="955" y="295" text-anchor="middle" fill="#1a1b26">CLOSED</text>
+      </g>
+      <g stroke="var(--muted)" stroke-width="1.4" fill="none" marker-end="url(#ar2)">
+        <path d="M170 60 H224"/>
+        <path d="M380 65 Q420 70 440 100"/>
+        <path d="M170 160 Q330 170 434 120"/>
+        <path d="M610 100 Q650 60 684 52"/>
+        <path d="M840 50 H874"/>
+        <path d="M955 70 V124"/>
+        <path d="M955 170 V264"/>
+        <path d="M610 120 Q650 200 684 216"/>
+        <path d="M840 220 H874"/>
+        <path d="M1030 220 Q1052 260 1030 288"/>
+      </g>
+      <g font-size="11.5" fill="var(--muted)">
+        <text x="182" y="52">SYN</text>
+        <text x="236" y="150">SYN → SYN-ACK</text>
+        <text x="618" y="40">jij sluit</text>
+        <text x="612" y="198">peer sluit</text>
+        <text x="966" y="104">FIN</text>
+        <text x="966" y="200">2×MSL (60 s)</text>
+        <text x="440" y="190" fill="var(--fg)" font-weight="600">Waar kijk je naar?</text>
+        <text x="440" y="212">paars blijft hangen → firewall of routing (DROP)</text>
+        <text x="440" y="232">oranje blijft groeien → de app sluit haar sockets niet</text>
+        <text x="440" y="252">geel in grote aantallen → kortlevende verbindingen, geen pooling</text>
+        <text x="440" y="272">groen → luistert; controleer op welk adres (* of 127.0.0.1)</text>
+      </g>
+    </svg>
+    <figcaption class="cap">Vereenvoudigde TCP-state-machine met de kleuren uit <code>theme::tcp_state</code>. De gele states aan de rechterkant beheert de kernel; de oranje states blijven hangen totdat je applicatie <code>close()</code> aanroept.</figcaption>
+  </figure>
+
+  <div class="term-wrap" role="img" aria-label="Voorbeeld van de Sockets-view gefilterd op LISTEN">
+    <div class="term"><div class="bar"><i></i><i></i><i></i></div><pre><span class="bd">╭</span> <span class="p w">/proc/net</span> <span class="bd">────────────────────────────────────────────────────────────────────────────────────────────</span> <span class="d">updated 0.8s ago · 3ms</span> <span class="bd">╮</span>
+<span class="bd">│</span>  <span class="chip-e"> ESTABLISHED </span> <span class="w">1284</span>   <span class="chip-l"> LISTEN </span> <span class="w">6</span>   <span class="chip-t"> TIME_WAIT </span> <span class="w">611</span>   <span class="chip-c"> CLOSE_WAIT </span> <span class="w">14</span>   <span class="chip-s"> SYN_SENT </span> <span class="w">2</span>                                <span class="bd">│</span>
+<span class="bd">╰───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯</span>
+<span class="bd">╭</span> <span class="c w">sockets (6/1917)</span> <span class="chip-l"> LISTEN only </span>  <span class="d">sort port</span> <span class="bd">────────────────────────────────────────────────────────────────────────────╮</span>
+<span class="bd">│</span> <span class="b w">PROTO    LOCAL                  REMOTE                 STATE        PID     PROCESS           USER        FD  </span>    <span class="bd">│</span>
+<span class="bd">│</span><span class="sel"><span class="b">▌</span><span class="c">TCP v4</span>   <span class="g">*:22</span>                   <span class="d">·</span>                      <span class="g w">LISTEN</span>       <span class="m">912</span>     <span class="w">sshd</span>              <span class="r">root</span>        <span class="d">3u</span>      </span><span class="bd">│</span>
+<span class="bd">│</span> <span class="c">TCP v4</span>   <span class="g">*:80</span>                   <span class="d">·</span>                      <span class="g w">LISTEN</span>       <span class="m">4120</span>    <span class="w">nginx</span>             <span class="r">root</span>        <span class="d">6u</span>      <span class="bd">│</span>
+<span class="bd">│</span> <span class="c">TCP v4</span>   <span class="g">*:443</span>                  <span class="d">·</span>                      <span class="g w">LISTEN</span>       <span class="m">4120</span>    <span class="w">nginx</span>             <span class="r">root</span>        <span class="d">7u</span>      <span class="bd">│</span>
+<span class="bd">│</span> <span class="c">TCP v4</span>   <span class="g">127.0.0.1:3000</span>         <span class="d">·</span>                      <span class="g w">LISTEN</span>       <span class="m">3307</span>    <span class="w">node</span>              <span class="te">deploy</span>      <span class="d">21u</span>     <span class="bd">│</span>
+<span class="bd">│</span> <span class="c">TCP v4</span>   <span class="g">*:5432</span>                 <span class="d">·</span>                      <span class="g w">LISTEN</span>       <span class="m">2290</span>    <span class="w">postgres</span>          <span class="te">postgres</span>    <span class="d">5u</span>      <span class="bd">│</span>
+<span class="bd">│</span> <span class="c">TCP v4</span>   <span class="g">127.0.0.1:6379</span>         <span class="d">·</span>                      <span class="g w">LISTEN</span>       <span class="m">1877</span>    <span class="w">redis-server</span>      <span class="te">redis</span>       <span class="d">6u</span>      <span class="bd">│</span>
+<span class="bd">╰───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯</span>
+ <span class="b w">l</span> <span class="d">listening  </span><span class="b w">s</span> <span class="d">sort  </span><span class="b w">↵</span> <span class="d">proc files  </span><span class="b w">P</span> <span class="d">who uses port  </span><span class="b w">x</span> <span class="d">signal  </span><span class="b w">/</span> <span class="d">filter</span></pre></div>
+  </div>
+  <p class="term-cap col">Blootstellingsaudit op 6 regels: postgres luistert op <code>*:5432</code>, dus op elk adres. Dat wil je waarschijnlijk niet. Redis en node luisteren alleen op 127.0.0.1, zoals het hoort.</p>
+</div>
+
+<main class="col">
+  <h2 id="query">De lsof-querytaal</h2>
+  <p style="margin-top:12px">Druk in elke view op <kbd>:</kbd>. Wat je intypt wordt herkend en vertaald naar een lsof-commando. De resultaten verschijnen in Open Files, en de interface blijft intussen gewoon werken.</p>
+  <div class="tbl"><table>
+    <thead><tr><th>Je typt</th><th>Wordt</th><th>Gebruik</th></tr></thead>
+    <tbody>
+      <tr><td class="num">1234</td><td class="num">lsof -nP -p 1234</td><td>Alles wat een proces open heeft</td></tr>
+      <tr><td class="num">:8080</td><td class="num">lsof -nP -i :8080</td><td>Wie gebruikt deze poort</td></tr>
+      <tr><td class="num">tcp:443</td><td class="num">lsof -nP -i tcp:443</td><td>Alleen TCP</td></tr>
+      <tr><td class="num">@10.0.4.12</td><td class="num">lsof -nP -i @10.0.4.12</td><td>Alle verbindingen met een host</td></tr>
+      <tr><td class="num">/var/log/syslog</td><td class="num">lsof -nP /var/log/syslog</td><td>Wie heeft dit bestand open</td></tr>
+      <tr><td class="num">+L1</td><td class="num">lsof -nP +L1</td><td>Verwijderde bestanden die nog ruimte innemen</td></tr>
+      <tr><td class="num">-u www-data</td><td class="num">lsof -nP -u www-data</td><td>Alles van één user</td></tr>
+      <tr><td class="num">-a -u deploy -i</td><td class="num">lsof -nP -a -u deploy -i</td><td>Netwerk van één user (<code>-a</code> combineert de filters met EN)</td></tr>
+      <tr><td class="num">+D /srv/data</td><td class="num">lsof -nP +D /srv/data</td><td>Alles wat onder een map open is. Dit kan traag zijn.</td></tr>
+    </tbody>
+  </table></div>
+
+  <h2 id="prestaties">Prestaties</h2>
+  <p style="margin-top:12px">Een monitor die je de hele dag open hebt staan, moet zelf zo min mogelijk kosten. Hieronder de metingen van versie 0.1 vóór en na optimalisatie, op een Apple M4 Pro met ongeveer 860 processen en een refresh van 1000 ms.</p>
+  <div class="perf">
+    <div class="legend"><span><i style="background:var(--muted);opacity:.55"></i>vóór</span><span><i style="background:var(--accent)"></i>na</span></div>
+    <div class="metric"><div class="lbl">CPU van vigil zelf<small>% van één core, gemiddeld over 18 s</small></div>
+      <div class="bars"><div class="barrow"><div class="track"><div class="fill before" style="width:100%"></div></div><span>5,3 %</span></div><div class="barrow"><div class="track"><div class="fill after" style="width:45%"></div></div><span>2,4 %</span></div></div></div>
+    <div class="metric"><div class="lbl">Sampler per tick<small>cpu, mem, procs, net, disks, sensoren</small></div>
+      <div class="bars"><div class="barrow"><div class="track"><div class="fill before" style="width:100%"></div></div><span>26,2 ms</span></div><div class="barrow"><div class="track"><div class="fill after" style="width:16%"></div></div><span>4,2 ms</span></div></div></div>
+    <div class="metric"><div class="lbl">Sensoren verversen<small>alle 17 temperatuursensoren</small></div>
+      <div class="bars"><div class="barrow"><div class="track"><div class="fill before" style="width:100%"></div></div><span>108 ms</span></div><div class="barrow"><div class="track"><div class="fill after" style="width:14%"></div></div><span>≈15 ms</span></div></div></div>
+    <div class="metric"><div class="lbl">Geheugen (RSS)</div>
+      <div class="bars"><div class="barrow"><div class="track"><div class="fill before" style="width:100%"></div></div><span>17,8 MB</span></div><div class="barrow"><div class="track"><div class="fill after" style="width:87%"></div></div><span>15,5 MB</span></div></div></div>
+  </div>
+  <div class="tbl"><table>
+    <thead><tr><th>Ingreep</th><th>Waarom</th></tr></thead>
+    <tbody>
+      <tr><td>Sensoren per stuk verversen, en de lijst maar eens per 5 min opnieuw ophalen</td><td><code>refresh(true)</code> haalt de lijst met sensoren elke keer opnieuw op via IOKit. Dat kostte 108 ms, terwijl één bestaande sensor verversen 0,9 ms kost.</td></tr>
+      <tr><td>sysinfo zonder rayon (single-threaded)</td><td>Elke tick werden 14 threads gewekt voor ongeveer 2 ms werk. Dat synchroniseren kostte meer CPU dan de parallelle verwerking opleverde.</td></tr>
+      <tr><td>Disks en sensoren op een eigen thread</td><td>De trage calls (statfs, CacheDelete, SMC) houden de tick niet meer op.</td></tr>
+      <tr><td>Alleen hertekenen bij wijziging</td><td>Als er niets gebeurt, wordt er ook niets getekend of naar de terminal geschreven.</td></tr>
+      <tr><td>Socket- en file-lijsten cachen</td><td>Filteren en sorteren gebeurt alleen als de data, het filter of de sortering verandert, niet bij elk frame of elke toetsaanslag.</td></tr>
+      <tr><td>Alleen zichtbare rijen bouwen</td><td>Een lsof-resultaat van 50.000 regels tekent net zo snel als een van 50 regels.</td></tr>
+      <tr><td><code>Arc&lt;str&gt;</code> per pid</td><td>Naam, cmd, exe en user worden één keer per proces opgebouwd. Daarna is een tick bijna zonder allocaties.</td></tr>
+      <tr><td>Native <code>/proc/net</code> op Linux</td><td>lsof doet een stat op elke fd van elk proces. vigil leest de socket-tabellen direct en houdt de koppeling van inode naar pid in een cache.</td></tr>
+    </tbody>
+  </table></div>
+  <p class="note">Wat overblijft is vooral de process-scan van de kernel (≈4 ms per tick op macOS). Op Linux kan die nog omlaag door alleen <code>/proc/[pid]/stat</code> te lezen voor processen die veranderd zijn. Zie de roadmap.</p>
+
+  <h2 id="roadmap">Roadmap</h2>
+  <p style="margin-top:12px">Wat ik zou toevoegen om vigil jarenlang bruikbaar te houden, op volgorde van prioriteit.</p>
+  <div class="road">
+    <div class="item"><span class="pri p1">Eerst</span><div><h3>Configbestand (<code>~/.config/vigil/config.toml</code>)</h3><p>Om je standaard-view, interval, sortering, kolommen en kleurthema te bewaren. Een tool die je jarenlang gebruikt, moet onthouden hoe jij hem wilt hebben.</p></div></div>
+    <div class="item"><span class="pri p1">Eerst</span><div><h3>Containers: Docker, Podman en cgroups</h3><p>Een view met CPU, geheugen en netwerk per container, gelezen uit cgroup v2 (<code>/sys/fs/cgroup</code>), dus zonder de Docker-daemon. Op moderne servers draait bijna alles in een container.</p></div></div>
+    <div class="item"><span class="pri p1">Eerst</span><div><h3>Linux: netlink <code>sock_diag</code> in plaats van /proc/net</h3><p>Dit levert ook RTT, retransmits, cwnd en de send/recv-queue per socket, wat <code>ss -ti</code> ook laat zien. Voor een network engineer is dat goud: je ziet een trage verbinding voordat de gebruiker erover klaagt.</p></div></div>
+    <div class="item"><span class="pri p2">Daarna</span><div><h3>Bandbreedte per proces</h3><p>Via eBPF op Linux of <code>nettop</code> op macOS. Dan weet je niet alleen dat er 40 MB/s over de lijn gaat, maar ook welk proces dat verstuurt.</p></div></div>
+    <div class="item"><span class="pri p2">Daarna</span><div><h3>systemd-units en journal</h3><p>Status, restarts en de laatste logregels per unit. Een unit selecteren en meteen <code>journalctl -u</code> zien scheelt je een terminalvenster.</p></div></div>
+    <div class="item"><span class="pri p2">Daarna</span><div><h3>Drempels en alerts</h3><p>Bijvoorbeeld <code>disk &gt; 90 %</code>, <code>CLOSE_WAIT &gt; 100</code> of <code>load &gt; cores</code>. Rood in de header, met optioneel een webhook. Zo zie je problemen ook als je naar een andere view kijkt.</p></div></div>
+    <div class="item"><span class="pri p2">Daarna</span><div><h3>PSI (pressure stall information)</h3><p>Uit <code>/proc/pressure/{cpu,memory,io}</code>. Load average zegt niet waarom het systeem traag is, PSI wel: je ziet of er gewacht wordt op CPU, geheugen of I/O.</p></div></div>
+    <div class="item"><span class="pri p3">Later</span><div><h3>Opnemen en terugspelen</h3><p>Een snapshot naar JSON schrijven en die later of op een andere machine terugspelen. Handig voor een post-mortem: wat was er om 03:12 aan de hand?</p></div></div>
+    <div class="item"><span class="pri p3">Later</span><div><h3>Reverse DNS (async, gecached) en latency-targets</h3><p>IP's als hostnaam tonen, zonder dat de interface vastloopt. Plus een kleine ping- en TCP-connect-monitor naar targets die je zelf instelt.</p></div></div>
+    <div class="item"><span class="pri p3">Onderhoud</span><div><h3>CI, clippy en releases</h3><p>Bij elke commit <code>cargo clippy</code> en tests draaien, op Linux en macOS. Daarnaast statische musl-builds die je naar elke server kunt kopiëren en dependency-updates via Renovate. Zo blijft de tool jarenlang onderhoudbaar.</p></div></div>
+  </div>
+
+  <h2 id="toetsen">Sneltoetsen</h2>
+</main>
+<div class="wide">
+  <div class="cheat">
+    <div><h3>Overal</h3><dl>
+      <dt><kbd>1</kbd>–<kbd>6</kbd> <kbd>Tab</kbd></dt><dd>view wisselen</dd>
+      <dt><kbd>↑</kbd><kbd>↓</kbd> <kbd>j</kbd><kbd>k</kbd></dt><dd>navigeren (ook met muiswiel)</dd>
+      <dt><kbd>g</kbd> <kbd>G</kbd></dt><dd>begin / einde</dd>
+      <dt><kbd>/</kbd></dt><dd>filter, <kbd>Esc</kbd> wist</dd>
+      <dt><kbd>:</kbd></dt><dd>lsof-query</dd>
+      <dt><kbd>space</kbd></dt><dd>pauzeren</dd>
+      <dt><kbd>+</kbd> <kbd>-</kbd></dt><dd>interval ±250 ms</dd>
+      <dt><kbd>?</kbd> <kbd>q</kbd></dt><dd>help / afsluiten</dd></dl></div>
+    <div><h3>Processes</h3><dl>
+      <dt><kbd>c</kbd> <kbd>m</kbd> <kbd>p</kbd></dt><dd>sorteer cpu / mem / pid</dd>
+      <dt><kbd>n</kbd> <kbd>u</kbd></dt><dd>sorteer naam / user</dd>
+      <dt><kbd>i</kbd> <kbd>o</kbd></dt><dd>sorteer disk-io / sockets</dd>
+      <dt><kbd>r</kbd> <kbd>t</kbd></dt><dd>omkeren / procesboom</dd>
+      <dt><kbd>↵</kbd> <kbd>f</kbd></dt><dd>open files (lsof -p)</dd>
+      <dt><kbd>x</kbd> <kbd>K</kbd></dt><dd>signaal sturen</dd></dl></div>
+    <div><h3>Sockets</h3><dl>
+      <dt><kbd>l</kbd></dt><dd>alleen LISTEN</dd>
+      <dt><kbd>s</kbd></dt><dd>sortering: process → port → state → proto → remote</dd>
+      <dt><kbd>↵</kbd></dt><dd>open files van eigenaar</dd>
+      <dt><kbd>P</kbd></dt><dd>alles op deze poort</dd>
+      <dt><kbd>x</kbd></dt><dd>signaal naar eigenaar</dd></dl></div>
+    <div><h3>Open Files</h3><dl>
+      <dt><kbd>↵</kbd></dt><dd>wie heeft dit bestand / deze poort nog open</dd>
+      <dt><kbd>p</kbd></dt><dd>alle files van deze pid</dd>
+      <dt><kbd>r</kbd></dt><dd>query opnieuw draaien</dd>
+      <dt><kbd>x</kbd></dt><dd>signaal</dd></dl></div>
+    <div><h3>Signaalvenster</h3><dl>
+      <dt><kbd>1</kbd>–<kbd>9</kbd></dt><dd>direct kiezen</dd>
+      <dt><code>TERM</code></dt><dd>netjes stoppen (eerste keus)</dd>
+      <dt><code>HUP</code></dt><dd>config herladen</dd>
+      <dt><code>STOP</code>/<code>CONT</code></dt><dd>pauzeren / hervatten</dd>
+      <dt><code>KILL</code></dt><dd>laatste redmiddel</dd></dl></div>
+    <div><h3>Opstartopties</h3><dl>
+      <dt><code>-t sockets</code></dt><dd>start in een view</dd>
+      <dt><code>-q :443</code></dt><dd>query bij start</dd>
+      <dt><code>-i 500</code></dt><dd>interval in ms</dd>
+      <dt><code>--lsof-sockets</code></dt><dd>lsof i.p.v. /proc/net</dd>
+      <dt><code>--no-mouse</code></dt><dd>muis uit</dd></dl></div>
+  </div>
+</div>
+
+<footer class="col">vigil · Rust, ratatui, sysinfo en lsof. De voorbeeldschermen tonen fictieve serverdata.</footer>
+
+<script>
+(function () {
+  var tabs = document.querySelectorAll('[role="tab"]');
+  function show(id) {
+    tabs.forEach(function (t) {
+      var on = t.id === id;
+      t.setAttribute('aria-selected', on ? 'true' : 'false');
+      document.getElementById(t.getAttribute('aria-controls')).hidden = !on;
+    });
+    try { localStorage.setItem('vigil-play-tab', id); } catch (e) {}
+  }
+  tabs.forEach(function (t) {
+    t.addEventListener('click', function () { show(t.id); });
+    t.addEventListener('keydown', function (e) {
+      if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
+        var other = t.id === 'tab-devops' ? 'tab-net' : 'tab-devops';
+        show(other); document.getElementById(other).focus();
+      }
+    });
+  });
+  try { var s = localStorage.getItem('vigil-play-tab'); if (s && document.getElementById(s)) show(s); } catch (e) {}
+})();
+</script>
