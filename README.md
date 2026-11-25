@@ -14,7 +14,7 @@ One static binary. `lsof` built in. Linux and macOS.
 
 <img src="docs/img/overview.svg" alt="vigil showing CPU, memory, network, top processes, listening ports and TCP states" width="100%">
 
-[Install](#install) · [Cookbook](#cookbook) · [Views](#views) · [Keys](#keys) · [Reports](#reports) · [Config](#configuration) · [FAQ](#faq) · [Handbook](docs/handbook.html)
+[Install](#install) · [Cookbook](#cookbook) · [Views](#views) · [Keys](#keys) · [Reports](#reports) · [Config](#configuration) · [FAQ](#faq) · [Handbook](docs/handbook.html) · [Course](docs/course.html)
 
 </div>
 
@@ -497,7 +497,7 @@ python3 scripts/term2svg.py                           # regenerate README screen
 
 CI runs clippy and the tests on Linux x86_64, Linux arm64 and macOS. Pushing a `v*` tag builds static release binaries with checksums.
 
-The [handbook](docs/handbook.html) explains the architecture, every view and step-by-step playbooks for DevOps and network incidents.
+The [handbook](docs/handbook.html) explains the architecture, every view and step-by-step playbooks for DevOps and network incidents. The [course](docs/course.html) teaches vigil lesson by lesson, with quizzes, a key trainer, incident drills and a final exam (open the file in a browser).
 
 ## License
 
