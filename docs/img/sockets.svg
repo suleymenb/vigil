@@ -1,0 +1,152 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1042" height="292" viewBox="0 0 1042 292" role="img" aria-label="sudo vigil -t sockets">
+<rect width="1042" height="292" rx="10" fill="#1a1b26"/>
+<circle cx="20" cy="18" r="6" fill="#f7768e"/><circle cx="40" cy="18" r="6" fill="#e0af68"/><circle cx="60" cy="18" r="6" fill="#9ece6a"/>
+<text x="521" y="22" fill="#565f89" font-family="ui-monospace,Menlo,Consolas,monospace" font-size="12" text-anchor="middle">sudo vigil -t sockets</text>
+<g font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,DejaVu Sans Mono,monospace" font-size="13" xml:space="preserve">
+<text x="18.0" y="53" fill="#4a5378" textLength="7.8" lengthAdjust="spacingAndGlyphs">╭</text>
+<text x="33.6" y="53" fill="#c0caf5" textLength="70.2" lengthAdjust="spacingAndGlyphs" font-weight="700">/proc/net</text>
+<text x="111.6" y="53" fill="#4a5378" textLength="717.6" lengthAdjust="spacingAndGlyphs">────────────────────────────────────────────────────────────────────────────────────────────</text>
+<text x="837.0" y="53" fill="#565f89" textLength="54.6" lengthAdjust="spacingAndGlyphs">updated</text>
+<text x="899.4" y="53" fill="#565f89" textLength="31.2" lengthAdjust="spacingAndGlyphs">0.8s</text>
+<text x="938.4" y="53" fill="#565f89" textLength="23.4" lengthAdjust="spacingAndGlyphs">ago</text>
+<text x="969.6" y="53" fill="#565f89" textLength="7.8" lengthAdjust="spacingAndGlyphs">·</text>
+<text x="985.2" y="53" fill="#565f89" textLength="23.4" lengthAdjust="spacingAndGlyphs">3ms</text>
+<text x="1016.4" y="53" fill="#4a5378" textLength="7.8" lengthAdjust="spacingAndGlyphs">╮</text>
+<text x="18.0" y="71" fill="#4a5378" textLength="7.8" lengthAdjust="spacingAndGlyphs">│</text>
+<rect x="41.4" y="57" width="101.4" height="18" fill="#7dcfff"/>
+<text x="49.2" y="71" fill="#1a1b26" textLength="85.8" lengthAdjust="spacingAndGlyphs" font-weight="700">ESTABLISHED</text>
+<text x="150.6" y="71" fill="#c0caf5" textLength="31.2" lengthAdjust="spacingAndGlyphs" font-weight="700">1284</text>
+<rect x="205.2" y="57" width="62.4" height="18" fill="#9ece6a"/>
+<text x="213.0" y="71" fill="#1a1b26" textLength="46.8" lengthAdjust="spacingAndGlyphs" font-weight="700">LISTEN</text>
+<text x="275.4" y="71" fill="#c0caf5" textLength="7.8" lengthAdjust="spacingAndGlyphs" font-weight="700">6</text>
+<rect x="306.6" y="57" width="85.8" height="18" fill="#e0af68"/>
+<text x="314.4" y="71" fill="#1a1b26" textLength="70.2" lengthAdjust="spacingAndGlyphs" font-weight="700">TIME_WAIT</text>
+<text x="400.2" y="71" fill="#c0caf5" textLength="23.4" lengthAdjust="spacingAndGlyphs" font-weight="700">611</text>
+<rect x="447.0" y="57" width="93.6" height="18" fill="#ff9e64"/>
+<text x="454.8" y="71" fill="#1a1b26" textLength="78.0" lengthAdjust="spacingAndGlyphs" font-weight="700">CLOSE_WAIT</text>
+<text x="548.4" y="71" fill="#c0caf5" textLength="15.6" lengthAdjust="spacingAndGlyphs" font-weight="700">14</text>
+<rect x="587.4" y="57" width="78.0" height="18" fill="#bb9af7"/>
+<text x="595.2" y="71" fill="#1a1b26" textLength="62.4" lengthAdjust="spacingAndGlyphs" font-weight="700">SYN_SENT</text>
+<text x="673.2" y="71" fill="#c0caf5" textLength="7.8" lengthAdjust="spacingAndGlyphs" font-weight="700">2</text>
+<text x="930.6" y="71" fill="#4a5378" textLength="7.8" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="18.0" y="89" fill="#4a5378" textLength="943.8" lengthAdjust="spacingAndGlyphs">╰───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯</text>
+<text x="18.0" y="107" fill="#4a5378" textLength="7.8" lengthAdjust="spacingAndGlyphs">╭</text>
+<text x="33.6" y="107" fill="#c0caf5" textLength="54.6" lengthAdjust="spacingAndGlyphs" font-weight="700">sockets</text>
+<text x="96.0" y="107" fill="#c0caf5" textLength="62.4" lengthAdjust="spacingAndGlyphs" font-weight="700">(6/1917)</text>
+<rect x="166.2" y="93" width="101.4" height="18" fill="#9ece6a"/>
+<text x="174.0" y="107" fill="#1a1b26" textLength="46.8" lengthAdjust="spacingAndGlyphs" font-weight="700">LISTEN</text>
+<text x="228.6" y="107" fill="#1a1b26" textLength="31.2" lengthAdjust="spacingAndGlyphs" font-weight="700">only</text>
+<text x="283.2" y="107" fill="#565f89" textLength="31.2" lengthAdjust="spacingAndGlyphs">sort</text>
+<text x="322.2" y="107" fill="#565f89" textLength="31.2" lengthAdjust="spacingAndGlyphs">port</text>
+<text x="361.2" y="107" fill="#4a5378" textLength="600.6" lengthAdjust="spacingAndGlyphs">────────────────────────────────────────────────────────────────────────────╮</text>
+<text x="18.0" y="125" fill="#4a5378" textLength="7.8" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="33.6" y="125" fill="#c0caf5" textLength="39.0" lengthAdjust="spacingAndGlyphs" font-weight="700">PROTO</text>
+<text x="103.8" y="125" fill="#c0caf5" textLength="39.0" lengthAdjust="spacingAndGlyphs" font-weight="700">LOCAL</text>
+<text x="283.2" y="125" fill="#c0caf5" textLength="46.8" lengthAdjust="spacingAndGlyphs" font-weight="700">REMOTE</text>
+<text x="462.6" y="125" fill="#c0caf5" textLength="39.0" lengthAdjust="spacingAndGlyphs" font-weight="700">STATE</text>
+<text x="564.0" y="125" fill="#c0caf5" textLength="23.4" lengthAdjust="spacingAndGlyphs" font-weight="700">PID</text>
+<text x="626.4" y="125" fill="#c0caf5" textLength="54.6" lengthAdjust="spacingAndGlyphs" font-weight="700">PROCESS</text>
+<text x="766.8" y="125" fill="#c0caf5" textLength="31.2" lengthAdjust="spacingAndGlyphs" font-weight="700">USER</text>
+<text x="860.4" y="125" fill="#c0caf5" textLength="15.6" lengthAdjust="spacingAndGlyphs" font-weight="700">FD</text>
+<text x="922.8" y="125" fill="#4a5378" textLength="7.8" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="18.0" y="143" fill="#4a5378" textLength="7.8" lengthAdjust="spacingAndGlyphs">│</text>
+<rect x="25.8" y="129" width="7.8" height="18" fill="#292e42"/>
+<text x="25.8" y="143" fill="#7aa2f7" textLength="7.8" lengthAdjust="spacingAndGlyphs">▌</text>
+<rect x="33.6" y="129" width="46.8" height="18" fill="#292e42"/>
+<text x="33.6" y="143" fill="#7dcfff" textLength="23.4" lengthAdjust="spacingAndGlyphs">TCP</text>
+<text x="64.8" y="143" fill="#7dcfff" textLength="15.6" lengthAdjust="spacingAndGlyphs">v4</text>
+<rect x="80.4" y="129" width="23.4" height="18" fill="#292e42"/>
+<rect x="103.8" y="129" width="31.2" height="18" fill="#292e42"/>
+<text x="103.8" y="143" fill="#9ece6a" textLength="31.2" lengthAdjust="spacingAndGlyphs">*:22</text>
+<rect x="135.0" y="129" width="148.2" height="18" fill="#292e42"/>
+<rect x="283.2" y="129" width="7.8" height="18" fill="#292e42"/>
+<text x="283.2" y="143" fill="#565f89" textLength="7.8" lengthAdjust="spacingAndGlyphs">·</text>
+<rect x="291.0" y="129" width="171.6" height="18" fill="#292e42"/>
+<rect x="462.6" y="129" width="46.8" height="18" fill="#292e42"/>
+<text x="462.6" y="143" fill="#c0caf5" textLength="46.8" lengthAdjust="spacingAndGlyphs" font-weight="700">LISTEN</text>
+<rect x="509.4" y="129" width="54.6" height="18" fill="#292e42"/>
+<rect x="564.0" y="129" width="23.4" height="18" fill="#292e42"/>
+<text x="564.0" y="143" fill="#7a84b2" textLength="23.4" lengthAdjust="spacingAndGlyphs">912</text>
+<rect x="587.4" y="129" width="39.0" height="18" fill="#292e42"/>
+<rect x="626.4" y="129" width="31.2" height="18" fill="#292e42"/>
+<text x="626.4" y="143" fill="#c0caf5" textLength="31.2" lengthAdjust="spacingAndGlyphs" font-weight="700">sshd</text>
+<rect x="657.6" y="129" width="109.2" height="18" fill="#292e42"/>
+<rect x="766.8" y="129" width="31.2" height="18" fill="#292e42"/>
+<text x="766.8" y="143" fill="#f7768e" textLength="31.2" lengthAdjust="spacingAndGlyphs">root</text>
+<rect x="798.0" y="129" width="62.4" height="18" fill="#292e42"/>
+<rect x="860.4" y="129" width="15.6" height="18" fill="#292e42"/>
+<text x="860.4" y="143" fill="#565f89" textLength="15.6" lengthAdjust="spacingAndGlyphs">3u</text>
+<rect x="876.0" y="129" width="46.8" height="18" fill="#292e42"/>
+<text x="922.8" y="143" fill="#4a5378" textLength="7.8" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="18.0" y="161" fill="#4a5378" textLength="7.8" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="33.6" y="161" fill="#7dcfff" textLength="23.4" lengthAdjust="spacingAndGlyphs">TCP</text>
+<text x="64.8" y="161" fill="#7dcfff" textLength="15.6" lengthAdjust="spacingAndGlyphs">v4</text>
+<text x="103.8" y="161" fill="#9ece6a" textLength="31.2" lengthAdjust="spacingAndGlyphs">*:80</text>
+<text x="283.2" y="161" fill="#565f89" textLength="7.8" lengthAdjust="spacingAndGlyphs">·</text>
+<text x="462.6" y="161" fill="#c0caf5" textLength="46.8" lengthAdjust="spacingAndGlyphs" font-weight="700">LISTEN</text>
+<text x="564.0" y="161" fill="#7a84b2" textLength="31.2" lengthAdjust="spacingAndGlyphs">4120</text>
+<text x="626.4" y="161" fill="#c0caf5" textLength="39.0" lengthAdjust="spacingAndGlyphs" font-weight="700">nginx</text>
+<text x="766.8" y="161" fill="#f7768e" textLength="31.2" lengthAdjust="spacingAndGlyphs">root</text>
+<text x="860.4" y="161" fill="#565f89" textLength="15.6" lengthAdjust="spacingAndGlyphs">6u</text>
+<text x="922.8" y="161" fill="#4a5378" textLength="7.8" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="18.0" y="179" fill="#4a5378" textLength="7.8" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="33.6" y="179" fill="#7dcfff" textLength="23.4" lengthAdjust="spacingAndGlyphs">TCP</text>
+<text x="64.8" y="179" fill="#7dcfff" textLength="15.6" lengthAdjust="spacingAndGlyphs">v4</text>
+<text x="103.8" y="179" fill="#9ece6a" textLength="39.0" lengthAdjust="spacingAndGlyphs">*:443</text>
+<text x="283.2" y="179" fill="#565f89" textLength="7.8" lengthAdjust="spacingAndGlyphs">·</text>
+<text x="462.6" y="179" fill="#c0caf5" textLength="46.8" lengthAdjust="spacingAndGlyphs" font-weight="700">LISTEN</text>
+<text x="564.0" y="179" fill="#7a84b2" textLength="31.2" lengthAdjust="spacingAndGlyphs">4120</text>
+<text x="626.4" y="179" fill="#c0caf5" textLength="39.0" lengthAdjust="spacingAndGlyphs" font-weight="700">nginx</text>
+<text x="766.8" y="179" fill="#f7768e" textLength="31.2" lengthAdjust="spacingAndGlyphs">root</text>
+<text x="860.4" y="179" fill="#565f89" textLength="15.6" lengthAdjust="spacingAndGlyphs">7u</text>
+<text x="922.8" y="179" fill="#4a5378" textLength="7.8" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="18.0" y="197" fill="#4a5378" textLength="7.8" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="33.6" y="197" fill="#7dcfff" textLength="23.4" lengthAdjust="spacingAndGlyphs">TCP</text>
+<text x="64.8" y="197" fill="#7dcfff" textLength="15.6" lengthAdjust="spacingAndGlyphs">v4</text>
+<text x="103.8" y="197" fill="#9ece6a" textLength="109.2" lengthAdjust="spacingAndGlyphs">127.0.0.1:3000</text>
+<text x="283.2" y="197" fill="#565f89" textLength="7.8" lengthAdjust="spacingAndGlyphs">·</text>
+<text x="462.6" y="197" fill="#c0caf5" textLength="46.8" lengthAdjust="spacingAndGlyphs" font-weight="700">LISTEN</text>
+<text x="564.0" y="197" fill="#7a84b2" textLength="31.2" lengthAdjust="spacingAndGlyphs">3307</text>
+<text x="626.4" y="197" fill="#c0caf5" textLength="31.2" lengthAdjust="spacingAndGlyphs" font-weight="700">node</text>
+<text x="766.8" y="197" fill="#73daca" textLength="46.8" lengthAdjust="spacingAndGlyphs">deploy</text>
+<text x="860.4" y="197" fill="#565f89" textLength="23.4" lengthAdjust="spacingAndGlyphs">21u</text>
+<text x="922.8" y="197" fill="#4a5378" textLength="7.8" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="18.0" y="215" fill="#4a5378" textLength="7.8" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="33.6" y="215" fill="#7dcfff" textLength="23.4" lengthAdjust="spacingAndGlyphs">TCP</text>
+<text x="64.8" y="215" fill="#7dcfff" textLength="15.6" lengthAdjust="spacingAndGlyphs">v4</text>
+<text x="103.8" y="215" fill="#9ece6a" textLength="46.8" lengthAdjust="spacingAndGlyphs">*:5432</text>
+<text x="283.2" y="215" fill="#565f89" textLength="7.8" lengthAdjust="spacingAndGlyphs">·</text>
+<text x="462.6" y="215" fill="#c0caf5" textLength="46.8" lengthAdjust="spacingAndGlyphs" font-weight="700">LISTEN</text>
+<text x="564.0" y="215" fill="#7a84b2" textLength="31.2" lengthAdjust="spacingAndGlyphs">2290</text>
+<text x="626.4" y="215" fill="#c0caf5" textLength="62.4" lengthAdjust="spacingAndGlyphs" font-weight="700">postgres</text>
+<text x="766.8" y="215" fill="#73daca" textLength="62.4" lengthAdjust="spacingAndGlyphs">postgres</text>
+<text x="860.4" y="215" fill="#565f89" textLength="15.6" lengthAdjust="spacingAndGlyphs">5u</text>
+<text x="922.8" y="215" fill="#4a5378" textLength="7.8" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="18.0" y="233" fill="#4a5378" textLength="7.8" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="33.6" y="233" fill="#7dcfff" textLength="23.4" lengthAdjust="spacingAndGlyphs">TCP</text>
+<text x="64.8" y="233" fill="#7dcfff" textLength="15.6" lengthAdjust="spacingAndGlyphs">v4</text>
+<text x="103.8" y="233" fill="#9ece6a" textLength="109.2" lengthAdjust="spacingAndGlyphs">127.0.0.1:6379</text>
+<text x="283.2" y="233" fill="#565f89" textLength="7.8" lengthAdjust="spacingAndGlyphs">·</text>
+<text x="462.6" y="233" fill="#c0caf5" textLength="46.8" lengthAdjust="spacingAndGlyphs" font-weight="700">LISTEN</text>
+<text x="564.0" y="233" fill="#7a84b2" textLength="31.2" lengthAdjust="spacingAndGlyphs">1877</text>
+<text x="626.4" y="233" fill="#c0caf5" textLength="93.6" lengthAdjust="spacingAndGlyphs" font-weight="700">redis-server</text>
+<text x="766.8" y="233" fill="#73daca" textLength="39.0" lengthAdjust="spacingAndGlyphs">redis</text>
+<text x="860.4" y="233" fill="#565f89" textLength="15.6" lengthAdjust="spacingAndGlyphs">6u</text>
+<text x="922.8" y="233" fill="#4a5378" textLength="7.8" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="18.0" y="251" fill="#4a5378" textLength="943.8" lengthAdjust="spacingAndGlyphs">╰───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯</text>
+<text x="25.8" y="269" fill="#c0caf5" textLength="7.8" lengthAdjust="spacingAndGlyphs" font-weight="700">l</text>
+<text x="41.4" y="269" fill="#565f89" textLength="70.2" lengthAdjust="spacingAndGlyphs">listening</text>
+<text x="127.2" y="269" fill="#c0caf5" textLength="7.8" lengthAdjust="spacingAndGlyphs" font-weight="700">s</text>
+<text x="142.8" y="269" fill="#565f89" textLength="31.2" lengthAdjust="spacingAndGlyphs">sort</text>
+<text x="189.6" y="269" fill="#c0caf5" textLength="7.8" lengthAdjust="spacingAndGlyphs" font-weight="700">↵</text>
+<text x="205.2" y="269" fill="#565f89" textLength="31.2" lengthAdjust="spacingAndGlyphs">proc</text>
+<text x="244.2" y="269" fill="#565f89" textLength="39.0" lengthAdjust="spacingAndGlyphs">files</text>
+<text x="298.8" y="269" fill="#c0caf5" textLength="7.8" lengthAdjust="spacingAndGlyphs" font-weight="700">P</text>
+<text x="314.4" y="269" fill="#565f89" textLength="23.4" lengthAdjust="spacingAndGlyphs">who</text>
+<text x="345.6" y="269" fill="#565f89" textLength="31.2" lengthAdjust="spacingAndGlyphs">uses</text>
+<text x="384.6" y="269" fill="#565f89" textLength="31.2" lengthAdjust="spacingAndGlyphs">port</text>
+<text x="431.4" y="269" fill="#c0caf5" textLength="7.8" lengthAdjust="spacingAndGlyphs" font-weight="700">x</text>
+<text x="447.0" y="269" fill="#565f89" textLength="46.8" lengthAdjust="spacingAndGlyphs">signal</text>
+<text x="509.4" y="269" fill="#c0caf5" textLength="7.8" lengthAdjust="spacingAndGlyphs" font-weight="700">/</text>
+<text x="525.0" y="269" fill="#565f89" textLength="46.8" lengthAdjust="spacingAndGlyphs">filter</text>
+</g></svg>

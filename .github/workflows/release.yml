@@ -44,7 +44,8 @@ jobs:
       - name: Package
         shell: bash
         run: |
-          name="vigil-${GITHUB_REF_NAME}-${{ matrix.target }}"
+          # Stable names (no version) so releases/latest/download/... always works.
+          name="vigil-${{ matrix.target }}"
           mkdir "$name"
           cp "target/${{ matrix.target }}/release/vigil" README.md LICENSE "$name/"
           tar czf "$name.tar.gz" "$name"

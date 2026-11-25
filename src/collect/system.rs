@@ -47,12 +47,67 @@ pub struct IfaceInfo {
     pub tx_rate: f64,
     pub rx_total: u64,
     pub tx_total: u64,
-    pub rx_packets: u64,
-    pub tx_packets: u64,
     pub rx_errors: u64,
     pub tx_errors: u64,
     pub mac: String,
     pub addrs: Vec<String>,
+    pub mtu: u64,
+    /// Linux /sys/class/net details (None elsewhere or when not exposed).
+    pub speed_mbps: Option<u32>,
+    pub duplex: Option<String>,
+    pub oper: Option<String>,
+    /// DEVTYPE from uevent: vlan, bridge, bond, wireguard, wlan, veth …
+    pub kind: Option<String>,
+    pub master: Option<String>,
+    pub rx_dropped: u64,
+    pub tx_dropped: u64,
+    pub drop_rate: f64,
+}
+
+impl IfaceInfo {
+    /// Busiest direction as a share of the negotiated link speed.
+    pub fn util_pct(&self) -> Option<f64> {
+        let sp = self.speed_mbps.filter(|s| *s > 0)? as f64 * 1e6 / 8.0;
+        Some(self.rx_rate.max(self.tx_rate) / sp * 100.0)
+    }
+}
+
+#[derive(Default, Clone)]
+struct SysNet {
+    speed: Option<u32>,
+    duplex: Option<String>,
+    oper: Option<String>,
+    kind: Option<String>,
+    master: Option<String>,
+    rx_dropped: u64,
+    tx_dropped: u64,
+}
+
+#[cfg(target_os = "linux")]
+fn read_sysnet(name: &str) -> SysNet {
+    let base = format!("/sys/class/net/{name}");
+    let rd = |f: &str| std::fs::read_to_string(format!("{base}/{f}")).ok().map(|s| s.trim().to_string());
+    let num = |f: &str| rd(f).and_then(|s| s.parse::<i64>().ok());
+    let kind = rd("uevent").and_then(|u| {
+        u.lines().find_map(|l| l.strip_prefix("DEVTYPE=").map(str::to_string))
+    }).or_else(|| name.starts_with("veth").then(|| "veth".to_string()));
+    let master = std::fs::read_link(format!("{base}/master"))
+        .ok()
+        .and_then(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()));
+    SysNet {
+        speed: num("speed").filter(|s| *s > 0).map(|s| s as u32),
+        duplex: rd("duplex").filter(|d| d != "unknown"),
+        oper: rd("operstate"),
+        kind,
+        master,
+        rx_dropped: num("statistics/rx_dropped").unwrap_or(0).max(0) as u64,
+        tx_dropped: num("statistics/tx_dropped").unwrap_or(0).max(0) as u64,
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+fn read_sysnet(_name: &str) -> SysNet {
+    SysNet::default()
 }
 
 #[derive(Clone, Debug)]
@@ -212,6 +267,8 @@ pub struct Sampler {
     pub rx_hist: History,
     pub tx_hist: History,
     pub iface_hist: HashMap<String, (History, History)>,
+    prev_drops: HashMap<String, u64>,
+    pub knet: super::kernelnet::KernelNet,
 
     pub procs: Vec<ProcInfo>,
     pub ifaces: Vec<IfaceInfo>,
@@ -334,6 +391,8 @@ impl Sampler {
             rx_hist: History::new(HISTORY),
             tx_hist: History::new(HISTORY),
             iface_hist: HashMap::new(),
+            prev_drops: HashMap::new(),
+            knet: super::kernelnet::KernelNet::new(),
             procs: Vec::new(),
             ifaces: Vec::new(),
             disks_info: Vec::new(),
@@ -376,6 +435,7 @@ impl Sampler {
         self.sample_cpu_mem();
         self.sample_procs();
         self.sample_net();
+        self.knet.refresh();
         self.pull_slow();
     }
 
@@ -524,14 +584,24 @@ impl Sampler {
             };
             h.0.push(r);
             h.1.push(t);
+            let sn = read_sysnet(name);
+            let drops = sn.rx_dropped + sn.tx_dropped;
+            let prev = self.prev_drops.insert(name.clone(), drops).unwrap_or(drops);
             ifaces.push(IfaceInfo {
+                mtu: data.mtu(),
+                speed_mbps: sn.speed,
+                duplex: sn.duplex,
+                oper: sn.oper,
+                kind: sn.kind,
+                master: sn.master,
+                rx_dropped: sn.rx_dropped,
+                tx_dropped: sn.tx_dropped,
+                drop_rate: drops.saturating_sub(prev) as f64 / dt,
                 name: name.clone(),
                 rx_rate: r,
                 tx_rate: t,
                 rx_total: data.total_received(),
                 tx_total: data.total_transmitted(),
-                rx_packets: data.total_packets_received(),
-                tx_packets: data.total_packets_transmitted(),
                 rx_errors: data.total_errors_on_received(),
                 tx_errors: data.total_errors_on_transmitted(),
                 mac: data.mac_address().to_string(),

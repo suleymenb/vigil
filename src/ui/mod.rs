@@ -1,3 +1,4 @@
+mod netviews;
 mod overview;
 mod views;
 pub mod widgets;
@@ -38,6 +39,9 @@ pub fn draw(f: &mut Frame, app: &mut App) {
         Tab::Sockets => views::sockets(f, app, body),
         Tab::Files => views::files(f, app, body),
         Tab::Storage => views::storage(f, app, body),
+        Tab::Routes => netviews::routes(f, app, body),
+        Tab::Probes => netviews::probes(f, app, body),
+        Tab::Firewall => netviews::firewall(f, app, body),
     }
     draw_footer(f, app, footer);
 
@@ -46,6 +50,9 @@ pub fn draw(f: &mut Frame, app: &mut App) {
     }
     if app.mode == Mode::Theme {
         draw_theme_picker(f, app, area);
+    }
+    if app.mode == Mode::ConfirmClose {
+        draw_confirm_close(f, app, area);
     }
     if app.show_help {
         draw_help(f, area);
@@ -137,7 +144,7 @@ fn hints(app: &App) -> Vec<(&'static str, &'static str)> {
             ("↵", "open files"),
             ("x", "signal"),
             ("t", "tree"),
-            ("c/m/p/n/u/i/o", "sort"),
+            ("c/m/p/n/u/i/o/w", "sort"),
             ("r", "reverse"),
         ],
         Tab::Network => vec![("↑↓", "interface")],
@@ -145,13 +152,19 @@ fn hints(app: &App) -> Vec<(&'static str, &'static str)> {
             ("l", "listening"),
             ("s", "sort"),
             ("↵", "proc files"),
-            ("P", "who uses port"),
+            ("P", "port"),
+            ("C", "capture"),
+            ("D", "close conn"),
+            ("N", "names"),
             ("x", "signal"),
         ],
+        Tab::Routes => vec![("↑↓", "routes"), ("N", "names")],
+        Tab::Probes => vec![("a", "add probe"), ("d", "delete"), ("↑↓", "select")],
+        Tab::Firewall => vec![("z", "hide zero"), ("s", "sort by rate")],
         Tab::Files => vec![("↵", "who uses this"), ("p", "proc files"), ("r", "rerun"), ("x", "signal")],
         Tab::Storage => vec![],
     };
-    if matches!(app.tab, Tab::Processes | Tab::Sockets | Tab::Files) {
+    if matches!(app.tab, Tab::Processes | Tab::Sockets | Tab::Files | Tab::Firewall) {
         h.push(("/", "filter"));
     }
     h.extend([(":", "lsof query"), ("R", "report"), ("T", "theme"), ("space", "pause"), ("?", "help"), ("q", "quit")]);
@@ -174,6 +187,13 @@ fn draw_footer(f: &mut Frame, app: &App, area: Rect) {
                 Span::styled("   ↵ apply · esc clear", Style::new().fg(theme::dim())),
             ])
         }
+        Mode::AddProbe => Line::from(vec![
+            Span::styled(" PROBE ", Style::new().fg(theme::header_bg()).bg(theme::cyan()).bold()),
+            Span::raw(" "),
+            Span::styled(app.input.clone(), Style::new().fg(theme::fg())),
+            Span::styled("█", Style::new().fg(theme::cyan())),
+            Span::styled("   1.1.1.1 · icmp:2606:4700::1111 · tcp:db.internal:5432 · dns:github.com", Style::new().fg(theme::dim())),
+        ]),
         Mode::Query => Line::from(vec![
             Span::styled(" LSOF ", Style::new().fg(theme::header_bg()).bg(theme::purple()).bold()),
             Span::raw(" "),
@@ -193,6 +213,16 @@ fn draw_footer(f: &mut Frame, app: &App, area: Rect) {
                 }
             }
             let mut spans = vec![Span::raw(" ")];
+            if let Ok(c) = app.net.capture.try_lock() {
+                if let Some((file, start, dur)) = &c.running {
+                    let left = dur.saturating_sub(start.elapsed()).as_secs();
+                    spans.push(Span::styled(format!(" ● REC {left}s "), Style::new().fg(theme::header_bg()).bg(theme::red()).bold()));
+                    spans.push(Span::styled(
+                        format!(" {} ", file.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()),
+                        Style::new().fg(theme::red()),
+                    ));
+                }
+            }
             for (k, d) in hints(app) {
                 spans.push(Span::styled(k, Style::new().fg(theme::blue()).bold()));
                 spans.push(Span::styled(format!(" {d}  "), Style::new().fg(theme::dim())));
@@ -201,6 +231,23 @@ fn draw_footer(f: &mut Frame, app: &App, area: Rect) {
         }
     };
     f.render_widget(Paragraph::new(line), area);
+}
+
+fn draw_confirm_close(f: &mut Frame, app: &App, area: Rect) {
+    let Some(sk) = &app.close_target else { return };
+    let r = centered(area, 70, 8);
+    f.render_widget(Clear, r);
+    let lines = vec![
+        Line::raw(""),
+        Line::from(vec![
+            Span::styled("  close ", Style::new().fg(theme::fg())),
+            Span::styled(sk.name.clone(), Style::new().fg(theme::cyan()).bold()),
+        ]),
+        Line::styled(format!("  owned by {} ({}). The process keeps running.", sk.command, sk.pid), Style::new().fg(theme::muted())),
+        Line::raw(""),
+        Line::styled("  y / ↵ close it · any other key cancels", Style::new().fg(theme::dim())),
+    ];
+    f.render_widget(Paragraph::new(lines).block(panel("close connection", theme::red())), r);
 }
 
 fn draw_theme_picker(f: &mut Frame, app: &App, area: Rect) {
@@ -274,7 +321,7 @@ fn draw_signal_dialog(f: &mut Frame, app: &App, area: Rect) {
 }
 
 fn draw_help(f: &mut Frame, area: Rect) {
-    let r = centered(area, 78, 36);
+    let r = centered(area, 82, 41);
     f.render_widget(Clear, r);
     let sec = |t: &str| Line::styled(format!(" {t}"), Style::new().fg(theme::purple()).bold());
     let row = |k: &str, d: &str| {
@@ -295,15 +342,20 @@ fn draw_help(f: &mut Frame, area: Rect) {
         row("R", "write a Markdown report to ./vigil-report-<time>.md"),
         row("? / q", "help / quit"),
         sec("Processes"),
-        row("c m p n u i o", "sort cpu · mem · pid · name · user · io · conns"),
+        row("c m p n u i o w", "sort cpu · mem · pid · name · user · io · conns · net/s"),
         row("r / t", "reverse sort / toggle process tree"),
         row("↵ or f", "open files of process (lsof -p)"),
         row("x / K / del", "send signal (TERM, KILL, HUP, STOP, …)"),
         sec("Sockets (lsof -i)"),
         row("l", "listening sockets only"),
-        row("s", "cycle sort: process · port · state · proto · remote"),
+        row("s", "sort: process · port · state · proto · remote · rtt · traffic"),
+        row("C / D", "capture this connection (tcpdump) / close it (sock_diag)"),
+        row("N", "reverse DNS names on/off (any view)"),
         row("↵ / P", "open files of owner / everything on this port"),
         row("x", "signal the owning process"),
+        sec("Probes · Firewall"),
+        row("a / d", "add a latency probe / delete it"),
+        row("z / s", "firewall: hide zero-hit rules / sort by packets per second"),
         sec("Open Files"),
         row("↵", "who else has this file / port open"),
         row("p / r", "files of this pid / rerun query"),
@@ -353,11 +405,20 @@ mod tests {
         let files = Arc::new(Mutex::new(FilesStore::default()));
         if let Ok((e, took)) = lsof::run(&["-nP".into(), "-i".into()]) {
             let mut s = sockets.lock().unwrap();
-            s.entries = e;
+            s.entries = std::sync::Arc::new(e);
             s.took = took;
             s.updated = Some(std::time::Instant::now());
         }
-        let mut app = App::new(Sampler::new(), sockets, files.clone(), Duration::from_secs(1), Tab::Overview, Default::default());
+        // VIGIL_SNAP_LIVE=1 starts the real network collectors (routes, probes).
+        let net = if std::env::var_os("VIGIL_SNAP_LIVE").is_some() {
+            crate::app::NetHandles::start(&Default::default()).0
+        } else {
+            crate::app::NetHandles::idle()
+        };
+        let mut app = App::new(Sampler::new(), sockets, files.clone(), Duration::from_secs(1), Tab::Overview, Default::default(), net);
+        if std::env::var_os("VIGIL_SNAP_LIVE").is_some() {
+            std::thread::sleep(Duration::from_secs(7));
+        }
         app.run_query(Query::Pid(std::process::id()));
         std::thread::sleep(Duration::from_millis(1500));
         app.tick();
@@ -415,9 +476,9 @@ mod bench {
         }
         println!("lsof -i            {:>8.2?}/run", t.elapsed() / n);
         let (e, _) = lsof::run(&["-nP".into(), "-i".into()]).unwrap();
-        sockets.lock().unwrap().entries = e;
+        sockets.lock().unwrap().entries = std::sync::Arc::new(e);
 
-        let mut app = App::new(Sampler::new(), sockets, files, Duration::from_secs(1), Tab::Overview, Default::default());
+        let mut app = App::new(Sampler::new(), sockets, files, Duration::from_secs(1), Tab::Overview, Default::default(), crate::app::NetHandles::idle());
         std::thread::sleep(Duration::from_millis(300));
         let t = Instant::now();
         for _ in 0..n {

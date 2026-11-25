@@ -1,3 +1,10 @@
+pub mod capture;
+pub mod firewall;
+pub mod ipinfo;
+pub mod kernelnet;
 pub mod lsof;
+pub mod netinfo;
+pub mod probes;
 pub mod procnet;
+pub mod sockdiag;
 pub mod system;

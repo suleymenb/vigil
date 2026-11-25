@@ -147,7 +147,7 @@ footer { margin-top: 72px; color: var(--muted); font-size: 13px; }
 </style>
 
 <header class="hero col">
-  <span class="eyebrow">Field handbook · v0.2</span>
+  <span class="eyebrow">Field handbook · v0.3</span>
   <h1><span class="mark">◆</span> vigil</h1>
   <p class="lead">A Rust terminal monitor for people who run servers and debug networks. Processes, sockets and open files live in one screen, with <code>lsof</code> built in. This handbook shows how it works and how to solve the usual incidents with it.</p>
   <div class="cmds">
@@ -160,7 +160,7 @@ footer { margin-top: 72px; color: var(--muted); font-size: 13px; }
 <div class="wide">
   <div class="term-wrap" role="img" aria-label="Example of vigil's Overview screen on a web server">
     <div class="term"><div class="bar"><i></i><i></i><i></i></div><pre><span class="badge"> ◆ vigil </span> <span class="c w">prod-web-01</span>  <span class="m">Ubuntu 24.04.1 LTS</span>  <span class="d">6.8.0-45-generic x86_64</span>  <span class="d">up</span> <span class="g">41d 06:12</span>  <span class="d">load</span> <span class="g">1.84</span> <span class="g">1.62</span> <span class="g">1.40</span>  <span class="d">procs</span> <span class="p">214</span>        <span class="g">● live</span>  <span class="d">1000ms</span> <span class="sig"> root </span>
- <span class="d">1</span> <span class="b"><u>Overview</u></span> <span class="bd">│</span> <span class="d">2</span> <span class="m">Processes</span> <span class="bd">│</span> <span class="d">3</span> <span class="m">Network</span> <span class="bd">│</span> <span class="d">4</span> <span class="m">Sockets</span> <span class="bd">│</span> <span class="d">5</span> <span class="m">Open Files</span> <span class="bd">│</span> <span class="d">6</span> <span class="m">Storage</span>                                                     <span class="g">✓ healthy</span>
+ <span class="d">1</span> <span class="b"><u>Overview</u></span> <span class="bd">│</span> <span class="d">2</span> <span class="m">Procs</span> <span class="bd">│</span> <span class="d">3</span> <span class="m">Network</span> <span class="bd">│</span> <span class="d">4</span> <span class="m">Sockets</span> <span class="bd">│</span> <span class="d">5</span> <span class="m">Files</span> <span class="bd">│</span> <span class="d">6</span> <span class="m">Storage</span> <span class="bd">│</span> <span class="d">7</span> <span class="m">Routes</span> <span class="bd">│</span> <span class="d">8</span> <span class="m">Probes</span> <span class="bd">│</span> <span class="d">9</span> <span class="m">Firewall</span>                         <span class="g">✓ healthy</span>
 <span class="bd">╭</span> <span class="b w">cpu  AMD EPYC 7763  8c/16t  54°C</span> <span class="bd">──────────────────────────────────────────────────────────────────────────────────────╮</span>
 <span class="bd">│</span> <span class="d">total</span> <span class="y w"> 38.2%</span>  <span class="g">■■■■■■■■■■</span><span class="y">■■■■</span><span class="bd">■■■■■■■■■■■■■■■■■■■■■■■■■■</span>         <span class="m">C0 </span><span class="g">■■■</span><span class="y">■</span><span class="bd">■■■■</span><span class="y">  44% </span><span class="y">▃▄▅▅▆▄▄▅</span>   <span class="m">C8 </span><span class="g">■■</span><span class="bd">■■■■■■</span><span class="g">  21% </span><span class="g">▂▂▃▂▂▃▂▂</span> <span class="bd">│</span>
 <span class="bd">│</span>                                                       <span class="y">▄▅</span>         <span class="m">C1 </span><span class="g">■■■</span><span class="bd">■■■■■</span><span class="g">  33% </span><span class="g">▂▃▃▄▃▃▃▄</span>   <span class="m">C9 </span><span class="g">■■■</span><span class="bd">■■■■■</span><span class="g">  29% </span><span class="g">▂▃▂▃▃▃▂▃</span> <span class="bd">│</span>
@@ -272,6 +272,9 @@ footer { margin-top: 72px; color: var(--muted); font-size: 13px; }
     <div class="view"><span class="num">3 · Network</span><h3>Interfaces and peers</h3><p>Per interface: rates, totals, packets, <b>errors</b>, MAC and addresses. A graph for the selected interface and the remote hosts with the most connections.</p><span class="keys"><kbd>↑</kbd><kbd>↓</kbd> pick an interface</span></div>
     <div class="view"><span class="num">4 · Sockets</span><h3>Every connection with its owner</h3><p>Proto, local, remote, colour-coded state, pid, process, user and fd. The top bar counts sockets per state.</p><span class="keys"><kbd>l</kbd> LISTEN only · <kbd>s</kbd> sort · <kbd>P</kbd> everything on this port</span></div>
     <div class="view"><span class="num">5 · Open Files</span><h3>lsof on demand</h3><p>By pid, port, path or with raw arguments. The top bar counts files per type (REG, IPv4, PIPE, unix …).</p><span class="keys"><kbd>:</kbd> query · <kbd>↵</kbd> who else has this open · <kbd>r</kbd> rerun</span></div>
+    <div class="view"><span class="num">7 · Routes</span><h3>Routes, neighbours, DNS</h3><p>Routing table, ARP/NDP neighbours with FAILED / INCOMPLETE entries on top, default gateways, nameservers and their reachability.</p><span class="keys">Refreshes every 5 s while open.</span></div>
+    <div class="view"><span class="num">8 · Probes</span><h3>Latency monitor</h3><p>ICMP, TCP-connect and DNS probes with last / min / avg / max, jitter, loss and a history graph. Gateway and DNS servers are probed automatically.</p><span class="keys"><kbd>a</kbd> add · <kbd>d</kbd> delete</span></div>
+    <div class="view"><span class="num">9 · Firewall</span><h3>Rule hit counters</h3><p>nftables, iptables or pf rules with packets, bytes and live packets per second, so you see which rule is dropping traffic right now.</p><span class="keys"><kbd>z</kbd> hits only · <kbd>s</kbd> sort by rate</span></div>
     <div class="view"><span class="num">6 · Storage</span><h3>Disks, I/O and temperatures</h3><p>Usage per filesystem, which processes are reading or writing right now, and sensors with their critical limits.</p><span class="keys">Sensors refresh every 2 s on this view.</span></div>
   </div>
 </div>
@@ -341,6 +344,12 @@ footer { margin-top: 72px; color: var(--muted); font-size: 13px; }
 
   <section id="pane-net" role="tabpanel" aria-labelledby="tab-net" hidden>
     <div class="plays">
+      <article class="play"><h3>Packet loss on the path</h3><p class="sym">Users report slowness; the <span class="mono" style="color:var(--warn)">RETRANS</span> badge is on.</p>
+        <ol><li><kbd>4</kbd> <kbd>s</kbd> until you sort by <b>rtt</b>; the slow and retransmitting connections float to the top.</li><li>Do they share one remote network? Check <kbd>8</kbd> Probes for loss to the gateway versus external targets.</li><li><kbd>C</kbd> on a bad connection records 20 s of it for Wireshark.</li></ol>
+        <p class="why">Loss to the gateway is local (cable, switch, Wi-Fi). Loss only beyond it is the uplink or the provider. The capture shows retransmissions and dup-ACKs as proof.</p></article>
+      <article class="play"><h3>Listen queue overflow</h3><p class="sym">Clients time out while the service looks idle; the <span class="mono" style="color:var(--bad)">LISTEN DROPS</span> badge is on.</p>
+        <ol><li><kbd>4</kbd> <kbd>l</kbd>: listening sockets with a non-zero <b>RECV Q</b> are full.</li><li>Compare the queue with the backlog the service configures.</li><li>Raise the backlog and <code>net.core.somaxconn</code>, or add workers.</li></ol>
+        <p class="why">When the accept queue is full the kernel silently drops SYNs. Nothing is logged by the application, so this is easy to miss without the counter.</p></article>
       <article class="play"><h3>TIME_WAIT storm</h3><p class="sym">Outgoing connections sometimes fail with <code>EADDRNOTAVAIL</code>.</p>
         <ol><li><kbd>4</kbd> and check the <span class="mono" style="color:var(--warn)">TIME_WAIT</span> chip at the top. Past the threshold it also shows as a header badge.</li><li>Press <kbd>s</kbd> until you sort by <b>remote</b> to see which upstream it is.</li><li>Tens of thousands to one backend means there's no keep-alive or connection pooling.</li></ol>
         <p class="why">Every short-lived connection holds an ephemeral port for 60 s after closing. Use pooling or keep-alive, or widen <code>ip_local_port_range</code>.</p></article>
@@ -367,6 +376,44 @@ footer { margin-top: 72px; color: var(--muted); font-size: 13px; }
         <p class="why">UDP has no states. A socket without a remote address is simply waiting for packets, and vigil shows it as listening.</p></article>
     </div>
   </section>
+</div>
+
+<main class="col">
+  <h2 id="netops">Network engineering tools</h2>
+  <p style="margin-top:12px">v0.3 reads the kernel directly for the things <code>ss</code>, <code>nstat</code>, <code>ip</code>, <code>ping</code> and <code>tcpdump</code> tell you, and keeps them on one screen.</p>
+  <div class="tbl"><table>
+    <thead><tr><th>Where</th><th>What you get</th><th>Source</th></tr></thead>
+    <tbody>
+      <tr><td>Sockets</td><td>RTT, retransmits, receive/send queue and live ↓/↑ bandwidth per connection; <code>tcp_info</code> detail line (cwnd, MSS, PMTU, lost, delivery rate) for the selected row</td><td class="num">netlink sock_diag</td></tr>
+      <tr><td>Sockets</td><td>Container sockets with a namespace label (<code>ctr:3f2a9c81d0e4</code>), service names (<code>443 https</code>) and optional reverse DNS (<kbd>N</kbd>)</td><td class="num">/proc/&lt;pid&gt;/net</td></tr>
+      <tr><td>Sockets</td><td><kbd>C</kbd> captures the selected connection with tcpdump into a .pcap; <kbd>D</kbd> closes just that connection</td><td class="num">tcpdump · SOCK_DESTROY</td></tr>
+      <tr><td>Processes</td><td>NET/s column: bandwidth per process, sortable with <kbd>w</kbd></td><td class="num">tcp_info deltas</td></tr>
+      <tr><td>Network</td><td>Link state, speed, duplex, MTU, utilisation and drops per interface; retransmit %, listen overflows, UDP drops, conntrack; top talkers</td><td class="num">/sys/class/net · /proc/net/snmp</td></tr>
+      <tr><td>Routes</td><td>Routing table, neighbours (FAILED first), gateways, DNS</td><td class="num">ip -j · netstat · scutil</td></tr>
+      <tr><td>Probes</td><td>ICMP / TCP / DNS latency with jitter and loss</td><td class="num">ping socket · connect()</td></tr>
+      <tr><td>Firewall</td><td>Rule counters with live packets per second</td><td class="num">nft -j · iptables-save · pfctl</td></tr>
+    </tbody>
+  </table></div>
+</main>
+<div class="wide">
+  <div class="term-wrap" role="img" aria-label="Example of the Probes view">
+    <div class="term"><div class="bar"><i></i><i></i><i></i></div><pre><span class="bd">╭</span> <span class="c w">latency probes (5)</span> <span class="bd">────────────────────────────────────────────────────────────────────────────────────────────────╮</span>
+<span class="bd">│</span> <span class="b w">TARGET                      TYPE  LAST ms   MIN     AVG     MAX     JITTER  LOSS  HISTORY                 </span>      <span class="bd">│</span>
+<span class="bd">│</span><span class="sel"><span class="b">▌</span><span class="w">gateway 10.0.4.1           </span><span class="d">icmp </span><span class="g"> 0.4      </span><span class="m">0.3     </span>0.4     <span class="m">0.9     </span><span class="p">0.1     </span><span class="g w">0%    </span><span class="te">▁▁▁▁▁▂▁▁▁▁▁▁▁▁▁▁▁▁▁▁▂▁▁▁</span>      </span><span class="bd">│</span>
+<span class="bd">│</span> <span class="w">dns 10.0.4.53               </span><span class="d">icmp </span><span class="g"> 0.6      </span><span class="m">0.5     </span>0.6     <span class="m">1.4     </span><span class="p">0.2     </span><span class="g w">0%    </span><span class="te">▁▁▁▁▂▁▁▁▁▁▁▁▂▁▁▁▁▁▁▁▁▁▁▁</span>      <span class="bd">│</span>
+<span class="bd">│</span> <span class="w">tcp:db.internal:5432        </span><span class="c">tcp  </span><span class="g"> 1.2      </span><span class="m">0.9     </span>1.3     <span class="m">4.8     </span><span class="p">0.6     </span><span class="g w">0%    </span><span class="te">▁▂▁▁▁▃▁▁▂▁▁▁▁█▂▁▁▁▁▂▁▁▁▁</span>      <span class="bd">│</span>
+<span class="bd">│</span> <span class="w">1.1.1.1                     </span><span class="c">icmp </span><span class="o"> 118.4    </span><span class="m">9.8     </span>41.2    <span class="m">161.0   </span><span class="p">38.5    </span><span class="r w">12%   </span><span class="te">▁▁▁▁▂▂▃▅▇█▆▇█▇▅▆▇██▇▆▇▆▅</span>      <span class="bd">│</span>
+<span class="bd">│</span> <span class="w">dns:github.com              </span><span class="c">dns  </span><span class="g"> 3.1      </span><span class="m">1.8     </span>2.9     <span class="m">22.4    </span><span class="p">2.4     </span><span class="g w">0%    </span><span class="te">▁▁▁▁▁▁▁▁▁▁█▁▁▁▁▁▁▁▁▁▁▁▁▁</span>      <span class="bd">│</span>
+<span class="bd">╰─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯</span>
+<span class="bd">╭</span> <span class="c w">1.1.1.1  icmp:1.1.1.1</span> <span class="bd">───────────────────────────────────────────────────────────────────────────</span> <span class="d">scale 185.2 ms · loss 12% of 100</span> <span class="bd">╮</span>
+<span class="bd">│</span>                                                       <span class="c">▄▆</span>   <span class="c">▅▇</span>  <span class="c">▆█▇</span>    <span class="c">▅▇█▆</span>                                  <span class="bd">│</span>
+<span class="bd">│</span>                                                  <span class="te">▃▅</span><span class="c">████▆▅████▇▆████▇▅▄▆████▇▆▅▄</span>                                <span class="bd">│</span>
+<span class="bd">│</span>  <span class="te">▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▃▅███████████████████████████████▆▅▃▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂</span>  <span class="bd">│</span>
+<span class="bd">│</span>                                                       <span class="r">x</span>      <span class="r">x  x</span>        <span class="r">x</span>    <span class="r">x</span>                                     <span class="bd">│</span>
+<span class="bd">╰─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯</span>
+ <span class="b w">a</span> <span class="d">add probe  </span><span class="b w">d</span> <span class="d">delete  </span><span class="b w">↑↓</span> <span class="d">select  </span><span class="b w">:</span> <span class="d">lsof query  </span><span class="b w">?</span> <span class="d">help</span></pre></div>
+  </div>
+  <p class="term-cap col">Probes: the gateway, DNS server and database answer within a millisecond; the path to 1.1.1.1 started losing packets and its latency jumped. That points at the uplink, not at your network.</p>
 </div>
 
 <main class="col">
@@ -521,16 +568,14 @@ footer { margin-top: 72px; color: var(--muted); font-size: 13px; }
   </table></div>
 
   <h2 id="roadmap">Roadmap</h2>
-  <p style="margin-top:12px">What I'd add next to keep vigil useful for years, in order of priority. Themes, the config file, health badges and reports shipped in v0.2.</p>
+  <p style="margin-top:12px">What comes next, in order of priority. v0.3 shipped sock_diag TCP internals, per-process bandwidth, kernel counters, routes, probes, firewall counters, capture and namespaces.</p>
   <div class="road">
-    <div class="item"><span class="pri p1">Next</span><div><h3>Containers: Docker, Podman and cgroups</h3><p>A view with CPU, memory and network per container, read from cgroup v2 (<code>/sys/fs/cgroup</code>), so without the Docker daemon. On modern servers almost everything runs in a container.</p></div></div>
-    <div class="item"><span class="pri p1">Next</span><div><h3>Linux: netlink <code>sock_diag</code> instead of /proc/net</h3><p>This adds RTT, retransmits, cwnd and the send/receive queue per socket, like <code>ss -ti</code>. For a network engineer that's gold: you see a slow connection before users complain.</p></div></div>
-    <div class="item"><span class="pri p2">Then</span><div><h3>Bandwidth per process</h3><p>Through eBPF on Linux or <code>nettop</code> on macOS. Then you don't just know that 40 MB/s is crossing the link, but also which process is sending it.</p></div></div>
-    <div class="item"><span class="pri p2">Then</span><div><h3>systemd units and the journal</h3><p>Status, restarts and the last log lines per unit. Selecting a unit and seeing <code>journalctl -u</code> right away saves you a terminal window.</p></div></div>
-    <div class="item"><span class="pri p2">Then</span><div><h3>Alert hooks</h3><p>A webhook or command that runs when a health badge appears, so vigil can page you while you look at something else.</p></div></div>
-    <div class="item"><span class="pri p3">Later</span><div><h3>Record and replay</h3><p>Write snapshots to JSON and replay them later or on another machine. Handy for a post-mortem: what was going on at 03:12?</p></div></div>
-    <div class="item"><span class="pri p3">Later</span><div><h3>Async reverse DNS and latency targets</h3><p>Show IPs as host names without freezing the interface. Plus a small ping and TCP-connect monitor for targets you configure yourself.</p></div></div>
-    <div class="item"><span class="pri p3">Later</span><div><h3>Custom themes in the config file</h3><p>Define your own palette in <code>config.toml</code> instead of picking one of the built-in themes.</p></div></div>
+    <div class="item"><span class="pri p1">Next</span><div><h3>Containers: Docker, Podman and cgroups</h3><p>CPU, memory and network per container from cgroup v2, without the Docker daemon. Sockets are already tagged per container; this adds the resource side.</p></div></div>
+    <div class="item"><span class="pri p1">Next</span><div><h3>Alert hooks</h3><p>Run a command or call a webhook when a health badge appears, so vigil can page you while you look at something else.</p></div></div>
+    <div class="item"><span class="pri p2">Then</span><div><h3>systemd units and the journal</h3><p>Status, restarts and the last log lines per unit, next to the processes they own.</p></div></div>
+    <div class="item"><span class="pri p2">Then</span><div><h3>UDP and QUIC bandwidth</h3><p>Per-flow byte counters for UDP need eBPF; TCP is covered by sock_diag today.</p></div></div>
+    <div class="item"><span class="pri p3">Later</span><div><h3>Record and replay</h3><p>Write snapshots to disk and replay them later for a post-mortem: what was going on at 03:12?</p></div></div>
+    <div class="item"><span class="pri p3">Later</span><div><h3>Custom themes in the config file</h3><p>Define your own palette in <code>config.toml</code>.</p></div></div>
   </div>
 
   <h2 id="keys">Keyboard shortcuts</h2>
@@ -545,22 +590,30 @@ footer { margin-top: 72px; color: var(--muted); font-size: 13px; }
       <dt><kbd>:</kbd></dt><dd>lsof query</dd>
       <dt><kbd>T</kbd></dt><dd>theme picker</dd>
       <dt><kbd>R</kbd></dt><dd>write a report</dd>
+      <dt><kbd>N</kbd></dt><dd>reverse DNS on/off</dd>
+      <dt><kbd>7</kbd> <kbd>8</kbd> <kbd>9</kbd></dt><dd>routes · probes · firewall</dd>
       <dt><kbd>space</kbd></dt><dd>pause</dd>
       <dt><kbd>+</kbd> <kbd>-</kbd></dt><dd>interval ±250 ms</dd>
       <dt><kbd>?</kbd> <kbd>q</kbd></dt><dd>help / quit</dd></dl></div>
     <div><h3>Processes</h3><dl>
       <dt><kbd>c</kbd> <kbd>m</kbd> <kbd>p</kbd></dt><dd>sort cpu / mem / pid</dd>
       <dt><kbd>n</kbd> <kbd>u</kbd></dt><dd>sort name / user</dd>
-      <dt><kbd>i</kbd> <kbd>o</kbd></dt><dd>sort disk io / sockets</dd>
+      <dt><kbd>i</kbd> <kbd>o</kbd> <kbd>w</kbd></dt><dd>sort disk io / sockets / net</dd>
       <dt><kbd>r</kbd> <kbd>t</kbd></dt><dd>reverse / process tree</dd>
       <dt><kbd>↵</kbd> <kbd>f</kbd></dt><dd>open files (lsof -p)</dd>
       <dt><kbd>x</kbd> <kbd>K</kbd></dt><dd>send signal</dd></dl></div>
     <div><h3>Sockets</h3><dl>
       <dt><kbd>l</kbd></dt><dd>LISTEN only</dd>
-      <dt><kbd>s</kbd></dt><dd>sort: process → port → state → proto → remote</dd>
+      <dt><kbd>s</kbd></dt><dd>sort: process → port → state → proto → remote → rtt → traffic</dd>
+      <dt><kbd>C</kbd></dt><dd>capture this connection (tcpdump)</dd>
+      <dt><kbd>D</kbd></dt><dd>close this connection</dd>
       <dt><kbd>↵</kbd></dt><dd>open files of owner</dd>
       <dt><kbd>P</kbd></dt><dd>everything on this port</dd>
       <dt><kbd>x</kbd></dt><dd>signal the owner</dd></dl></div>
+    <div><h3>Probes · Firewall</h3><dl>
+      <dt><kbd>a</kbd> <kbd>d</kbd></dt><dd>add / delete a probe</dd>
+      <dt><kbd>z</kbd></dt><dd>firewall: rules with hits only</dd>
+      <dt><kbd>s</kbd></dt><dd>firewall: sort by packets/s</dd></dl></div>
     <div><h3>Open Files</h3><dl>
       <dt><kbd>↵</kbd></dt><dd>who else has this file / port open</dd>
       <dt><kbd>p</kbd></dt><dd>all files of this pid</dd>

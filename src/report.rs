@@ -9,7 +9,9 @@
 //! vigil report --fail-on-alert      # exit code 2 when a health threshold is crossed
 //! ```
 //!
-//! Inside the TUI, `R` writes the same Markdown report to a file.
+//! The Markdown is written for humans first: an overall status, a summary
+//! table, numbered findings with a recommended action each, then the detail.
+//! Inside the TUI, `R` writes the same report to a file.
 
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
@@ -19,17 +21,25 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use serde::Serialize;
 
 use crate::app::compute_alerts;
+use crate::collect::ipinfo;
 use crate::collect::lsof::{OpenFile, SocketBackend, SocketScanner};
 use crate::collect::system::{ProcInfo, Sampler};
 use crate::config::Alerts;
+use crate::theme;
 use crate::util::{fmt_bytes, fmt_duration, fmt_rate};
+
+// ───────────────────────────── data model ─────────────────────────────
 
 #[derive(Serialize)]
 pub struct Report {
     pub generated_utc: String,
     pub vigil_version: &'static str,
+    /// "healthy", "warning" or "critical".
+    pub status: &'static str,
     pub host: Host,
+    /// Header badge texts, exactly as the TUI shows them.
     pub health: Vec<String>,
+    pub findings: Vec<Finding>,
     pub cpu: Cpu,
     pub memory: Memory,
     pub psi: Option<Psi>,
@@ -37,6 +47,16 @@ pub struct Report {
     pub network: Network,
     pub filesystems: Vec<Filesystem>,
     pub temperatures: Vec<Temperature>,
+}
+
+#[derive(Serialize)]
+pub struct Finding {
+    /// "critical", "warning" or "info".
+    pub severity: &'static str,
+    pub area: &'static str,
+    pub title: String,
+    pub detail: String,
+    pub action: String,
 }
 
 #[derive(Serialize)]
@@ -105,6 +125,7 @@ pub struct Listener {
     pub proto: String,
     pub address: String,
     pub port: Option<u16>,
+    pub service: Option<&'static str>,
     pub process: String,
     pub pid: u32,
     pub user: String,
@@ -115,19 +136,51 @@ pub struct Listener {
 #[derive(Serialize)]
 pub struct Peer {
     pub host: String,
+    pub scope: &'static str,
     pub connections: usize,
+}
+
+#[derive(Serialize, Clone)]
+pub struct Connection {
+    pub local: String,
+    pub remote: String,
+    pub state: String,
+    pub process: String,
+    pub pid: u32,
+    pub rtt_ms: f64,
+    pub retransmits: u32,
+    pub rx_bytes_per_s: f64,
+    pub tx_bytes_per_s: f64,
 }
 
 #[derive(Serialize)]
 pub struct Interface {
     pub name: String,
+    pub state: Option<String>,
+    pub kind: Option<String>,
+    pub speed_mbps: Option<u32>,
+    pub mtu: u64,
+    pub utilization_pct: Option<f64>,
     pub rx_bytes_per_s: f64,
     pub tx_bytes_per_s: f64,
     pub rx_total_bytes: u64,
     pub tx_total_bytes: u64,
     pub rx_errors: u64,
     pub tx_errors: u64,
+    pub dropped: u64,
     pub addresses: Vec<String>,
+}
+
+#[derive(Serialize)]
+pub struct Kernel {
+    pub retransmit_pct: f64,
+    pub retransmits_per_s: f64,
+    pub listen_overflows_per_s: f64,
+    pub udp_buffer_errors_per_s: f64,
+    pub tcp_timeouts_per_s: f64,
+    pub resets_sent_per_s: f64,
+    pub established: u64,
+    pub conntrack: Option<(u64, u64)>,
 }
 
 #[derive(Serialize)]
@@ -136,6 +189,9 @@ pub struct Network {
     pub socket_error: Option<String>,
     pub states: BTreeMap<String, usize>,
     pub listening: Vec<Listener>,
+    pub kernel: Option<Kernel>,
+    pub slowest: Vec<Connection>,
+    pub busiest: Vec<Connection>,
     pub top_peers: Vec<Peer>,
     pub interfaces: Vec<Interface>,
 }
@@ -157,6 +213,44 @@ pub struct Temperature {
     pub critical: Option<f32>,
 }
 
+// ───────────────────────────── findings ─────────────────────────────
+
+/// Services that should rarely listen on every interface.
+const SENSITIVE: &[(u16, &str)] = &[
+    (2375, "Docker API (unencrypted)"),
+    (2379, "etcd"),
+    (3306, "MySQL / MariaDB"),
+    (5432, "PostgreSQL"),
+    (5984, "CouchDB"),
+    (6379, "Redis"),
+    (9200, "Elasticsearch"),
+    (11211, "Memcached"),
+    (27017, "MongoDB"),
+];
+
+/// Turn a header badge into a finding with an explanation and an action.
+fn finding_from_alert(text: &str, critical: bool) -> Finding {
+    let sev = if critical { "critical" } else { "warning" };
+    let (area, detail, action): (&'static str, &str, &str) = match text.split_whitespace().next().unwrap_or("") {
+        "MEM" => ("Memory", "Used memory is above the threshold; the kernel may start reclaiming cache aggressively or invoke the OOM killer.", "Check the top processes by memory below; look for leaks (RSS that keeps growing) or add memory."),
+        "SWAP" => ("Memory", "Heavy swap use slows everything that touches swapped pages.", "Find what pushed memory out (top memory table); consider more RAM or lower vm.swappiness."),
+        "DISK" => ("Storage", "A filesystem is nearly full. Writes, logs and databases fail when it reaches 100 %.", "Free space or grow the volume. If `du` disagrees with `df`, look for deleted-but-open files: `vigil -q +L1`."),
+        "LOAD" => ("CPU", "More runnable tasks than CPUs: work is queueing.", "Check top CPU processes and PSI; a high load with low CPU usually means I/O wait."),
+        "CLOSE_WAIT" => ("Network", "The remote side closed these connections but the local application never closed its sockets.", "This is an application bug (missing close()). Find the owner in the Sockets view (filter close_wait) and fix or restart it."),
+        "TIME_WAIT" => ("Network", "Many short-lived connections; ephemeral ports can run out (EADDRNOTAVAIL).", "Use keep-alive or connection pooling to the upstreams with the most connections; widen net.ipv4.ip_local_port_range if needed."),
+        "TEMP" => ("Hardware", "A sensor is above the temperature threshold; the CPU may throttle.", "Check cooling and sustained CPU load."),
+        "PSI" => ("Pressure", "Tasks were stalled waiting for a resource for a large share of the last 10 s.", "The resource named in the badge (cpu, mem, io) is the bottleneck; start there."),
+        "RETRANS" => ("Network", "TCP is retransmitting a high share of segments: packets are being lost on the path.", "Look for interface errors/drops and congested links; compare RTT per connection in the Sockets view."),
+        "LISTEN" => ("Network", "The accept queue of a listening socket overflowed: new connections were dropped silently.", "The service accepts too slowly. Raise its backlog (and net.core.somaxconn) or add workers."),
+        "UDP" => ("Network", "UDP packets were dropped because a socket buffer was full (DNS, syslog, metrics …).", "Raise net.core.rmem_max / the application's SO_RCVBUF, or make the consumer faster."),
+        "CONNTRACK" => ("Network", "The connection-tracking table is nearly full. When full, the kernel drops new connections.", "Raise net.netfilter.nf_conntrack_max or shorten conntrack timeouts."),
+        "LOSS" => ("Network", "A latency probe is losing packets.", "Check the path to that target: gateway, firewall or upstream link."),
+        _ if text.contains("DROPS") => ("Network", "An interface is dropping packets.", "Check ring buffers (ethtool -g), CPU saturation on softirq and link utilization."),
+        _ => ("System", "A configured health threshold was crossed.", "See the matching section below."),
+    };
+    Finding { severity: sev, area, title: text.to_string(), detail: detail.into(), action: action.into() }
+}
+
 // ───────────────────────────── building ─────────────────────────────
 
 fn proc_row(p: &ProcInfo, conns: &BTreeMap<u32, usize>) -> Proc {
@@ -169,6 +263,23 @@ fn proc_row(p: &ProcInfo, conns: &BTreeMap<u32, usize>) -> Proc {
         sockets: conns.get(&p.pid).copied().unwrap_or(0),
         command: p.cmd.to_string(),
     }
+}
+
+fn conn_row(e: &OpenFile) -> Option<Connection> {
+    let n = e.net.as_ref()?;
+    let t = n.tcp?;
+    let (l, r) = e.endpoints();
+    Some(Connection {
+        local: l.to_string(),
+        remote: r.to_string(),
+        state: e.state.clone(),
+        process: e.command.clone(),
+        pid: e.pid,
+        rtt_ms: t.rtt_us as f64 / 1000.0,
+        retransmits: t.total_retrans,
+        rx_bytes_per_s: n.rx_rate,
+        tx_bytes_per_s: n.tx_rate,
+    })
 }
 
 pub fn build(
@@ -186,6 +297,7 @@ pub fn build(
     let mut conns: BTreeMap<u32, usize> = BTreeMap::new();
     let mut peers: BTreeMap<String, usize> = BTreeMap::new();
     let mut listening: BTreeMap<(String, String), Listener> = BTreeMap::new();
+    let mut tcp_conns: Vec<Connection> = Vec::new();
     for e in sockets {
         let key = if e.state.is_empty() { e.proto.clone() } else { e.state.clone() };
         *states.entry(key).or_default() += 1;
@@ -196,31 +308,48 @@ pub fn build(
         if !remote.is_empty() {
             let host = remote.rsplit_once(':').map(|(h, _)| h).unwrap_or(remote);
             *peers.entry(host.to_string()).or_default() += 1;
+            if let Some(c) = conn_row(e) {
+                tcp_conns.push(c);
+            }
         }
         if e.is_listening() {
             let addr = local.rsplit_once(':').map(|(h, _)| h).unwrap_or(local).to_string();
             let exposed = matches!(addr.as_str(), "*" | "0.0.0.0" | "[::]");
-            listening
-                .entry((e.proto.clone(), local.to_string()))
-                .or_insert(Listener {
-                    proto: format!("{} {}", e.proto, e.ftype.trim_start_matches("IP")),
-                    address: addr,
-                    port: e.local_port(),
-                    process: e.command.clone(),
-                    pid: e.pid,
-                    user: e.user.clone(),
-                    exposed,
-                });
+            let port = e.local_port();
+            listening.entry((e.proto.clone(), local.to_string())).or_insert(Listener {
+                proto: format!("{} {}", e.proto, e.ftype.trim_start_matches("IP")),
+                address: addr,
+                port,
+                service: port.and_then(|p| ipinfo::service(p, e.proto == "UDP")),
+                process: e.command.clone(),
+                pid: e.pid,
+                user: e.user.clone(),
+                exposed,
+            });
         }
     }
     let close_wait = states.get("CLOSE_WAIT").copied().unwrap_or(0);
     let time_wait = states.get("TIME_WAIT").copied().unwrap_or(0);
     let mut listening: Vec<Listener> = listening.into_values().collect();
     listening.sort_by_key(|l| (l.port.unwrap_or(u16::MAX), l.proto.clone()));
-    let mut top_peers: Vec<Peer> =
-        peers.into_iter().map(|(host, connections)| Peer { host, connections }).collect();
+    let mut top_peers: Vec<Peer> = peers
+        .into_iter()
+        .map(|(host, connections)| {
+            let scope = host.trim_matches(['[', ']']).parse().map(|ip| ipinfo::scope(&ip)).unwrap_or("");
+            Peer { host, scope, connections }
+        })
+        .collect();
     top_peers.sort_by_key(|p| std::cmp::Reverse(p.connections));
     top_peers.truncate(top);
+
+    let mut slowest: Vec<Connection> =
+        tcp_conns.iter().filter(|c| c.rtt_ms > 0.0 && c.state == "ESTABLISHED").cloned().collect();
+    slowest.sort_by(|a, b| b.rtt_ms.total_cmp(&a.rtt_ms));
+    slowest.truncate(top);
+    let mut busiest: Vec<Connection> =
+        tcp_conns.into_iter().filter(|c| c.rx_bytes_per_s + c.tx_bytes_per_s >= 1.0).collect();
+    busiest.sort_by(|a, b| (b.rx_bytes_per_s + b.tx_bytes_per_s).total_cmp(&(a.rx_bytes_per_s + a.tx_bytes_per_s)));
+    busiest.truncate(top);
 
     // CPU.
     let cores: Vec<f64> = s.cpu_cores.iter().map(|h| h.last()).collect();
@@ -237,15 +366,56 @@ pub fn build(
     by_cpu.sort_by(|a, b| b.cpu.total_cmp(&a.cpu));
     let mut by_mem: Vec<&ProcInfo> = s.procs.iter().collect();
     by_mem.sort_by_key(|p| std::cmp::Reverse(p.mem));
+    let zombies = s.procs.iter().filter(|p| p.status == "Zombie").count();
 
-    let health = compute_alerts(s, alerts, close_wait, time_wait)
-        .into_iter()
-        .map(|(t, _)| t)
-        .collect();
+    // Findings: every health badge, plus checks only a report has room for.
+    let badges = compute_alerts(s, alerts, close_wait, time_wait, &[]);
+    let mut findings: Vec<Finding> = badges.iter().map(|(t, c)| finding_from_alert(t, *c == theme::red())).collect();
+    for l in listening.iter().filter(|l| l.exposed) {
+        if let Some((_, name)) = l.port.and_then(|p| SENSITIVE.iter().find(|(sp, _)| *sp == p)) {
+            findings.push(Finding {
+                severity: "warning",
+                area: "Exposure",
+                title: format!("{name} listens on all interfaces (port {})", l.port.unwrap_or(0)),
+                detail: format!("{} (pid {}) is bound to {}, so it is reachable from every network this host is on.", l.process, l.pid, l.address),
+                action: "Bind it to 127.0.0.1 or a private interface, or make sure a firewall restricts the port.".into(),
+            });
+        }
+    }
+    for i in s.ifaces.iter().filter(|i| i.rx_errors + i.tx_errors > 0) {
+        findings.push(Finding {
+            severity: "info",
+            area: "Network",
+            title: format!("{} has {} rx / {} tx errors", i.name, i.rx_errors, i.tx_errors),
+            detail: "Interface errors point at layer 1/2: cabling, duplex mismatch, optics or driver.".into(),
+            action: format!("Check `ethtool -S {}` and the switch port counters.", i.name),
+        });
+    }
+    if zombies > 0 {
+        findings.push(Finding {
+            severity: "info",
+            area: "Processes",
+            title: format!("{zombies} zombie process(es)"),
+            detail: "Zombies are finished processes whose parent never collected their exit status.".into(),
+            action: "Find the parent in the process tree (`t` in vigil) and fix or restart it; zombies ignore signals.".into(),
+        });
+    }
+    let rank = |s: &str| match s {
+        "critical" => 0,
+        "warning" => 1,
+        _ => 2,
+    };
+    findings.sort_by_key(|f| rank(f.severity));
+    let status = match findings.first().map(|f| f.severity) {
+        Some("critical") => "critical",
+        Some("warning") => "warning",
+        _ => "healthy",
+    };
 
     Report {
         generated_utc: utc_timestamp(SystemTime::now()),
         vigil_version: env!("CARGO_PKG_VERSION"),
+        status,
         host: Host {
             hostname: s.host.hostname.clone(),
             os: s.host.os.clone(),
@@ -256,7 +426,8 @@ pub fn build(
             logical_cores: s.ncores(),
             uptime_seconds: s.uptime,
         },
-        health,
+        health: badges.into_iter().map(|(t, _)| t).collect(),
+        findings,
         cpu: Cpu {
             total_pct: s.cpu_total.last(),
             core_min_pct: if core_min.is_finite() { core_min } else { 0.0 },
@@ -279,7 +450,7 @@ pub fn build(
         processes: Processes {
             total: s.procs.len(),
             running: s.procs.iter().filter(|p| p.status == "Running").count(),
-            zombies: s.procs.iter().filter(|p| p.status == "Zombie").count(),
+            zombies,
             top_cpu: by_cpu.iter().take(top).map(|p| proc_row(p, &conns)).collect(),
             top_memory: by_mem.iter().take(top).map(|p| proc_row(p, &conns)).collect(),
         },
@@ -288,6 +459,18 @@ pub fn build(
             socket_error,
             states,
             listening,
+            kernel: s.knet.counters.as_ref().map(|c| Kernel {
+                retransmit_pct: c.retrans_pct,
+                retransmits_per_s: c.retrans_rate,
+                listen_overflows_per_s: c.listen_overflow_rate.max(c.listen_drop_rate),
+                udp_buffer_errors_per_s: c.udp_rcvbuf_err_rate + c.udp_sndbuf_err_rate,
+                tcp_timeouts_per_s: c.tcp_timeout_rate,
+                resets_sent_per_s: c.resets_out_rate,
+                established: c.curr_estab,
+                conntrack: c.conntrack,
+            }),
+            slowest,
+            busiest,
             top_peers,
             interfaces: s
                 .ifaces
@@ -295,12 +478,18 @@ pub fn build(
                 .filter(|i| i.rx_total + i.tx_total > 0)
                 .map(|i| Interface {
                     name: i.name.clone(),
+                    state: i.oper.clone(),
+                    kind: i.kind.clone(),
+                    speed_mbps: i.speed_mbps,
+                    mtu: i.mtu,
+                    utilization_pct: i.util_pct(),
                     rx_bytes_per_s: i.rx_rate,
                     tx_bytes_per_s: i.tx_rate,
                     rx_total_bytes: i.rx_total,
                     tx_total_bytes: i.tx_total,
                     rx_errors: i.rx_errors,
                     tx_errors: i.tx_errors,
+                    dropped: i.rx_dropped + i.tx_dropped,
                     addresses: i.addrs.clone(),
                 })
                 .collect(),
@@ -327,115 +516,192 @@ pub fn build(
     }
 }
 
-// ───────────────────────────── rendering ─────────────────────────────
+// ───────────────────────────── Markdown ─────────────────────────────
 
-fn md_escape(s: &str) -> String {
+fn md(s: &str) -> String {
     s.replace('|', "\\|").replace('\n', " ")
 }
 
-fn short(s: &str, n: usize) -> String {
-    crate::util::truncate(s, n)
+fn code(s: &str, n: usize) -> String {
+    format!("`{}`", md(&crate::util::truncate(s, n)).replace('`', "'"))
+}
+
+fn sev_label(s: &str) -> &'static str {
+    match s {
+        "critical" => "🔴 Critical",
+        "warning" => "🟠 Warning",
+        _ => "🔵 Info",
+    }
+}
+
+fn status_cell(bad: bool, label: &'static str) -> &'static str {
+    if bad {
+        label
+    } else {
+        "🟢 OK"
+    }
 }
 
 pub fn to_markdown(r: &Report) -> String {
-    let mut o = String::with_capacity(8 * 1024);
+    let mut o = String::with_capacity(16 * 1024);
     let h = &r.host;
-    let _ = writeln!(o, "# vigil report: {}\n", h.hostname);
-    let _ = writeln!(o, "Generated {} · vigil {}\n", r.generated_utc, r.vigil_version);
+    let n = &r.network;
+    let crit = r.findings.iter().filter(|f| f.severity == "critical").count();
+    let warn = r.findings.iter().filter(|f| f.severity == "warning").count();
+    let info = r.findings.len() - crit - warn;
+    let has = |p: &str| r.health.iter().any(|x| x.starts_with(p));
 
-    let _ = writeln!(o, "## Health\n");
-    if r.health.is_empty() {
-        let _ = writeln!(o, "**OK**: no thresholds exceeded.\n");
-    } else {
-        for a in &r.health {
-            let _ = writeln!(o, "- **{a}**");
-        }
-        o.push('\n');
-    }
+    // ── Title + status banner
+    let _ = writeln!(o, "# System report: {}\n", h.hostname);
+    let banner = match r.status {
+        "critical" => format!("🔴 **CRITICAL**: {crit} critical and {warn} warning finding(s) need attention"),
+        "warning" => format!("🟠 **ATTENTION**: {warn} warning finding(s) to review"),
+        _ => "🟢 **HEALTHY**: all health checks passed".to_string(),
+    };
+    let _ = writeln!(o, "> {banner}  ");
+    let _ = writeln!(
+        o,
+        "> {} · {} · kernel {} · up {} · {} · vigil {}\n",
+        md(&h.os),
+        h.arch,
+        md(&h.kernel),
+        fmt_duration(h.uptime_seconds),
+        r.generated_utc,
+        r.vigil_version
+    );
+    let _ = writeln!(
+        o,
+        "**Contents:** [Summary](#summary) · [Findings](#findings) · [Processes](#processes) · [Network](#network) · [Storage](#storage) · [System](#system)\n"
+    );
 
-    let _ = writeln!(o, "## System\n");
-    let _ = writeln!(o, "| | |\n|---|---|");
-    let _ = writeln!(o, "| Host | {} |", md_escape(&h.hostname));
-    let _ = writeln!(o, "| OS | {} |", md_escape(&h.os));
-    let _ = writeln!(o, "| Kernel | {} ({}) |", md_escape(&h.kernel), h.arch);
-    let _ = writeln!(o, "| CPU | {} · {} cores / {} threads |", md_escape(&h.cpu_model), h.physical_cores, h.logical_cores);
-    let _ = writeln!(o, "| Uptime | {} |\n", fmt_duration(h.uptime_seconds));
-
+    // ── Summary
     let c = &r.cpu;
     let m = &r.memory;
-    let _ = writeln!(o, "## Resources\n");
-    let _ = writeln!(o, "| Metric | Value |\n|---|---|");
-    let _ = writeln!(o, "| CPU total | {:.1} % |", c.total_pct);
+    let fullest = r.filesystems.iter().max_by(|a, b| a.used_pct.total_cmp(&b.used_pct));
+    let est = n.states.get("ESTABLISHED").copied().unwrap_or(0);
+    let tw = n.states.get("TIME_WAIT").copied().unwrap_or(0);
+    let cw = n.states.get("CLOSE_WAIT").copied().unwrap_or(0);
+    let exposed = n.listening.iter().filter(|l| l.exposed).count();
+    let _ = writeln!(o, "## Summary\n");
+    let _ = writeln!(o, "| Area | Measurement | Status |\n|---|---|---|");
     let _ = writeln!(
         o,
-        "| Per core | min {:.0} % · avg {:.0} % · max {:.0} % (core {}) |",
-        c.core_min_pct, c.core_avg_pct, c.core_max_pct, c.busiest_core
+        "| CPU | {:.1} % busy · load {:.2} / {:.2} / {:.2} ({:.2} per core) | {} |",
+        c.total_pct, c.load[0], c.load[1], c.load[2], c.load_per_core,
+        status_cell(has("LOAD"), "🟠 High load")
     );
-    let _ = writeln!(o, "| Load 1/5/15 | {:.2} / {:.2} / {:.2} ({:.2} per core) |", c.load[0], c.load[1], c.load[2], c.load_per_core);
     let _ = writeln!(
         o,
-        "| Memory | {} / {} ({:.0} %), {} available |",
-        fmt_bytes(m.used_bytes),
-        fmt_bytes(m.total_bytes),
-        m.used_pct,
-        fmt_bytes(m.available_bytes)
+        "| Memory | {:.0} % used ({} of {}), {} available | {} |",
+        m.used_pct, fmt_bytes(m.used_bytes), fmt_bytes(m.total_bytes), fmt_bytes(m.available_bytes),
+        status_cell(has("MEM"), "🔴 High")
     );
-    let _ = writeln!(o, "| Swap | {} / {} ({:.0} %) |", fmt_bytes(m.swap_used_bytes), fmt_bytes(m.swap_total_bytes), m.swap_used_pct);
-    if let Some(p) = &r.psi {
+    let _ = writeln!(
+        o,
+        "| Swap | {:.0} % used ({} of {}) | {} |",
+        m.swap_used_pct, fmt_bytes(m.swap_used_bytes), fmt_bytes(m.swap_total_bytes),
+        status_cell(has("SWAP"), "🟠 High")
+    );
+    if let Some(f) = fullest {
         let _ = writeln!(
             o,
-            "| PSI some avg10 | cpu {:.1} % · memory {:.1} % · io {:.1} % |",
-            p.cpu_some_avg10, p.memory_some_avg10, p.io_some_avg10
+            "| Disk | fullest is `{}` at {:.0} % ({} free) | {} |",
+            md(&f.mount), f.used_pct, fmt_bytes(f.total_bytes.saturating_sub(f.used_bytes)),
+            status_cell(has("DISK"), "🔴 Nearly full")
         );
     }
     let _ = writeln!(
         o,
-        "| Processes | {} total · {} running · {} zombie |\n",
-        r.processes.total, r.processes.running, r.processes.zombies
+        "| Connections | {est} established · {tw} TIME_WAIT · {cw} CLOSE_WAIT | {} |",
+        status_cell(has("CLOSE_WAIT") || has("TIME_WAIT"), "🟠 Check")
     );
+    if let Some(k) = &n.kernel {
+        let _ = writeln!(
+            o,
+            "| TCP health | {:.2} % retransmitted · {:.1} listen overflows/s · {:.1} UDP drops/s | {} |",
+            k.retransmit_pct, k.listen_overflows_per_s, k.udp_buffer_errors_per_s,
+            status_cell(has("RETRANS") || has("LISTEN") || has("UDP"), "🟠 Check")
+        );
+    }
+    let _ = writeln!(
+        o,
+        "| Listening ports | {} total, {exposed} on all interfaces | {} |",
+        n.listening.len(),
+        status_cell(r.findings.iter().any(|f| f.area == "Exposure"), "🟠 Review")
+    );
+    let _ = writeln!(
+        o,
+        "| Processes | {} total · {} zombie | {} |\n",
+        r.processes.total, r.processes.zombies,
+        status_cell(r.processes.zombies > 0, "🔵 Zombies")
+    );
+    if let Some(p) = &r.psi {
+        let _ = writeln!(
+            o,
+            "Pressure (PSI, share of the last 10 s with stalled tasks): cpu **{:.1} %** · memory **{:.1} %** · io **{:.1} %**\n",
+            p.cpu_some_avg10, p.memory_some_avg10, p.io_some_avg10
+        );
+    }
 
-    for (title, list) in [("Top processes by CPU", &r.processes.top_cpu), ("Top processes by memory", &r.processes.top_memory)] {
-        let _ = writeln!(o, "## {title}\n");
-        let _ = writeln!(o, "| PID | User | CPU % | RSS | Sockets | Command |\n|---:|---|---:|---:|---:|---|");
+    // ── Findings
+    let _ = writeln!(o, "## Findings\n");
+    if r.findings.is_empty() {
+        let _ = writeln!(o, "No findings. All health checks passed.\n");
+    } else {
+        let _ = writeln!(o, "{crit} critical · {warn} warning · {info} info\n");
+        for (i, f) in r.findings.iter().enumerate() {
+            let _ = writeln!(o, "### {}. {}: {}\n", i + 1, sev_label(f.severity), md(&f.title));
+            let _ = writeln!(o, "- **Area:** {}", f.area);
+            let _ = writeln!(o, "- **What it means:** {}", f.detail);
+            let _ = writeln!(o, "- **Recommended action:** {}\n", f.action);
+        }
+    }
+
+    // ── Processes
+    let _ = writeln!(o, "## Processes\n");
+    for (title, list) in [("Top by CPU", &r.processes.top_cpu), ("Top by memory", &r.processes.top_memory)] {
+        let _ = writeln!(o, "### {title}\n");
+        let _ = writeln!(o, "| PID | User | CPU % | Memory | Sockets | Command |\n|---:|---|---:|---:|---:|---|");
         for p in list {
-            let cmd = if p.command.is_empty() { p.name.clone() } else { p.command.clone() };
+            let cmd = if p.command.is_empty() { &p.name } else { &p.command };
             let _ = writeln!(
                 o,
-                "| {} | {} | {:.1} | {} | {} | `{}` |",
-                p.pid,
-                md_escape(&p.user),
-                p.cpu_pct,
-                fmt_bytes(p.rss_bytes),
-                p.sockets,
-                md_escape(&short(&cmd, 90)).replace('`', "'")
+                "| {} | {} | {:.1} | {} | {} | {} |",
+                p.pid, md(&p.user), p.cpu_pct, fmt_bytes(p.rss_bytes), p.sockets, code(cmd, 80)
             );
         }
         o.push('\n');
     }
 
-    let n = &r.network;
-    let _ = writeln!(o, "## Listening ports\n");
+    // ── Network
+    let _ = writeln!(o, "## Network\n");
     if let Some(e) = &n.socket_error {
-        let _ = writeln!(o, "_Socket scan failed: {}_\n", md_escape(e));
+        let _ = writeln!(o, "> ⚠️ Socket scan failed: {}\n", md(e));
     }
-    let _ = writeln!(o, "Source: `{}`. Exposed means bound to every interface.\n", n.socket_source);
-    let _ = writeln!(o, "| Port | Proto | Address | Process | PID | User | Exposed |\n|---:|---|---|---|---:|---|---|");
+    let _ = writeln!(o, "### Listening ports\n");
+    let _ = writeln!(
+        o,
+        "Source: `{}`. **Exposed** means bound to every interface (`*`, `0.0.0.0`, `[::]`).\n",
+        n.socket_source
+    );
+    let _ = writeln!(o, "| Port | Service | Proto | Address | Process | PID | User | Exposed |\n|---:|---|---|---|---|---:|---|:---:|");
     for l in &n.listening {
         let _ = writeln!(
             o,
-            "| {} | {} | {} | {} | {} | {} | {} |",
+            "| {} | {} | {} | `{}` | {} | {} | {} | {} |",
             l.port.map(|p| p.to_string()).unwrap_or_default(),
+            l.service.unwrap_or(""),
             l.proto,
-            md_escape(&l.address),
-            md_escape(&l.process),
+            md(&l.address),
+            md(&l.process),
             l.pid,
-            md_escape(&l.user),
+            md(&l.user),
             if l.exposed { "**yes**" } else { "no" }
         );
     }
     o.push('\n');
 
-    let _ = writeln!(o, "## Connections\n");
+    let _ = writeln!(o, "### Connection states\n");
     let _ = writeln!(o, "| State | Count |\n|---|---:|");
     let mut st: Vec<_> = n.states.iter().collect();
     st.sort_by_key(|(_, c)| std::cmp::Reverse(**c));
@@ -443,63 +709,120 @@ pub fn to_markdown(r: &Report) -> String {
         let _ = writeln!(o, "| {k} | {v} |");
     }
     o.push('\n');
-    if !n.top_peers.is_empty() {
-        let _ = writeln!(o, "### Top remote peers\n");
-        let _ = writeln!(o, "| Host | Connections |\n|---|---:|");
-        for p in &n.top_peers {
-            let _ = writeln!(o, "| {} | {} |", md_escape(&p.host), p.connections);
+
+    if let Some(k) = &n.kernel {
+        let _ = writeln!(o, "### Kernel TCP/UDP counters\n");
+        let _ = writeln!(o, "| Counter | Value |\n|---|---:|");
+        let _ = writeln!(o, "| Retransmitted segments | {:.2} % ({:.0}/s) |", k.retransmit_pct, k.retransmits_per_s);
+        let _ = writeln!(o, "| Listen-queue overflows | {:.1}/s |", k.listen_overflows_per_s);
+        let _ = writeln!(o, "| UDP buffer errors | {:.1}/s |", k.udp_buffer_errors_per_s);
+        let _ = writeln!(o, "| TCP timeouts | {:.1}/s |", k.tcp_timeouts_per_s);
+        let _ = writeln!(o, "| Resets sent | {:.1}/s |", k.resets_sent_per_s);
+        let _ = writeln!(o, "| Established | {} |", k.established);
+        if let Some((cnt, max)) = k.conntrack {
+            let p = if max > 0 { cnt as f64 / max as f64 * 100.0 } else { 0.0 };
+            let _ = writeln!(o, "| Conntrack table | {cnt} / {max} ({p:.0} %) |");
         }
         o.push('\n');
     }
 
-    let _ = writeln!(o, "## Interfaces\n");
-    let _ = writeln!(o, "| Interface | RX/s | TX/s | RX total | TX total | Errors RX/TX | Addresses |\n|---|---:|---:|---:|---:|---:|---|");
+    for (title, list) in [("Slowest connections (RTT)", &n.slowest), ("Busiest connections", &n.busiest)] {
+        if list.is_empty() {
+            continue;
+        }
+        let _ = writeln!(o, "### {title}\n");
+        let _ = writeln!(o, "| Remote | Local | Process | RTT ms | Retrans | ↓ RX/s | ↑ TX/s |\n|---|---|---|---:|---:|---:|---:|");
+        for c in list {
+            let _ = writeln!(
+                o,
+                "| `{}` | `{}` | {} ({}) | {:.1} | {} | {} | {} |",
+                md(&c.remote), md(&c.local), md(&c.process), c.pid, c.rtt_ms, c.retransmits,
+                fmt_rate(c.rx_bytes_per_s), fmt_rate(c.tx_bytes_per_s)
+            );
+        }
+        o.push('\n');
+    }
+
+    if !n.top_peers.is_empty() {
+        let _ = writeln!(o, "### Top remote peers\n");
+        let _ = writeln!(o, "| Host | Scope | Connections |\n|---|---|---:|");
+        for p in &n.top_peers {
+            let _ = writeln!(o, "| `{}` | {} | {} |", md(&p.host), p.scope, p.connections);
+        }
+        o.push('\n');
+    }
+
+    let _ = writeln!(o, "### Interfaces\n");
+    let _ = writeln!(o, "| Interface | State | Link | MTU | ↓ RX/s | ↑ TX/s | Util | Errors | Dropped | Addresses |\n|---|---|---|---:|---:|---:|---:|---:|---:|---|");
     for i in &n.interfaces {
+        let link = match (i.speed_mbps, &i.kind) {
+            (Some(s), Some(k)) => format!("{s} Mb/s {k}"),
+            (Some(s), None) => format!("{s} Mb/s"),
+            (None, Some(k)) => k.clone(),
+            _ => String::new(),
+        };
         let _ = writeln!(
             o,
-            "| {} | {} | {} | {} | {} | {}/{} | {} |",
+            "| `{}` | {} | {} | {} | {} | {} | {} | {}/{} | {} | {} |",
             i.name,
+            i.state.clone().unwrap_or_default(),
+            link,
+            i.mtu,
             fmt_rate(i.rx_bytes_per_s),
             fmt_rate(i.tx_bytes_per_s),
-            fmt_bytes(i.rx_total_bytes),
-            fmt_bytes(i.tx_total_bytes),
+            i.utilization_pct.map(|u| format!("{u:.0} %")).unwrap_or_default(),
             i.rx_errors,
             i.tx_errors,
+            i.dropped,
             i.addresses.join(", ")
         );
     }
     o.push('\n');
 
-    let _ = writeln!(o, "## Filesystems\n");
-    let _ = writeln!(o, "| Mount | Device | FS | Size | Used | Use % |\n|---|---|---|---:|---:|---:|");
+    // ── Storage
+    let _ = writeln!(o, "## Storage\n");
+    let _ = writeln!(o, "| Mount | Device | FS | Size | Used | Free | Use |\n|---|---|---|---:|---:|---:|---:|");
     for f in &r.filesystems {
         let _ = writeln!(
             o,
-            "| {} | {} | {} | {} | {} | {:.0} % |",
-            md_escape(&f.mount),
-            md_escape(&f.device),
-            f.fs,
-            fmt_bytes(f.total_bytes),
-            fmt_bytes(f.used_bytes),
-            f.used_pct
+            "| `{}` | {} | {} | {} | {} | {} | {:.0} % |",
+            md(&f.mount), md(&f.device), f.fs, fmt_bytes(f.total_bytes), fmt_bytes(f.used_bytes),
+            fmt_bytes(f.total_bytes.saturating_sub(f.used_bytes)), f.used_pct
         );
     }
     o.push('\n');
-
     if !r.temperatures.is_empty() {
-        let _ = writeln!(o, "## Temperatures\n");
+        let _ = writeln!(o, "<details><summary>Temperatures ({} sensors)</summary>\n", r.temperatures.len());
         let _ = writeln!(o, "| Sensor | °C | Critical |\n|---|---:|---:|");
         for t in &r.temperatures {
             let _ = writeln!(
                 o,
                 "| {} | {:.1} | {} |",
-                md_escape(&t.sensor),
-                t.celsius,
-                t.critical.map(|c| format!("{c:.0}")).unwrap_or_else(|| "-".into())
+                md(&t.sensor), t.celsius, t.critical.map(|c| format!("{c:.0}")).unwrap_or_else(|| "-".into())
             );
         }
-        o.push('\n');
+        let _ = writeln!(o, "\n</details>\n");
     }
+
+    // ── System
+    let _ = writeln!(o, "## System\n");
+    let _ = writeln!(o, "| | |\n|---|---|");
+    let _ = writeln!(o, "| Host | `{}` |", md(&h.hostname));
+    let _ = writeln!(o, "| Operating system | {} |", md(&h.os));
+    let _ = writeln!(o, "| Kernel | {} ({}) |", md(&h.kernel), h.arch);
+    let _ = writeln!(o, "| CPU | {} · {} cores / {} threads |", md(&h.cpu_model), h.physical_cores, h.logical_cores);
+    let _ = writeln!(
+        o,
+        "| Per-core load | min {:.0} % · avg {:.0} % · max {:.0} % (core {}) |",
+        c.core_min_pct, c.core_avg_pct, c.core_max_pct, c.busiest_core
+    );
+    let _ = writeln!(o, "| Uptime | {} |", fmt_duration(h.uptime_seconds));
+    let _ = writeln!(o, "| Report generated | {} |\n", r.generated_utc);
+    let _ = writeln!(
+        o,
+        "---\n*Generated by [vigil](https://github.com/suleymenb/vigil) {}. Values are a point-in-time sample; rates cover the sampling window.*",
+        r.vigil_version
+    );
     o
 }
 
@@ -521,9 +844,11 @@ pub struct Options {
 /// `vigil report`: sample, build, print or write. Returns the process exit code.
 pub fn run_cli(opts: Options, alerts: &Alerts) -> std::io::Result<i32> {
     let mut sampler = Sampler::new();
-    let (res, backend) = SocketScanner::new(opts.force_lsof).scan();
+    let mut scanner = SocketScanner::new(opts.force_lsof);
+    let _ = scanner.scan(); // first pass primes per-connection byte counters
     std::thread::sleep(opts.sample);
     sampler.refresh();
+    let (res, backend) = scanner.scan();
     let (sockets, err) = match res {
         Ok((e, _)) => (e, None),
         Err(e) => (Vec::new(), Some(e)),
@@ -612,16 +937,23 @@ mod tests {
         std::thread::sleep(Duration::from_millis(300));
         s.refresh();
         let socks = crate::collect::lsof::parse(
-            "p1\ncnginx\nLroot\nf6\ntIPv4\nPTCP\nn*:80\nTST=LISTEN\nf7\ntIPv4\nPTCP\nn10.0.0.1:80->10.0.0.9:5000\nTST=CLOSE_WAIT\n",
+            "p1\ncnginx\nLroot\nf6\ntIPv4\nPTCP\nn*:80\nTST=LISTEN\nf7\ntIPv4\nPTCP\nn10.0.0.1:80->10.0.0.9:5000\nTST=CLOSE_WAIT\np2\ncpostgres\nLpostgres\nf5\ntIPv4\nPTCP\nn*:5432\nTST=LISTEN\n",
         );
         let r = build(&s, &socks, SocketBackend::Lsof, None, &Alerts::default(), 5);
-        assert_eq!(r.network.listening.len(), 1);
+        assert_eq!(r.network.listening.len(), 2);
         assert!(r.network.listening[0].exposed);
         assert_eq!(r.network.states.get("CLOSE_WAIT"), Some(&1));
+        // Postgres on all interfaces must become a finding with an action.
+        let f = r.findings.iter().find(|f| f.area == "Exposure").expect("exposure finding");
+        assert!(f.title.contains("PostgreSQL"));
+        assert_ne!(r.status, "healthy");
         let md = to_markdown(&r);
-        assert!(md.contains("## Listening ports"));
+        for section in ["## Summary", "## Findings", "### Listening ports", "## Storage", "Recommended action"] {
+            assert!(md.contains(section), "missing {section}");
+        }
         let js = to_json(&r);
         let v: serde_json::Value = serde_json::from_str(&js).unwrap();
         assert_eq!(v["network"]["listening"][0]["port"], 80);
+        assert!(v["findings"].as_array().unwrap().iter().any(|f| f["area"] == "Exposure"));
     }
 }

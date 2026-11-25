@@ -1,219 +1,414 @@
-# vigil ◆
+<div align="center">
 
-A modern terminal system monitor written in Rust, built for DevOps, networking and Linux
-administration. Inspired by btop, with **lsof** as a first-class citizen.
+# ◆ vigil
 
-Runs on **Linux** and **macOS**. Single static binary, ~1.5 MB, ~2.5 % of one core at a 1 s refresh.
+**The terminal monitor for people who run servers and debug networks.**
 
-📖 **[Handbook with playbooks and diagrams](docs/handbook.html)**
+Processes, sockets, open files, routes, latency and firewall counters on one screen.<br>
+One static binary. `lsof` built in. Linux and macOS.
 
-## Views
+[![CI](https://github.com/suleymenb/vigil/actions/workflows/ci.yml/badge.svg)](https://github.com/suleymenb/vigil/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/suleymenb/vigil?color=7aa2f7)](https://github.com/suleymenb/vigil/releases/latest)
+[![License: MIT](https://img.shields.io/badge/license-MIT-9ece6a)](LICENSE)
+![Platforms](https://img.shields.io/badge/platforms-linux%20%7C%20macOS-bb9af7)
 
-| # | View | What you get |
-|---|------|--------------|
-| 1 | **Overview** | Gradient CPU graph, per-core meters + sparklines, RAM/swap, rx/tx graphs, top processes, **listening ports**, TCP state counts, disks |
-| 2 | **Processes** | Sortable table with CPU, memory, disk I/O per second, **sockets per process**, state, uptime, full command line. Tree view, filter, send signals, detail pane |
-| 3 | **Network** | Every interface: rates, totals, packets, errors, MAC, addresses. Per-interface traffic graph, top remote peers |
-| 4 | **Sockets** | Live socket table: proto, local/remote, colour-coded TCP state, pid, process, user, fd. Listening-only mode |
-| 5 | **Open Files** | On-demand lsof queries: by pid, port, path ("who has this file open?") or raw lsof arguments |
-| 6 | **Storage** | Filesystem usage, disk I/O per process, temperature sensors |
+<img src="docs/img/overview.svg" alt="vigil showing CPU, memory, network, top processes, listening ports and TCP states" width="100%">
 
-`vigil report` prints a **point-in-time report** (Markdown or JSON) for tickets, cron jobs and
-post-mortems; `R` writes the same report from inside the TUI.
+[Install](#install) · [Cookbook](#cookbook) · [Views](#views) · [Keys](#keys) · [Reports](#reports) · [Config](#configuration) · [FAQ](#faq) · [Handbook](docs/handbook.html)
 
-The header shows **health badges** on every view (memory, swap, disk, load, CLOSE_WAIT,
-TIME_WAIT, temperature and, on Linux, PSI pressure) as soon as a threshold is crossed.
+</div>
+
+---
+
+## Why vigil
+
+- **Built for incidents.** Health badges in the header tell you what's wrong before you start looking: memory, disk, load, retransmits, listen-queue drops, conntrack, packet loss.
+- **lsof built in.** Who uses this port, who holds this file, which deleted file is filling the disk: one keystroke or one flag.
+- **Network internals without five other tools.** RTT, retransmits and bandwidth per connection (`ss -ti`), kernel counters (`nstat`), routes and neighbours (`ip`), latency probes (`ping`), firewall hits (`nft`) and one-key packet capture (`tcpdump`).
+- **Light.** About 2.5 % of one core and 16 MB of RAM at a 1 s refresh. Nothing is drawn when nothing changes.
+- **Readable reports.** `vigil report` writes a Markdown or JSON snapshot with findings and recommended actions, ready for a ticket.
 
 ## Install
 
-Pre-built binaries for Linux (x86_64, aarch64, static musl) and macOS (Apple Silicon, Intel)
-are attached to every [GitHub release](https://github.com/suleymenb/vigil/releases).
+**One line** (Linux x86_64/arm64, macOS Apple Silicon/Intel):
 
 ```bash
-tar xzf vigil-*-x86_64-unknown-linux-musl.tar.gz && sudo mv vigil /usr/local/bin/
+curl -fsSL https://raw.githubusercontent.com/suleymenb/vigil/master/install.sh | sh
 ```
 
-Or build from source:
+The script picks the right binary, checks its SHA-256 and installs to `/usr/local/bin`.
+Install somewhere else with `VIGIL_INSTALL_DIR=~/.local/bin`, or a fixed version with `VIGIL_VERSION=v0.3.0`.
+
+<details>
+<summary><b>Manual download, or build from source</b></summary>
+
+| Platform | Download |
+|---|---|
+| Linux x86_64 (static) | [vigil-x86_64-unknown-linux-musl.tar.gz](https://github.com/suleymenb/vigil/releases/latest/download/vigil-x86_64-unknown-linux-musl.tar.gz) |
+| Linux arm64 (static) | [vigil-aarch64-unknown-linux-musl.tar.gz](https://github.com/suleymenb/vigil/releases/latest/download/vigil-aarch64-unknown-linux-musl.tar.gz) |
+| macOS Apple Silicon | [vigil-aarch64-apple-darwin.tar.gz](https://github.com/suleymenb/vigil/releases/latest/download/vigil-aarch64-apple-darwin.tar.gz) |
+| macOS Intel | [vigil-x86_64-apple-darwin.tar.gz](https://github.com/suleymenb/vigil/releases/latest/download/vigil-x86_64-apple-darwin.tar.gz) |
 
 ```bash
-cargo install --git https://github.com/suleymenb/vigil
+tar xzf vigil-*.tar.gz && sudo install -m 755 vigil-*/vigil /usr/local/bin/vigil
 ```
 
-Requires `lsof` for the Open Files view (preinstalled on macOS; `apt install lsof` / `dnf install lsof`).
-
-> **Tip:** run `sudo vigil` to see sockets and open files of **all** users.
-> Without root, lsof only shows your own processes.
-
-## Usage
-
-```
-vigil [OPTIONS]
-vigil report [-f md|json] [-o FILE] [--top N] [--sample-ms MS] [--fail-on-alert]
-
-  -i, --interval <ms>         sampling interval (default 1000)
-      --lsof-interval <sec>   socket scan interval (default 3)
-  -t, --tab <name>            start view: overview, processes, network, sockets, files, storage
-  -q, --query <query>         run an lsof query at startup, e.g. ":443" or "1234"
-      --theme <name>          colour theme, or "auto"
-      --list-themes           list themes and exit
-      --config <path>         use a different config file
-      --no-save               don't write settings back on quit
-      --no-mouse              disable mouse support
-      --lsof-sockets          use lsof -i instead of /proc/net (Linux)
-```
+From source (needs a recent stable Rust toolchain):
 
 ```bash
-sudo vigil -t sockets           # straight to the socket table
-sudo vigil -q :5432             # who is using the postgres port?
-vigil -q /var/log/syslog        # who has this log file open?
-vigil --theme ansi              # 16-colour mode for plain SSH / tmux sessions
-sudo vigil report > incident.md # snapshot for a ticket
-vigil report -f json | jq .health
+cargo install --git https://github.com/suleymenb/vigil --locked
 ```
 
-### Reports
+`cargo install` puts the binary in `~/.cargo/bin`, which `sudo` doesn't search. Use `sudo "$(which vigil)"` or the release binary above.
 
-`vigil report` samples the system for one second and prints: health, system info, CPU and
-load, memory and swap, PSI, top processes by CPU and memory (with socket counts), listening
-ports with an **exposed** flag for services bound to every interface, connection states, top
-remote peers, interfaces, filesystems and temperatures.
+</details>
+
+Then run it:
 
 ```bash
-# cron: mail a report only when something is wrong
-*/5 * * * * vigil report --fail-on-alert -o /tmp/vigil.md || mail -s "vigil: $(hostname)" ops@example.com < /tmp/vigil.md
+sudo vigil
 ```
 
-`--fail-on-alert` exits with code 2 when any `[alerts]` threshold is exceeded.
+Root is optional, but without it lsof, sockets and firewall counters only show your own processes.
+
+## Cookbook
+
+Every common question, as one command.
+
+| I want to… | Run |
+|---|---|
+| See everything at a glance | `sudo vigil` |
+| Find who is using port 8080 | `sudo vigil -q :8080` |
+| Find who has a file open | `sudo vigil -q /var/log/syslog` |
+| Find deleted files that still fill the disk | `sudo vigil -q +L1` |
+| List everything one process has open | `sudo vigil -q 1234` |
+| See every connection to one host | `sudo vigil -q @10.0.0.5` |
+| Check what listens on all interfaces | `sudo vigil -t sockets`, then press `l` |
+| Find slow or lossy connections | `sudo vigil -t sockets`, then `s` until the sort says **rtt** |
+| See bandwidth per process | `sudo vigil -t procs`, then `w` |
+| Ping the gateway, DNS and my own targets | `vigil -t probes`, then `a` to add one |
+| See which firewall rule drops traffic | `sudo vigil -t firewall`, then `z` and `s` |
+| Check routes, ARP/NDP and DNS servers | `vigil -t routes` |
+| Capture one connection for Wireshark | Sockets view, select it, press `C` |
+| Close one stuck connection | Sockets view, select it, press `D` |
+| Write a report for an incident ticket | `sudo vigil report > incident.md` |
+| Get machine-readable output | `vigil report -f json \| jq .findings` |
+| Alert from cron when something is wrong | `vigil report --fail-on-alert -o /tmp/vigil.md \|\| mail -s "$(hostname)" ops@example.com < /tmp/vigil.md` |
+| Use it over plain SSH or in tmux | `vigil --theme ansi` |
+| Change the colours | press `T` |
+
+## Views
+
+Switch with `1`–`9`, `Tab` or `←` `→`.
+
+| Key | View | What you see |
+|:---:|---|---|
+| `1` | **Overview** | CPU graph and per-core meters, memory, rx/tx graphs, top processes, listening ports, TCP states, disks |
+| `2` | **Procs** | Sortable process table with CPU, memory, disk I/O, sockets and **bandwidth per process**; tree view; signals |
+| `3` | **Network** | Interfaces with link speed, duplex, MTU, utilisation, drops and errors; TCP/UDP health counters; top talkers and peers |
+| `4` | **Sockets** | Every connection with owner, state, **RTT, retransmits, queues and bandwidth**; container namespace; service names |
+| `5` | **Files** | lsof queries by pid, port, path or raw arguments |
+| `6` | **Storage** | Filesystem usage, disk I/O per process, temperature sensors |
+| `7` | **Routes** | Routing table, neighbours (failed first), default gateways, DNS servers |
+| `8` | **Probes** | ICMP, TCP and DNS latency with jitter, loss and history |
+| `9` | **Firewall** | nftables, iptables or pf rules with packets, bytes and live packets per second |
+
+<img src="docs/img/probes.svg" alt="Probes view: gateway, DNS and database under a millisecond, 12 percent loss to 1.1.1.1" width="100%">
+
+## Health badges
+
+The right side of the tab row shows a badge for every threshold that is crossed, on every view. All thresholds live in the `[alerts]` section of the config; `0` turns a check off.
+
+| Badge | Default | Meaning |
+|---|---:|---|
+| `MEM` / `SWAP` | 90 % / 50 % | Memory pressure |
+| `DISK` | 90 % | Fullest filesystem |
+| `LOAD` | 1.5 per core | Work is queueing |
+| `RETRANS` | 2 % | TCP segments retransmitted: packet loss on a path |
+| `LISTEN DROPS` | 1/s | Accept queue full: new connections silently dropped |
+| `UDP DROPS` | 1/s | UDP socket buffers overflowing (DNS, syslog, metrics) |
+| `CONNTRACK` | 80 % | Connection-tracking table nearly full |
+| `CLOSE_WAIT` / `TIME_WAIT` | 100 / 20 000 | App not closing sockets / too many short connections |
+| `<iface> DROPS` | 10/s | Interface dropping packets |
+| `LOSS <probe>` | 20 % | A latency probe is losing packets |
+| `PSI` | 20 % | Linux pressure stall: tasks waiting on CPU, memory or I/O |
+| `TEMP` | 90 °C | Hottest sensor |
 
 ## Keys
 
-**Global**
+<table>
+<tr><td valign="top">
+
+**Everywhere**
 
 | Key | Action |
-|-----|--------|
-| `1`–`6`, `Tab`, `←` `→` | switch view |
-| `↑` `↓` `j` `k` `PgUp` `PgDn` `g` `G` | navigate (mouse wheel works too) |
-| `/` | filter the current list (`Esc` clears) |
-| `:` | lsof query (see below) |
-| `T` | theme picker with live preview (`b` toggles the background) |
-| `R` | write a Markdown report to `./vigil-report-<time>.md` |
-| `space` | pause / resume |
-| `+` / `-` | refresh interval ±250 ms |
-| `?` | help |
-| `q`, `Ctrl-C` | quit |
+|---|---|
+| `1`–`9` `Tab` | switch view |
+| `↑` `↓` `j` `k` | move (mouse wheel too) |
+| `g` / `G` | top / bottom |
+| `/` | filter the list |
+| `:` | lsof query |
+| `N` | reverse DNS on/off |
+| `R` | write a report |
+| `T` | theme picker |
+| `space` | pause |
+| `+` / `-` | refresh ±250 ms |
+| `?` / `q` | help / quit |
 
-**Processes**: `c` `m` `p` `n` `u` `i` `o` sort by cpu / mem / pid / name / user / io / connections
-(press again to reverse), `r` reverse, `t` process tree, `Enter`/`f` open files of the process
-(`lsof -p`), `x`/`K`/`Del` send a signal (TERM, KILL, HUP, INT, QUIT, STOP, CONT, USR1, USR2).
+</td><td valign="top">
 
-**Sockets**: `l` listening only, `s` cycle sort (process / port / state / proto / remote),
-`Enter` open files of the owner, `P` everything on this port, `x` signal the owner.
+**Procs**
 
-**Open Files**: `Enter` who else has this file / port open, `p` all files of this pid,
-`r` rerun the query, `x` signal.
+| Key | Action |
+|---|---|
+| `c` `m` `p` `n` | sort cpu, mem, pid, name |
+| `u` `i` `o` `w` | sort user, io, sockets, net |
+| `r` | reverse sort |
+| `t` | process tree |
+| `↵` | open files |
+| `x` | send signal |
 
-### lsof query syntax (`:`)
+**Probes**
 
-| Input | Runs |
-|-------|------|
-| `1234` | `lsof -nP -p 1234` |
-| `:8080` | `lsof -nP -i :8080` |
-| `tcp:443`, `udp`, `@10.0.0.5` | `lsof -nP -i <input>` |
-| `/var/lib/docker` | `lsof -nP /var/lib/docker` |
-| `+L1` | deleted files that are still open (the classic "disk full but `du` disagrees") |
-| `-u www-data -i` | raw arguments: `lsof -nP -u www-data -i` |
+| Key | Action |
+|---|---|
+| `a` / `d` | add / delete probe |
+
+</td><td valign="top">
+
+**Sockets**
+
+| Key | Action |
+|---|---|
+| `l` | listening only |
+| `s` | sort (… rtt, traffic) |
+| `↵` | owner's open files |
+| `P` | everything on this port |
+| `C` | capture (tcpdump) |
+| `D` | close connection |
+| `x` | signal owner |
+
+**Firewall**
+
+| Key | Action |
+|---|---|
+| `z` | rules with hits only |
+| `s` | sort by packets/s |
+
+</td></tr>
+</table>
+
+### lsof query syntax
+
+Press `:` in any view, or start with `-q`.
+
+| You type | Runs | Use |
+|---|---|---|
+| `1234` | `lsof -nP -p 1234` | everything a process has open |
+| `:8080` | `lsof -nP -i :8080` | who uses this port |
+| `tcp:443` / `udp:53` | `lsof -nP -i tcp:443` | one protocol |
+| `@10.0.0.5` | `lsof -nP -i @10.0.0.5` | all connections with a host |
+| `/var/lib/docker` | `lsof -nP /var/lib/docker` | who has this path open |
+| `+L1` | `lsof -nP +L1` | deleted files still taking space |
+| `-u www-data -i` | `lsof -nP -u www-data -i` | any raw lsof arguments |
+
+## Reports
+
+`vigil report` samples the system for one second and prints a report: an overall status, a summary table, **findings with a recommended action each**, then processes, listening ports (with an *exposed* flag), connection states, slowest and busiest connections, kernel counters, interfaces and storage.
+
+```bash
+sudo vigil report > incident.md                 # Markdown for a ticket
+vigil report -f json -o snapshot.json           # JSON for scripts and dashboards
+vigil report --fail-on-alert                    # exit code 2 when a threshold is crossed
+vigil report --top 25 --sample-ms 3000          # longer tables, longer sampling window
+```
+
+<details>
+<summary><b>Example report (excerpt)</b></summary>
+
+> # System report: prod-web-01
+>
+> > 🟠 **ATTENTION**: 2 warning finding(s) to review
+> > Ubuntu 24.04.1 LTS · x86_64 · kernel 6.8.0-45-generic · up 41d 06:12 · 2026-11-25 10:12:03 UTC · vigil 0.3.0
+>
+> | Area | Measurement | Status |
+> |---|---|---|
+> | CPU | 38.2 % busy · load 1.84 / 1.62 / 1.40 (0.12 per core) | 🟢 OK |
+> | Memory | 64 % used (20.1G of 31.3G), 11.2G available | 🟢 OK |
+> | Connections | 1284 established · 611 TIME_WAIT · 14 CLOSE_WAIT | 🟢 OK |
+> | TCP health | 3.10 % retransmitted · 0.0 listen overflows/s · 0.0 UDP drops/s | 🟠 Check |
+> | Listening ports | 6 total, 4 on all interfaces | 🟠 Review |
+>
+> ### 1. 🟠 Warning: RETRANS 3.1%
+> - **What it means:** TCP is retransmitting a high share of segments: packets are being lost on the path.
+> - **Recommended action:** Look for interface errors/drops and congested links; compare RTT per connection in the Sockets view.
+>
+> ### 2. 🟠 Warning: PostgreSQL listens on all interfaces (port 5432)
+> - **What it means:** postgres (pid 2290) is bound to *, so it is reachable from every network this host is on.
+> - **Recommended action:** Bind it to 127.0.0.1 or a private interface, or make sure a firewall restricts the port.
+
+</details>
 
 ## Themes
 
-`tokyo-night` · `catppuccin-mocha` · `gruvbox` · `nord` · `dracula` · `rose-pine` ·
-`solarized-light` · `cyberpunk` · `phosphor` · `ansi`
+Press `T` for a live preview. `↑` `↓` to browse, `Enter` to keep, `b` for transparent background.
 
-Themes change glyphs as well as colours:
+`tokyo-night` · `catppuccin-mocha` · `gruvbox` · `nord` · `dracula` · `rose-pine` · `solarized-light` · **`cyberpunk`** · **`phosphor`** · `ansi`
 
-- **cyberpunk**: neon cyan, magenta and yellow on near-black, thick frames and `▰▱` meters.
-- **phosphor**: a green P1 phosphor CRT. Pure 7-bit ASCII (`+--+`, `###...`, `|-` trees),
-  monochrome green, and severity shown only by brightness, like a VT100.
-
-`ansi` uses your terminal's own 16 colours, so it works over plain SSH, in tmux without
-truecolor and on serial consoles. With `theme = "auto"` (the default), vigil picks `ansi` only
-on terminals that can't show 24-bit colour (the Linux VT console, `vt100`, `screen`, `dumb`);
-everything else gets `tokyo-night`. A theme is only written to the config when you pick it
-with `T` and confirm with Enter.
+- **cyberpunk**: neon on near-black, thick frames, `▰▱` meters.
+- **phosphor**: a green CRT in pure ASCII (`+--+`, `[####....]`), monochrome, severity by brightness only.
+- **ansi**: your terminal's own 16 colours, for plain SSH, tmux without truecolor and serial consoles. `auto` (the default) picks it only on terminals that can't do 24-bit colour.
 
 ## Configuration
 
-Settings live in `~/.config/vigil/config.toml` (or `$XDG_CONFIG_HOME/vigil/config.toml`), on
-macOS too. Under `sudo`, vigil uses the config of the user who ran sudo (not root's), so
-`vigil` and `sudo vigil` share one set of settings. Theme, interval, sort order and tree mode are saved on quit. Precedence is
-command-line flags, then the config file, then defaults. A broken config never stops vigil:
-it falls back to defaults and shows a warning.
+`~/.config/vigil/config.toml`, created on first quit. Command-line flags win over the file. Under `sudo`, vigil uses the config of the user who ran sudo.
+
+<details>
+<summary><b>All options</b></summary>
 
 ```toml
-theme = "nord"
-background = true          # false = keep the terminal's own (transparent) background
+theme = "auto"              # or any name from: vigil --list-themes
+background = true           # false keeps your terminal's own background
 interval_ms = 1000
-lsof_interval_s = 3
+lsof_interval_s = 3         # socket scan interval
 start_tab = "overview"
-proc_sort = "cpu"
+proc_sort = "cpu"           # cpu mem pid name user io conn net
 proc_desc = true
 proc_tree = false
 mouse = true
 
-[alerts]                   # 0 disables a check
+[network]
+probes = ["1.1.1.1", "tcp:db.internal:5432", "dns:github.com"]
+auto_probes = true          # also ping default gateway(s) and DNS servers
+probe_interval_s = 5
+capture_seconds = 20        # length of a C capture
+reverse_dns = false         # N toggles it
+
+[alerts]                    # 0 disables a check
 mem_pct = 90.0
 swap_pct = 50.0
 disk_pct = 90.0
-load_per_core = 1.5        # 1-minute load / logical cores
+load_per_core = 1.5
 close_wait = 100
 time_wait = 20000
 temp_c = 90.0
-psi_pct = 20.0             # Linux PSI "some avg10" for cpu / memory / io
+psi_pct = 20.0
+retrans_pct = 2.0
+listen_drops_per_s = 1.0
+udp_drops_per_s = 1.0
+conntrack_pct = 80.0
+iface_drops_per_s = 10.0
+probe_loss_pct = 20.0
 ```
 
-## Architecture
+</details>
+
+<details>
+<summary><b>Command-line flags</b></summary>
 
 ```
-src/
-├── main.rs            CLI (clap), config precedence, terminal setup, event loop
-├── app.rs             state, sorting, process tree, caches, alerts, key handling
-├── config.rs          TOML config, atomic save
-├── theme.rs           10 palettes + glyph sets behind one atomic index
-├── report.rs          `vigil report` / `R`: Markdown and JSON snapshots
-├── util.rs            formatting, ring-buffer history, sparklines
-├── collect/
-│   ├── system.rs      sysinfo sampler + slow thread for disks/sensors, PSI
-│   ├── procnet.rs     native Linux /proc/net socket reader
-│   └── lsof.rs        lsof -F parser, socket worker, async queries
-└── ui/
-    ├── mod.rs         header, health badges, footer, help, dialogs
-    ├── overview.rs    dashboard
-    ├── views.rs       processes, network, sockets, files, storage
-    └── widgets.rs     gradient area graph (1/8 cell resolution), meters
+vigil [OPTIONS]
+  -t, --tab <name>            start view: overview procs network sockets files storage routes probes firewall
+  -q, --query <query>         run an lsof query at start, e.g. ":443" or "1234"
+  -i, --interval <ms>         sampling interval (default 1000)
+      --theme <name>          colour theme, or "auto"
+      --list-themes           list themes and exit
+      --config <path>         use another config file
+      --no-save               don't write settings on quit
+      --lsof-interval <sec>   socket scan interval (default 3)
+      --lsof-sockets          use lsof -i instead of /proc/net (Linux)
+      --no-mouse              disable the mouse
+
+vigil report [-f md|json] [-o FILE] [--top N] [--sample-ms MS] [--fail-on-alert]
 ```
 
-Performance choices, all measured (see the handbook for numbers):
+</details>
 
-- Collectors run on background threads; the UI thread only handles input and drawing.
-- On Linux, sockets come straight from `/proc/net/{tcp,udp}[6]` (including TIME_WAIT,
-  which lsof can't show). The inode-to-pid map is cached. `--lsof-sockets` forces lsof.
+## Platform support
+
+| Feature | Linux | macOS |
+|---|:---:|:---:|
+| Processes, CPU, memory, disks, sensors | ✅ | ✅ |
+| lsof queries, sockets with owners | ✅ native `/proc/net` | ✅ `lsof` |
+| RTT, retransmits, bandwidth per connection and process | ✅ sock_diag | – |
+| Container namespaces on sockets | ✅ | – |
+| Kernel counters (retrans %, listen drops, UDP drops, conntrack) | ✅ | – |
+| Link speed, duplex, drops, utilisation | ✅ | MTU only |
+| Routes, neighbours, DNS | ✅ `ip -j` | ✅ `netstat`, `arp`, `scutil` |
+| Latency probes (ICMP, TCP, DNS) | ✅ | ✅ |
+| Firewall counters | ✅ nft / iptables | ✅ pf |
+| Packet capture (`C`) | ✅ | ✅ |
+| Close one connection (`D`) | ✅ root | – |
+| PSI pressure | ✅ | – |
+
+## FAQ
+
+<details>
+<summary><b><code>sudo: vigil: command not found</code></b></summary>
+
+`sudo` only searches a fixed list of directories. Install to `/usr/local/bin` (the install script does this), or run `sudo "$(which vigil)"`.
+</details>
+
+<details>
+<summary><b>Pressing <code>T</code> does nothing / the theme looks plain</b></summary>
+
+Check `vigil --version`. Themes arrived in v0.2.1; an older copy may still be first in your `PATH` (`which -a vigil`). If you see your terminal's default colours, you're on the `ansi` theme: press `T`, pick one and press Enter.
+</details>
+
+<details>
+<summary><b>Probes say "ICMP not permitted"</b></summary>
+
+Unprivileged ping needs `net.ipv4.ping_group_range` to include your group, or run vigil as root. TCP probes (`tcp:host:port`) always work.
+</details>
+
+<details>
+<summary><b>The Firewall view is empty</b></summary>
+
+Reading rule counters needs root: `sudo vigil -t firewall`. Linux uses `nft`, then `iptables-save`; macOS uses `pfctl`.
+</details>
+
+<details>
+<summary><b><code>C</code> or <code>D</code> fails</b></summary>
+
+`C` needs `tcpdump` and root. `D` needs root on Linux and a kernel with `CONFIG_INET_DIAG_DESTROY` (most distribution kernels have it).
+</details>
+
+<details>
+<summary><b>How do I update?</b></summary>
+
+Run the install one-liner again. From source: `git pull && cargo install --path . --locked --force`.
+</details>
+
+## Performance
+
+<details>
+<summary><b>How vigil stays light</b></summary>
+
+- Collectors run on background threads; the UI thread only handles keys and drawing.
+- The screen is redrawn only when something changed: a key, a tick, or new data from a collector.
+- Routes, firewall and reverse DNS only run while their view is open or the feature is on.
+- On Linux, sockets come straight from `/proc/net` and netlink `sock_diag` instead of `lsof -i`.
+- Socket and file lists are views of one shared snapshot: filtering stores indices, not copies.
+- Tables only build the rows that are visible.
 - Sensors are refreshed one by one instead of re-enumerated (108 ms → ~1 ms each on macOS).
-- sysinfo runs single-threaded: waking a rayon pool per tick cost more than it saved.
-- The screen is only redrawn when something changed (input, tick, or new background data).
-- Socket and file lists are re-filtered only when their inputs change; tables only build
-  the visible rows.
-- Per-process strings (name, cmd, exe, user) are cached per pid as `Arc<str>`.
+- Per-process strings are cached per pid; a steady tick allocates almost nothing.
+
+Measured on an Apple M4 Pro with ~860 processes: about 2.5 % of one core and 16 MB of RAM.
+</details>
 
 ## Development
 
 ```bash
-cargo test                                            # unit + render tests (all views, all themes, many sizes)
-cargo clippy --all-targets
+cargo test                                            # unit, render and real-kernel tests
+cargo clippy --all-targets -- -D warnings
 cargo run --release --example prof                    # collector micro-profile
-cargo test --release bench_ -- --ignored --nocapture  # hot-path benchmark
+python3 scripts/term2svg.py                           # regenerate README screenshots
 ```
 
-Releases are built by GitHub Actions when a `v*` tag is pushed.
+CI runs clippy and the tests on Linux x86_64, Linux arm64 and macOS. Pushing a `v*` tag builds static release binaries with checksums.
+
+The [handbook](docs/handbook.html) explains the architecture, every view and step-by-step playbooks for DevOps and network incidents.
 
 ## License
 
-MIT
+[MIT](LICENSE)

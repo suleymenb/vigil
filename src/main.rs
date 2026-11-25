@@ -151,7 +151,11 @@ fn main() -> Result<()> {
     lsof::spawn_socket_worker(sockets.clone(), Duration::from_secs(lsof_interval), args.lsof_sockets);
 
     let sampler = Sampler::new();
-    let mut app = App::new(sampler, sockets, files, Duration::from_millis(interval), tab, cfg);
+    let (net, probe_warnings) = app::NetHandles::start(&cfg);
+    let mut app = App::new(sampler, sockets, files, Duration::from_millis(interval), tab, cfg, net);
+    for w in probe_warnings {
+        app.warn(w);
+    }
     if let Some(q) = args.query.as_deref().and_then(Query::parse) {
         app.run_query(q);
     }

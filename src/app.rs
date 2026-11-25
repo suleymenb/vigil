@@ -10,7 +10,14 @@ use ratatui::style::Color;
 use ratatui::widgets::TableState;
 use sysinfo::Signal;
 
+use std::sync::atomic::AtomicBool;
+
+use crate::collect::capture::{self, CaptureState};
+use crate::collect::firewall::{self, FwRule, FwStore};
+use crate::collect::ipinfo::{self, Resolver};
 use crate::collect::lsof::{self, FilesStore, OpenFile, Query, SocketStore};
+use crate::collect::netinfo::{self, NetInfo};
+use crate::collect::probes::{self, ProbeStore};
 use crate::collect::system::{ProcInfo, Sampler};
 use crate::config::{Alerts, Config};
 use crate::theme;
@@ -23,26 +30,35 @@ pub enum Tab {
     Sockets,
     Files,
     Storage,
+    Routes,
+    Probes,
+    Firewall,
 }
 
 impl Tab {
-    pub const ALL: [Tab; 6] = [
+    pub const ALL: [Tab; 9] = [
         Tab::Overview,
         Tab::Processes,
         Tab::Network,
         Tab::Sockets,
         Tab::Files,
         Tab::Storage,
+        Tab::Routes,
+        Tab::Probes,
+        Tab::Firewall,
     ];
 
     pub fn title(self) -> &'static str {
         match self {
             Tab::Overview => "Overview",
-            Tab::Processes => "Processes",
+            Tab::Processes => "Procs",
             Tab::Network => "Network",
             Tab::Sockets => "Sockets",
-            Tab::Files => "Open Files",
+            Tab::Files => "Files",
             Tab::Storage => "Storage",
+            Tab::Routes => "Routes",
+            Tab::Probes => "Probes",
+            Tab::Firewall => "Firewall",
         }
     }
 
@@ -52,6 +68,11 @@ impl Tab {
 
     pub fn from_name(s: &str) -> Option<Tab> {
         let s = s.to_ascii_lowercase();
+        let s = match s.as_str() {
+            "processes" => "procs".to_string(),
+            "open files" | "openfiles" => "files".to_string(),
+            _ => s,
+        };
         Tab::ALL
             .into_iter()
             .find(|t| t.title().to_ascii_lowercase().starts_with(&s))
@@ -67,6 +88,7 @@ pub enum ProcSort {
     User,
     Io,
     Conn,
+    Net,
 }
 
 impl ProcSort {
@@ -79,6 +101,7 @@ impl ProcSort {
             ProcSort::User => "user",
             ProcSort::Io => "io",
             ProcSort::Conn => "conn",
+            ProcSort::Net => "net",
         }
     }
     pub fn parse(s: &str) -> Option<Self> {
@@ -90,6 +113,7 @@ impl ProcSort {
             "user" => ProcSort::User,
             "io" => ProcSort::Io,
             "conn" | "connections" => ProcSort::Conn,
+            "net" | "network" => ProcSort::Net,
             _ => return None,
         })
     }
@@ -102,6 +126,8 @@ pub enum SockSort {
     State,
     Proto,
     Remote,
+    Rtt,
+    Traffic,
 }
 
 impl SockSort {
@@ -111,7 +137,9 @@ impl SockSort {
             SockSort::Port => SockSort::State,
             SockSort::State => SockSort::Proto,
             SockSort::Proto => SockSort::Remote,
-            SockSort::Remote => SockSort::Process,
+            SockSort::Remote => SockSort::Rtt,
+            SockSort::Rtt => SockSort::Traffic,
+            SockSort::Traffic => SockSort::Process,
         }
     }
     pub fn label(self) -> &'static str {
@@ -121,6 +149,8 @@ impl SockSort {
             SockSort::State => "state",
             SockSort::Proto => "proto",
             SockSort::Remote => "remote",
+            SockSort::Rtt => "rtt",
+            SockSort::Traffic => "traffic",
         }
     }
 }
@@ -132,6 +162,8 @@ pub enum Mode {
     Query,
     Signal,
     Theme,
+    AddProbe,
+    ConfirmClose,
 }
 
 pub const SIGNALS: [(&str, &str, Signal); 9] = [
@@ -147,7 +179,13 @@ pub const SIGNALS: [(&str, &str, Signal); 9] = [
 ];
 
 /// Every `[alerts]` threshold that is exceeded. Shared by the header badges and `vigil report`.
-pub fn compute_alerts(s: &Sampler, a: &Alerts, close_wait: usize, time_wait: usize) -> Vec<(String, Color)> {
+pub fn compute_alerts(
+    s: &Sampler,
+    a: &Alerts,
+    close_wait: usize,
+    time_wait: usize,
+    probe_losses: &[(String, f64)],
+) -> Vec<(String, Color)> {
     let mut out = Vec::new();
     let pct = |u: u64, t: u64| if t == 0 { 0.0 } else { u as f64 / t as f64 * 100.0 };
     let mem = pct(s.mem_used, s.mem_total);
@@ -183,6 +221,36 @@ pub fn compute_alerts(s: &Sampler, a: &Alerts, close_wait: usize, time_wait: usi
             out.push((format!("TEMP {:.0}°C", t.temp), theme::red()));
         }
     }
+    if let Some(c) = &s.knet.counters {
+        if a.retrans_pct > 0.0 && c.out_segs_rate > 50.0 && c.retrans_pct >= a.retrans_pct {
+            out.push((format!("RETRANS {:.1}%", c.retrans_pct), theme::orange()));
+        }
+        let ld = c.listen_overflow_rate.max(c.listen_drop_rate);
+        if a.listen_drops_per_s > 0.0 && ld >= a.listen_drops_per_s {
+            out.push((format!("LISTEN DROPS {ld:.0}/s"), theme::red()));
+        }
+        let ud = c.udp_rcvbuf_err_rate + c.udp_sndbuf_err_rate;
+        if a.udp_drops_per_s > 0.0 && ud >= a.udp_drops_per_s {
+            out.push((format!("UDP DROPS {ud:.0}/s"), theme::orange()));
+        }
+        if let (Some(p), true) = (c.conntrack_pct(), a.conntrack_pct > 0.0) {
+            if p >= a.conntrack_pct {
+                out.push((format!("CONNTRACK {p:.0}%"), theme::red()));
+            }
+        }
+    }
+    if a.iface_drops_per_s > 0.0 {
+        if let Some(i) = s.ifaces.iter().filter(|i| i.drop_rate >= a.iface_drops_per_s).max_by(|x, y| x.drop_rate.total_cmp(&y.drop_rate)) {
+            out.push((format!("{} DROPS {:.0}/s", i.name, i.drop_rate), theme::orange()));
+        }
+    }
+    if a.probe_loss_pct > 0.0 {
+        for (name, loss) in probe_losses {
+            if *loss >= a.probe_loss_pct {
+                out.push((format!("LOSS {name} {loss:.0}%"), theme::red()));
+            }
+        }
+    }
     if let (Some(p), true) = (s.psi, a.psi_pct > 0.0) {
         for (name, v) in ["cpu", "mem", "io"].iter().zip(p) {
             if v >= a.psi_pct {
@@ -193,9 +261,88 @@ pub fn compute_alerts(s: &Sampler, a: &Alerts, close_wait: usize, time_wait: usi
     out
 }
 
+/// Case-insensitive substring test without allocating. `needle` must already
+/// be lowercase ASCII.
+pub fn icontains(hay: &str, needle: &str) -> bool {
+    let (h, n) = (hay.as_bytes(), needle.as_bytes());
+    n.is_empty() || (h.len() >= n.len() && h.windows(n.len()).any(|w| w.eq_ignore_ascii_case(n)))
+}
+
+fn lower_cmp(a: &str, b: &str) -> Ordering {
+    a.bytes().map(|c| c.to_ascii_lowercase()).cmp(b.bytes().map(|c| c.to_ascii_lowercase()))
+}
+
+/// A filtered, sorted view onto a shared snapshot of rows.
+#[derive(Default)]
+pub struct RowView {
+    snap: Arc<Vec<OpenFile>>,
+    idx: Vec<u32>,
+}
+
+impl RowView {
+    pub fn len(&self) -> usize {
+        self.idx.len()
+    }
+    pub fn get(&self, i: usize) -> Option<&OpenFile> {
+        self.idx.get(i).map(|&j| &self.snap[j as usize])
+    }
+    pub fn iter(&self) -> impl Iterator<Item = &OpenFile> {
+        self.idx.iter().map(|&j| &self.snap[j as usize])
+    }
+    pub fn range(&self, from: usize, to: usize) -> impl Iterator<Item = &OpenFile> {
+        let to = to.min(self.idx.len());
+        self.idx[from.min(to)..to].iter().map(|&j| &self.snap[j as usize])
+    }
+}
+
 pub struct ProcRow {
     pub idx: usize,
     pub prefix: String,
+}
+
+/// Shared stores of the network collectors (each fed by its own thread).
+pub struct NetHandles {
+    pub netinfo: Arc<Mutex<NetInfo>>,
+    pub routes_active: Arc<AtomicBool>,
+    pub probes: Arc<Mutex<ProbeStore>>,
+    pub fw: Arc<Mutex<FwStore>>,
+    pub fw_active: Arc<AtomicBool>,
+    pub capture: Arc<Mutex<CaptureState>>,
+}
+
+impl NetHandles {
+    /// Stores without background threads (tests, reports).
+    pub fn idle() -> Self {
+        Self {
+            netinfo: Arc::default(),
+            routes_active: Arc::default(),
+            probes: Arc::default(),
+            fw: Arc::default(),
+            fw_active: Arc::default(),
+            capture: Arc::default(),
+        }
+    }
+
+    pub fn start(cfg: &Config) -> (Self, Vec<String>) {
+        let h = Self::idle();
+        let mut warnings = Vec::new();
+        if let Ok(mut p) = h.probes.lock() {
+            for spec in &cfg.network.probes {
+                if let Err(e) = p.add(spec) {
+                    warnings.push(e);
+                }
+            }
+        }
+        netinfo::spawn_worker(h.netinfo.clone(), h.routes_active.clone());
+        probes::spawn_worker(
+            h.probes.clone(),
+            h.netinfo.clone(),
+            Duration::from_secs(cfg.network.probe_interval_s.clamp(1, 300)),
+            cfg.network.auto_probes,
+        );
+        firewall::spawn_worker(h.fw.clone(), h.fw_active.clone());
+        (h, warnings)
+    }
 }
 
 pub struct App {
@@ -243,11 +390,24 @@ pub struct App {
     theme_user_set: bool,
     pub close_wait: usize,
     pub time_wait: usize,
-    sock_cache: Vec<OpenFile>,
+    sock_rows: RowView,
     sock_key: Option<(u64, String, bool, SockSort)>,
-    files_cache: Vec<OpenFile>,
+    files_rows: RowView,
     files_key: Option<(u64, String)>,
     conn_version: u64,
+
+    pub net: NetHandles,
+    pub resolver: Option<Resolver>,
+    pub show_names: bool,
+    /// pid → (tx bytes/s, rx bytes/s), summed over its TCP connections.
+    pub proc_net: HashMap<u32, (f64, f64)>,
+    pub route_state: TableState,
+    pub probe_state: TableState,
+    pub fw_state: TableState,
+    pub fw_filter: String,
+    pub fw_hide_zero: bool,
+    pub fw_by_rate: bool,
+    pub close_target: Option<OpenFile>,
 }
 
 impl App {
@@ -258,7 +418,9 @@ impl App {
         interval: Duration,
         tab: Tab,
         cfg: Config,
+        net: NetHandles,
     ) -> Self {
+        let show_names = cfg.network.reverse_dns;
         let mut app = Self {
             tab,
             sampler,
@@ -294,11 +456,22 @@ impl App {
             theme_user_set: false,
             close_wait: 0,
             time_wait: 0,
-            sock_cache: Vec::new(),
+            sock_rows: RowView::default(),
             sock_key: None,
-            files_cache: Vec::new(),
+            files_rows: RowView::default(),
             files_key: None,
             conn_version: u64::MAX,
+            net,
+            resolver: show_names.then(Resolver::new),
+            show_names,
+            proc_net: HashMap::new(),
+            route_state: TableState::default().with_selected(0),
+            probe_state: TableState::default().with_selected(0),
+            fw_state: TableState::default().with_selected(0),
+            fw_filter: String::new(),
+            fw_hide_zero: false,
+            fw_by_rate: false,
+            close_target: None,
         };
         app.rebuild();
         app
@@ -316,9 +489,17 @@ impl App {
             if s.version != self.conn_version {
                 self.conn_version = s.version;
                 self.conn_counts.clear();
+                self.proc_net.clear();
                 self.close_wait = 0;
                 self.time_wait = 0;
-                for e in &s.entries {
+                for e in s.entries.iter() {
+                    if let (Some(n), true) = (&e.net, e.pid != 0) {
+                        if n.tx_rate > 0.0 || n.rx_rate > 0.0 {
+                            let v = self.proc_net.entry(e.pid).or_default();
+                            v.0 += n.tx_rate;
+                            v.1 += n.rx_rate;
+                        }
+                    }
                     match e.state.as_str() {
                         "CLOSE_WAIT" => self.close_wait += 1,
                         "TIME_WAIT" => self.time_wait += 1,
@@ -330,23 +511,81 @@ impl App {
                 }
             }
         }
-        self.sampler
-            .sensors_fast
-            .store(self.tab == Tab::Storage, std::sync::atomic::Ordering::Relaxed);
+        self.sync_activity();
         self.rebuild_procs();
         self.update_caches();
     }
 
+    /// Tell the lazy collectors which views are visible.
+    fn sync_activity(&self) {
+        use std::sync::atomic::Ordering::Relaxed;
+        self.sampler.sensors_fast.store(self.tab == Tab::Storage, Relaxed);
+        self.net.routes_active.store(self.tab == Tab::Routes, Relaxed);
+        self.net.fw_active.store(self.tab == Tab::Firewall, Relaxed);
+    }
+
     /// Health badges for the header: every threshold from `[alerts]` that is exceeded.
     pub fn alerts(&self) -> Vec<(String, Color)> {
-        compute_alerts(&self.sampler, &self.cfg.alerts, self.close_wait, self.time_wait)
+        let losses: Vec<(String, f64)> = self
+            .net
+            .probes
+            .try_lock()
+            .map(|p| p.probes.iter().filter(|p| p.sent() >= 5).map(|p| (p.name.clone(), p.loss_pct())).collect())
+            .unwrap_or_default();
+        compute_alerts(&self.sampler, &self.cfg.alerts, self.close_wait, self.time_wait, &losses)
+    }
+
+    /// Display form of a socket endpoint: host name (if resolved and names are
+    /// on) or IP, plus the well-known service name of the port.
+    pub fn endpoint_label(&self, ep: &str, udp: bool) -> String {
+        if ep.is_empty() {
+            return String::new();
+        }
+        let port = ipinfo::endpoint_port(ep);
+        let mut host = ep.rsplit_once(':').map(|(h, _)| h.to_string()).unwrap_or_else(|| ep.to_string());
+        if let (true, Some(r), Some(ip)) = (self.show_names, &self.resolver, ipinfo::endpoint_ip(ep)) {
+            if !ip.is_loopback() && !ip.is_unspecified() {
+                if let Some(n) = r.lookup(ip) {
+                    host = n;
+                }
+            }
+        }
+        match port {
+            Some(p) => match ipinfo::service(p, udp) {
+                Some(svc) if p < 49152 => format!("{host}:{p} {svc}"),
+                _ => format!("{host}:{p}"),
+            },
+            None => host,
+        }
+    }
+
+    pub fn fw_rows(&self) -> Vec<FwRule> {
+        let Ok(st) = self.net.fw.try_lock() else { return Vec::new() };
+        let f = self.fw_filter.to_ascii_lowercase();
+        let mut v: Vec<FwRule> = st
+            .rules
+            .iter()
+            .filter(|r| !self.fw_hide_zero || r.packets > 0)
+            .filter(|r| {
+                f.is_empty()
+                    || icontains(&r.rule, &f)
+                    || icontains(&r.chain, &f)
+                    || icontains(&r.table, &f)
+                    || icontains(&r.verdict, &f)
+            })
+            .cloned()
+            .collect();
+        if self.fw_by_rate {
+            v.sort_by(|a, b| b.pps.total_cmp(&a.pps).then(b.packets.cmp(&a.packets)));
+        }
+        v
     }
 
     /// `R`: write a Markdown report of what's on screen right now.
     fn write_report(&mut self) {
         let (entries, backend) = match self.sockets.lock() {
             Ok(s) => (s.entries.clone(), s.backend),
-            Err(_) => (Vec::new(), crate::collect::lsof::SocketBackend::Lsof),
+            Err(_) => (Arc::new(Vec::new()), crate::collect::lsof::SocketBackend::Lsof),
         };
         match crate::report::write_from_tui(&self.sampler, &entries, backend, &self.cfg.alerts) {
             Ok(p) => self.set_status(format!("report written to {}", p.display()), theme::green()),
@@ -364,19 +603,30 @@ impl App {
         c.proc_sort = self.proc_sort.as_str().to_string();
         c.proc_desc = self.proc_desc;
         c.proc_tree = self.proc_tree;
+        c.network.reverse_dns = self.show_names;
+        if let Ok(p) = self.net.probes.lock() {
+            c.network.probes = p.user_specs();
+        }
         c
     }
 
     /// Everything that can change the screen without user input.
     /// The main loop redraws only when this (or input / a tick) changes.
-    pub fn external_key(&self) -> (u64, u64, u64, bool) {
-        let sv = self.sockets.try_lock().map(|s| s.version).unwrap_or(0);
-        let fv = self.files.try_lock().map(|s| s.version).unwrap_or(0);
+    pub fn external_key(&self) -> ([u64; 7], bool) {
+        let v = |o: Option<u64>| o.unwrap_or(0);
+        let sv = v(self.sockets.try_lock().ok().map(|s| s.version));
+        let fv = v(self.files.try_lock().ok().map(|s| s.version));
+        // Only views that show a store need to redraw when it changes.
+        let ni = if self.tab == Tab::Routes { v(self.net.netinfo.try_lock().ok().map(|s| s.version)) } else { 0 };
+        let pr = if self.tab == Tab::Probes { v(self.net.probes.try_lock().ok().map(|s| s.version)) } else { 0 };
+        let fw = if self.tab == Tab::Firewall { v(self.net.fw.try_lock().ok().map(|s| s.version)) } else { 0 };
+        let cap = v(self.net.capture.try_lock().ok().map(|s| s.version));
         let status_live = self
             .status
             .as_ref()
-            .is_some_and(|(_, _, at)| at.elapsed() < Duration::from_secs(4));
-        (sv, fv, self.sampler.slow_version(), status_live)
+            .is_some_and(|(_, _, at)| at.elapsed() < Duration::from_secs(4))
+            || self.net.capture.try_lock().map(|c| c.running.is_some()).unwrap_or(false);
+        ([sv, fv, self.sampler.slow_version(), ni, pr, fw, cap], status_live)
     }
 
     pub fn warn(&mut self, msg: impl Into<String>) {
@@ -394,11 +644,15 @@ impl App {
             ProcSort::Cpu => a.cpu.partial_cmp(&b.cpu).unwrap_or(Ordering::Equal),
             ProcSort::Mem => a.mem.cmp(&b.mem),
             ProcSort::Pid => a.pid.cmp(&b.pid),
-            ProcSort::Name => b.name.to_lowercase().cmp(&a.name.to_lowercase()),
+            ProcSort::Name => lower_cmp(&b.name, &a.name),
             ProcSort::User => b.user.cmp(&a.user),
             ProcSort::Io => (a.read_rate + a.write_rate)
                 .partial_cmp(&(b.read_rate + b.write_rate))
                 .unwrap_or(Ordering::Equal),
+            ProcSort::Net => {
+                let n = |p: &ProcInfo| self.proc_net.get(&p.pid).map(|(t, r)| t + r).unwrap_or(0.0);
+                n(a).total_cmp(&n(b))
+            }
             ProcSort::Conn => self
                 .conn_counts
                 .get(&a.pid)
@@ -415,14 +669,14 @@ impl App {
 
     fn rebuild_procs(&mut self) {
         let procs = &self.sampler.procs;
-        let filter = self.proc_filter.to_lowercase();
+        let filter = self.proc_filter.to_ascii_lowercase();
         let mut idxs: Vec<usize> = (0..procs.len())
             .filter(|&i| {
                 filter.is_empty() || {
                     let p = &procs[i];
-                    p.name.to_lowercase().contains(&filter)
-                        || p.cmd.to_lowercase().contains(&filter)
-                        || p.user.to_lowercase().contains(&filter)
+                    icontains(&p.name, &filter)
+                        || icontains(&p.cmd, &filter)
+                        || icontains(&p.user, &filter)
                         || p.pid.to_string() == filter
                 }
             })
@@ -520,66 +774,80 @@ impl App {
 
     // ───────────────────────────── sockets / files ─────────────────────────────
 
-    pub fn socket_rows(&self) -> &[OpenFile] {
-        &self.sock_cache
+    pub fn socket_rows(&self) -> &RowView {
+        &self.sock_rows
     }
 
-    pub fn file_rows(&self) -> &[OpenFile] {
-        &self.files_cache
+    pub fn file_rows(&self) -> &RowView {
+        &self.files_rows
     }
 
     /// Re-filter / re-sort socket and file lists only when their inputs changed.
+    /// Rows are indices into the shared snapshot: nothing is cloned.
     pub fn update_caches(&mut self) {
         if let Ok(store) = self.sockets.try_lock() {
             let key = (store.version, self.sock_filter.clone(), self.sock_listen_only, self.sock_sort);
             if self.sock_key.as_ref() != Some(&key) {
-                let f = self.sock_filter.to_lowercase();
-                let mut rows: Vec<OpenFile> = store
-                    .entries
+                let snap = store.entries.clone();
+                drop(store);
+                let f = self.sock_filter.to_ascii_lowercase();
+                let mut idx: Vec<u32> = snap
                     .iter()
-                    .filter(|e| !self.sock_listen_only || e.is_listening())
-                    .filter(|e| {
+                    .enumerate()
+                    .filter(|(_, e)| !self.sock_listen_only || e.is_listening())
+                    .filter(|(_, e)| {
                         f.is_empty()
-                            || e.command.to_lowercase().contains(&f)
-                            || e.name.to_lowercase().contains(&f)
-                            || e.state.to_lowercase().contains(&f)
-                            || e.proto.to_lowercase().contains(&f)
-                            || e.user.to_lowercase().contains(&f)
+                            || icontains(&e.command, &f)
+                            || icontains(&e.name, &f)
+                            || icontains(&e.state, &f)
+                            || icontains(&e.proto, &f)
+                            || icontains(&e.user, &f)
+                            || e.net.as_ref().and_then(|n| n.netns.as_deref()).is_some_and(|ns| icontains(ns, &f))
                             || e.pid.to_string() == f
                     })
-                    .cloned()
+                    .map(|(i, _)| i as u32)
                     .collect();
+                let at = |i: &u32| &snap[*i as usize];
+                let rtt = |e: &OpenFile| e.net.as_ref().and_then(|n| n.tcp).map(|t| t.rtt_us).unwrap_or(0);
+                let traffic = |e: &OpenFile| e.net.as_ref().map(|n| n.tx_rate + n.rx_rate).unwrap_or(0.0);
                 match self.sock_sort {
-                    SockSort::Process => rows.sort_by(|a, b| {
-                        a.command.to_lowercase().cmp(&b.command.to_lowercase()).then(a.pid.cmp(&b.pid))
+                    SockSort::Process => idx.sort_by(|a, b| {
+                        let (a, b) = (at(a), at(b));
+                        lower_cmp(&a.command, &b.command).then(a.pid.cmp(&b.pid))
                     }),
-                    SockSort::Port => rows.sort_by_key(|e| e.local_port().unwrap_or(u16::MAX)),
-                    SockSort::State => rows.sort_by(|a, b| a.state.cmp(&b.state)),
-                    SockSort::Proto => {
-                        rows.sort_by(|a, b| a.proto.cmp(&b.proto).then(a.ftype.cmp(&b.ftype)))
-                    }
-                    SockSort::Remote => rows.sort_by(|a, b| b.endpoints().1.cmp(a.endpoints().1)),
+                    SockSort::Port => idx.sort_by_key(|i| at(i).local_port().unwrap_or(u16::MAX)),
+                    SockSort::State => idx.sort_by(|a, b| at(a).state.cmp(&at(b).state)),
+                    SockSort::Proto => idx.sort_by(|a, b| {
+                        let (a, b) = (at(a), at(b));
+                        a.proto.cmp(&b.proto).then(a.ftype.cmp(&b.ftype))
+                    }),
+                    SockSort::Remote => idx.sort_by(|a, b| at(b).endpoints().1.cmp(at(a).endpoints().1)),
+                    SockSort::Rtt => idx.sort_by_key(|i| std::cmp::Reverse(rtt(at(i)))),
+                    SockSort::Traffic => idx.sort_by(|a, b| traffic(at(b)).total_cmp(&traffic(at(a)))),
                 }
-                self.sock_cache = rows;
+                self.sock_rows = RowView { snap, idx };
                 self.sock_key = Some(key);
             }
         }
         if let Ok(store) = self.files.try_lock() {
             let key = (store.version, self.files_filter.clone());
             if self.files_key.as_ref() != Some(&key) {
-                let f = self.files_filter.to_lowercase();
-                self.files_cache = store
-                    .entries
+                let snap = store.entries.clone();
+                drop(store);
+                let f = self.files_filter.to_ascii_lowercase();
+                let idx = snap
                     .iter()
-                    .filter(|e| {
+                    .enumerate()
+                    .filter(|(_, e)| {
                         f.is_empty()
-                            || e.name.to_lowercase().contains(&f)
-                            || e.command.to_lowercase().contains(&f)
-                            || e.ftype.to_lowercase().contains(&f)
-                            || e.fd.to_lowercase() == f
+                            || icontains(&e.name, &f)
+                            || icontains(&e.command, &f)
+                            || icontains(&e.ftype, &f)
+                            || e.fd.eq_ignore_ascii_case(&f)
                     })
-                    .cloned()
+                    .map(|(i, _)| i as u32)
                     .collect();
+                self.files_rows = RowView { snap, idx };
                 self.files_key = Some(key);
             }
         }
@@ -600,6 +868,9 @@ impl App {
             Tab::Sockets => self.socket_rows().len(),
             Tab::Files => self.file_rows().len(),
             Tab::Network => self.sampler.ifaces.len(),
+            Tab::Routes => self.net.netinfo.try_lock().map(|n| n.routes.len()).unwrap_or(0),
+            Tab::Probes => self.net.probes.try_lock().map(|p| p.probes.len()).unwrap_or(0),
+            Tab::Firewall => self.fw_rows().len(),
             _ => 0,
         }
     }
@@ -610,6 +881,9 @@ impl App {
             Tab::Sockets => Some(&mut self.sock_state),
             Tab::Files => Some(&mut self.files_state),
             Tab::Network => Some(&mut self.net_state),
+            Tab::Routes => Some(&mut self.route_state),
+            Tab::Probes => Some(&mut self.probe_state),
+            Tab::Firewall => Some(&mut self.fw_state),
             _ => None,
         }
     }
@@ -635,6 +909,7 @@ impl App {
             Tab::Processes => Some(&mut self.proc_filter),
             Tab::Sockets => Some(&mut self.sock_filter),
             Tab::Files => Some(&mut self.files_filter),
+            Tab::Firewall => Some(&mut self.fw_filter),
             _ => None,
         }
     }
@@ -654,15 +929,14 @@ impl App {
         }
         match self.mode {
             Mode::Filter => self.key_filter(k),
-            Mode::Query => self.key_query(k),
+            Mode::Query | Mode::AddProbe => self.key_query(k),
+            Mode::ConfirmClose => self.key_confirm_close(k),
             Mode::Signal => self.key_signal(k),
             Mode::Theme => self.key_theme(k),
             Mode::Normal => self.key_normal(k),
         }
         self.update_caches();
-        self.sampler
-            .sensors_fast
-            .store(self.tab == Tab::Storage, std::sync::atomic::Ordering::Relaxed);
+        self.sync_activity();
     }
 
     fn key_filter(&mut self, k: KeyEvent) {
@@ -700,9 +974,16 @@ impl App {
                 self.mode = Mode::Normal;
             }
             KeyCode::Enter => {
+                let mode = self.mode;
                 self.mode = Mode::Normal;
                 let input = std::mem::take(&mut self.input);
-                if let Some(q) = Query::parse(&input) {
+                if mode == Mode::AddProbe {
+                    let res = self.net.probes.lock().map_err(|_| "busy".to_string()).and_then(|mut p| p.add(&input));
+                    match res {
+                        Ok(()) => self.set_status(format!("probe {input} added (saved on quit)"), theme::green()),
+                        Err(e) => self.set_status(e, theme::red()),
+                    }
+                } else if let Some(q) = Query::parse(&input) {
                     self.run_query(q);
                 }
             }
@@ -762,6 +1043,61 @@ impl App {
         }
     }
 
+    fn key_confirm_close(&mut self, k: KeyEvent) {
+        match k.code {
+            KeyCode::Char('y') | KeyCode::Enter => {
+                if let Some(sk) = self.close_target.take() {
+                    let id = sk.net.as_ref().and_then(|n| n.diag);
+                    match id.map(|id| crate::collect::sockdiag::destroy(&id)) {
+                        Some(Ok(())) => self.set_status(format!("closed {}", sk.name), theme::green()),
+                        Some(Err(e)) => self.set_status(format!("close failed: {e} (needs root and CONFIG_INET_DIAG_DESTROY)"), theme::red()),
+                        None => {}
+                    }
+                }
+                self.mode = Mode::Normal;
+            }
+            _ => {
+                self.close_target = None;
+                self.mode = Mode::Normal;
+            }
+        }
+    }
+
+    fn key_probes(&mut self, k: KeyEvent) {
+        match k.code {
+            KeyCode::Char('a') => {
+                self.input.clear();
+                self.mode = Mode::AddProbe;
+            }
+            KeyCode::Char('d') | KeyCode::Delete => {
+                let i = self.probe_state.selected().unwrap_or(0);
+                let auto = match self.net.probes.lock() {
+                    Ok(mut p) => match p.probes.get(i).map(|pr| pr.auto) {
+                        Some(false) => {
+                            p.remove(i);
+                            false
+                        }
+                        Some(true) => true,
+                        None => false,
+                    },
+                    Err(_) => false,
+                };
+                if auto {
+                    self.set_status("auto probes follow the gateway/DNS; set auto_probes = false to hide them", theme::yellow());
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn key_firewall(&mut self, k: KeyEvent) {
+        match k.code {
+            KeyCode::Char('z') => self.fw_hide_zero = !self.fw_hide_zero,
+            KeyCode::Char('s') => self.fw_by_rate = !self.fw_by_rate,
+            _ => {}
+        }
+    }
+
     fn open_signal_dialog(&mut self, pid: u32, name: String) {
         if pid == 0 {
             self.set_status("socket has no owning process (kernel-held, e.g. TIME_WAIT)", theme::yellow());
@@ -792,7 +1128,15 @@ impl App {
             KeyCode::BackTab | KeyCode::Left | KeyCode::Char('H') => {
                 self.tab = Tab::ALL[(self.tab.index() + Tab::ALL.len() - 1) % Tab::ALL.len()]
             }
-            KeyCode::Char(c @ '1'..='6') => self.tab = Tab::ALL[c as usize - '1' as usize],
+            KeyCode::Char(c @ '1'..='9') => self.tab = Tab::ALL[c as usize - '1' as usize],
+            KeyCode::Char('N') => {
+                self.show_names = !self.show_names;
+                if self.show_names && self.resolver.is_none() {
+                    self.resolver = Some(Resolver::new());
+                }
+                let msg = if self.show_names { "reverse DNS on" } else { "reverse DNS off" };
+                self.set_status(msg, theme::cyan());
+            }
             KeyCode::Char(' ') => {
                 self.paused = !self.paused;
                 let msg = if self.paused { "paused" } else { "resumed" };
@@ -835,6 +1179,8 @@ impl App {
                 Tab::Processes => self.key_procs(k),
                 Tab::Sockets => self.key_sockets(k),
                 Tab::Files => self.key_files(k),
+                Tab::Probes => self.key_probes(k),
+                Tab::Firewall => self.key_firewall(k),
                 _ => {}
             },
         }
@@ -859,6 +1205,7 @@ impl App {
             KeyCode::Char('u') => self.set_proc_sort(ProcSort::User),
             KeyCode::Char('i') => self.set_proc_sort(ProcSort::Io),
             KeyCode::Char('o') => self.set_proc_sort(ProcSort::Conn),
+            KeyCode::Char('w') => self.set_proc_sort(ProcSort::Net),
             KeyCode::Char('r') => {
                 self.proc_desc = !self.proc_desc;
                 self.rebuild_procs();
@@ -895,6 +1242,28 @@ impl App {
                 self.sock_state.select(Some(0));
             }
             KeyCode::Char('s') => self.sock_sort = self.sock_sort.next(),
+            KeyCode::Char('C') => {
+                if let Some(sk) = self.selected_socket() {
+                    let (l, r) = sk.endpoints();
+                    match capture::bpf_filter(l, r) {
+                        Some(f) => match capture::start(self.net.capture.clone(), f.clone(), self.cfg.network.capture_seconds) {
+                            Ok(p) => self.set_status(format!("capturing \"{f}\" for {}s → {}", self.cfg.network.capture_seconds, p.display()), theme::red()),
+                            Err(e) => self.set_status(e, theme::red()),
+                        },
+                        None => self.set_status("can't build a capture filter for this socket", theme::yellow()),
+                    }
+                }
+            }
+            KeyCode::Char('D') => {
+                if let Some(sk) = self.selected_socket() {
+                    if sk.net.as_ref().and_then(|n| n.diag).is_some() {
+                        self.close_target = Some(sk);
+                        self.mode = Mode::ConfirmClose;
+                    } else {
+                        self.set_status("closing single connections needs Linux sock_diag on a host-namespace TCP socket", theme::yellow());
+                    }
+                }
+            }
             KeyCode::Enter | KeyCode::Char('f') => {
                 if let Some(s) = self.selected_socket().filter(|s| s.pid != 0) {
                     self.run_query(Query::Pid(s.pid));

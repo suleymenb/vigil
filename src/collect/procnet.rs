@@ -1,19 +1,17 @@
 #![cfg_attr(not(target_os = "linux"), allow(dead_code, unused_imports))]
 
-//! Native Linux socket collector: reads /proc/net/{tcp,tcp6,udp,udp6} directly
-//! and maps socket inodes to processes via /proc/<pid>/fd.
+//! Native Linux socket collector.
 //!
-//! Why: `lsof -i` stats every open fd of every process. On a busy server
-//! (thousands of fds, containers) that takes seconds per scan. Reading
-//! /proc/net is O(sockets), and the inode→pid map is cached and rebuilt only
-//! when an unknown inode appears (or every 30 s), so a steady-state scan
-//! costs a few milliseconds.
+//! * `/proc/net/{tcp,tcp6,udp,udp6}` for every socket, including TIME_WAIT
+//!   (which lsof can't show because it has no owner) and the rx/tx queues.
+//! * `/proc/<pid>/net/*` for every other network namespace (containers), each
+//!   socket tagged with a container / namespace label.
+//! * `sock_diag` netlink for TCP internals of the host namespace: RTT,
+//!   retransmits, cwnd and byte counters, which give per-connection bandwidth.
+//! * inode → pid map from `/proc/<pid>/fd`, cached and only rebuilt when an
+//!   unknown inode shows up or every 30 s.
 //!
-//! It also shows TIME_WAIT sockets, which have no owning process and are
-//! therefore invisible in lsof — exactly what a network engineer wants to see.
-//!
-//! The parsers are platform independent (and unit-tested everywhere); only the
-//! filesystem scanning is Linux-specific.
+//! The parsers are platform independent and unit-tested everywhere.
 
 use std::net::{Ipv4Addr, Ipv6Addr};
 
@@ -76,6 +74,8 @@ pub struct RawSock {
     pub local: String,
     pub remote: String,
     pub state: &'static str,
+    pub tx_queue: u32,
+    pub rx_queue: u32,
     pub uid: u32,
     pub inode: u64,
 }
@@ -95,6 +95,10 @@ pub fn parse_table(text: &str, proto: &'static str, v6: bool) -> Vec<RawSock> {
         } else {
             tcp_state(f[3])
         };
+        let (tx_queue, rx_queue) = f[4]
+            .split_once(':')
+            .map(|(t, r)| (u32::from_str_radix(t, 16).unwrap_or(0), u32::from_str_radix(r, 16).unwrap_or(0)))
+            .unwrap_or((0, 0));
         let remote = if rp == 0 && rh == "*" { String::new() } else { format!("{rh}:{rp}") };
         out.push(RawSock {
             proto,
@@ -102,6 +106,8 @@ pub fn parse_table(text: &str, proto: &'static str, v6: bool) -> Vec<RawSock> {
             local: format!("{lh}:{lp}"),
             remote,
             state,
+            tx_queue,
+            rx_queue,
             uid: f[7].parse().unwrap_or(0),
             inode: f[9].parse().unwrap_or(0),
         });
@@ -120,6 +126,35 @@ pub fn parse_passwd(text: &str) -> std::collections::HashMap<u32, String> {
         .collect()
 }
 
+/// Short container label from `/proc/<pid>/cgroup`, e.g. `ctr:3f2a9c81d0e4`
+/// for Docker / containerd / CRI-O / Podman, `pod:<uid>` for other kubepods.
+pub fn container_label(cgroup: &str) -> Option<String> {
+    for marker in ["docker-", "/docker/", "cri-containerd-", "crio-", "libpod-", "containerd/"] {
+        if let Some(i) = cgroup.find(marker) {
+            let id: String = cgroup[i + marker.len()..]
+                .chars()
+                .take_while(|c| c.is_ascii_hexdigit())
+                .take(12)
+                .collect();
+            if id.len() == 12 {
+                return Some(format!("ctr:{id}"));
+            }
+        }
+    }
+    if let Some(i) = cgroup.find("pod") {
+        let uid: String = cgroup[i + 3..]
+            .chars()
+            .skip_while(|c| !c.is_ascii_hexdigit())
+            .take_while(|c| c.is_ascii_hexdigit() || *c == '_' || *c == '-')
+            .take(8)
+            .collect();
+        if cgroup.contains("kubepods") && uid.len() == 8 {
+            return Some(format!("pod:{uid}"));
+        }
+    }
+    None
+}
+
 #[cfg(target_os = "linux")]
 pub use linux::Scanner;
 
@@ -127,9 +162,17 @@ pub use linux::Scanner;
 mod linux {
     use std::collections::{HashMap, HashSet};
     use std::fs;
+    use std::sync::Arc;
     use std::time::{Duration, Instant};
 
     use super::*;
+    use crate::collect::lsof::NetExtra;
+    use crate::collect::sockdiag::{self, DiagEntry};
+
+    fn ns_inode(pid: &str) -> Option<u64> {
+        let l = fs::read_link(format!("/proc/{pid}/ns/net")).ok()?;
+        l.to_str()?.strip_prefix("net:[")?.strip_suffix(']')?.parse().ok()
+    }
 
     pub struct Scanner {
         /// socket inode → (pid, fd)
@@ -137,6 +180,13 @@ mod linux {
         comm: HashMap<u32, String>,
         users: HashMap<u32, String>,
         built: Option<Instant>,
+        host_ns: Option<u64>,
+        /// Other network namespaces: ns inode → (one pid inside it, label).
+        other_ns: HashMap<u64, (u32, Arc<str>)>,
+        /// Previous byte counters per socket inode, for bandwidth.
+        prev_bytes: HashMap<u64, (u64, u64)>,
+        last_scan: Option<Instant>,
+        diag_ok: bool,
     }
 
     impl Scanner {
@@ -148,17 +198,23 @@ mod linux {
                 comm: HashMap::new(),
                 users: parse_passwd(&fs::read_to_string("/etc/passwd").unwrap_or_default()),
                 built: None,
+                host_ns: ns_inode("self"),
+                other_ns: HashMap::new(),
+                prev_bytes: HashMap::new(),
+                last_scan: None,
+                diag_ok: true,
             })
         }
 
         fn rebuild_owners(&mut self) {
             self.owners.clear();
             self.comm.clear();
+            self.other_ns.clear();
             let Ok(dir) = fs::read_dir("/proc") else { return };
             for e in dir.flatten() {
-                let Some(pid) = e.file_name().to_str().and_then(|s| s.parse::<u32>().ok()) else {
-                    continue;
-                };
+                let name = e.file_name();
+                let Some(pid_s) = name.to_str() else { continue };
+                let Ok(pid) = pid_s.parse::<u32>() else { continue };
                 let Ok(fds) = fs::read_dir(format!("/proc/{pid}/fd")) else { continue };
                 let mut has_sock = false;
                 for fd in fds.flatten() {
@@ -173,44 +229,102 @@ mod linux {
                         }
                     }
                 }
-                if has_sock {
-                    let comm = fs::read_to_string(format!("/proc/{pid}/comm")).unwrap_or_default();
-                    self.comm.insert(pid, comm.trim().to_string());
+                if !has_sock {
+                    continue;
                 }
+                let comm = fs::read_to_string(format!("/proc/{pid}/comm")).unwrap_or_default();
+                let comm = comm.trim().to_string();
+                if let Some(ns) = ns_inode(pid_s) {
+                    if Some(ns) != self.host_ns && !self.other_ns.contains_key(&ns) {
+                        let cg = fs::read_to_string(format!("/proc/{pid}/cgroup")).unwrap_or_default();
+                        let label = container_label(&cg).unwrap_or_else(|| format!("ns:{comm}"));
+                        self.other_ns.insert(ns, (pid, Arc::from(label)));
+                    }
+                }
+                self.comm.insert(pid, comm);
             }
             self.built = Some(Instant::now());
         }
 
-        pub fn scan(&mut self) -> Vec<OpenFile> {
-            let mut raw = Vec::new();
-            for (file, proto, v6) in [
-                ("/proc/net/tcp", "TCP", false),
-                ("/proc/net/tcp6", "TCP", true),
-                ("/proc/net/udp", "UDP", false),
-                ("/proc/net/udp6", "UDP", true),
-            ] {
-                if let Ok(t) = fs::read_to_string(file) {
-                    raw.extend(parse_table(&t, proto, v6));
+        fn read_tables(prefix: &str, out: &mut Vec<RawSock>) {
+            for (file, proto, v6) in [("tcp", "TCP", false), ("tcp6", "TCP", true), ("udp", "UDP", false), ("udp6", "UDP", true)] {
+                if let Ok(t) = fs::read_to_string(format!("{prefix}/{file}")) {
+                    out.extend(parse_table(&t, proto, v6));
                 }
             }
+        }
+
+        pub fn scan(&mut self) -> Vec<OpenFile> {
+            let now = Instant::now();
+            // Host namespace first, then one table set per other namespace.
+            let mut groups: Vec<(Option<Arc<str>>, Vec<RawSock>)> = Vec::new();
+            let mut host = Vec::new();
+            Self::read_tables("/proc/net", &mut host);
+            groups.push((None, host));
+            for (pid, label) in self.other_ns.values() {
+                let mut v = Vec::new();
+                Self::read_tables(&format!("/proc/{pid}/net"), &mut v);
+                if !v.is_empty() {
+                    groups.push((Some(label.clone()), v));
+                }
+            }
+
             // Rebuild the inode map only when we see sockets we can't attribute.
             let stale = self.built.is_none_or(|b| b.elapsed() > Duration::from_secs(30));
-            let unknown = raw.iter().any(|s| s.inode != 0 && !self.owners.contains_key(&s.inode));
+            let unknown = groups
+                .iter()
+                .flat_map(|(_, v)| v.iter())
+                .any(|s| s.inode != 0 && !self.owners.contains_key(&s.inode));
             if stale || unknown {
                 self.rebuild_owners();
             }
-            let live: HashSet<u64> = raw.iter().map(|s| s.inode).collect();
-            self.owners.retain(|ino, _| live.contains(ino));
 
-            raw.into_iter()
-                .map(|s| {
+            // TCP internals for the host namespace.
+            let diag: HashMap<u64, DiagEntry> = if self.diag_ok {
+                match sockdiag::dump_tcp() {
+                    Ok(v) => v.into_iter().filter(|e| e.inode != 0).map(|e| (e.inode, e)).collect(),
+                    Err(_) => {
+                        self.diag_ok = false; // e.g. seccomp / old kernel: stop trying
+                        HashMap::new()
+                    }
+                }
+            } else {
+                HashMap::new()
+            };
+            let dt = self.last_scan.map(|t| now.duration_since(t).as_secs_f64()).unwrap_or(0.0);
+            let mut next_bytes = HashMap::with_capacity(diag.len());
+
+            let mut out = Vec::new();
+            let mut live = HashSet::new();
+            for (ns, raws) in groups {
+                for s in raws {
+                    live.insert(s.inode);
                     let (pid, fd) = self.owners.get(&s.inode).copied().unwrap_or((0, 0));
                     let command = if pid == 0 {
                         "(kernel)".to_string()
                     } else {
                         self.comm.get(&pid).cloned().unwrap_or_default()
                     };
-                    OpenFile {
+                    let mut extra = NetExtra {
+                        netns: ns.clone(),
+                        rx_queue: s.rx_queue,
+                        tx_queue: s.tx_queue,
+                        ..Default::default()
+                    };
+                    if ns.is_none() && s.proto == "TCP" && s.inode != 0 {
+                        if let Some(d) = diag.get(&s.inode) {
+                            extra.diag = Some(d.id);
+                            if let Some(t) = d.tcp {
+                                next_bytes.insert(s.inode, (t.bytes_acked, t.bytes_received));
+                                if let (Some(&(pa, pr)), true) = (self.prev_bytes.get(&s.inode), dt > 0.0) {
+                                    extra.tx_rate = t.bytes_acked.saturating_sub(pa) as f64 / dt;
+                                    extra.rx_rate = t.bytes_received.saturating_sub(pr) as f64 / dt;
+                                }
+                                extra.tcp = Some(t);
+                            }
+                        }
+                    }
+                    out.push(OpenFile {
                         pid,
                         command,
                         user: self.users.get(&s.uid).cloned().unwrap_or_else(|| s.uid.to_string()),
@@ -224,10 +338,36 @@ mod linux {
                         },
                         proto: s.proto.into(),
                         state: s.state.into(),
+                        net: Some(Box::new(extra)),
                         ..Default::default()
-                    }
-                })
-                .collect()
+                    });
+                }
+            }
+            self.owners.retain(|ino, _| live.contains(ino));
+            self.prev_bytes = next_bytes;
+            self.last_scan = Some(now);
+            out
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        /// Runs on Linux CI: our own listening socket must show up with its pid.
+        #[test]
+        fn real_scan_finds_own_listener() {
+            let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            let port = l.local_addr().unwrap().port();
+            let mut sc = Scanner::new().expect("/proc/net readable");
+            let all = sc.scan();
+            let me = std::process::id();
+            let found = all
+                .iter()
+                .find(|e| e.state == "LISTEN" && e.local_port() == Some(port))
+                .expect("own listener in scan");
+            assert_eq!(found.pid, me);
+            assert!(found.net.as_ref().unwrap().netns.is_none());
         }
     }
 }
@@ -239,7 +379,7 @@ mod tests {
     // Fixture lines from a little-endian (x86_64 / aarch64) kernel.
     const TCP: &str = "  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode
    0: 00000000:0016 00000000:0000 0A 00000000:00000000 00:00000000 00000000     0        0 12345 1 0000000000000000 100 0 0 10 0
-   1: 0100007F:1F90 0100007F:D431 01 00000000:00000000 00:00000000 00000000  1000        0 22222 1 0000000000000000 20 4 30 10 -1
+   1: 0100007F:1F90 0100007F:D431 01 00000010:00000020 00:00000000 00000000  1000        0 22222 1 0000000000000000 20 4 30 10 -1
    2: 0A00000F:01BB 08080808:C350 06 00000000:00000000 03:00000F8F 00000000     0        0 0 3 0000000000000000";
     const TCP6: &str = "  sl  local_address                         remote_address                        st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode
    0: 00000000000000000000000000000000:0050 00000000000000000000000000000000:0000 0A 00000000:00000000 00:00000000 00000000    33        0 4444 1 0000000000000000 100 0 0 10 0
@@ -256,6 +396,7 @@ mod tests {
         assert_eq!(v[1].local, "127.0.0.1:8080");
         assert_eq!(v[1].remote, "127.0.0.1:54321");
         assert_eq!(v[1].uid, 1000);
+        assert_eq!((v[1].tx_queue, v[1].rx_queue), (16, 32));
         assert_eq!(v[2].local, "15.0.0.10:443");
         assert_eq!(v[2].remote, "8.8.8.8:50000");
         assert_eq!(v[2].state, "TIME_WAIT");
@@ -276,5 +417,18 @@ mod tests {
         let m = parse_passwd("root:x:0:0:root:/root:/bin/bash\nwww-data:x:33:33::/var/www:/usr/sbin/nologin\n");
         assert_eq!(m[&0], "root");
         assert_eq!(m[&33], "www-data");
+    }
+
+    #[test]
+    fn container_labels() {
+        assert_eq!(
+            container_label("0::/system.slice/docker-3f2a9c81d0e4aa11bb22cc33dd44ee55ff66.scope").as_deref(),
+            Some("ctr:3f2a9c81d0e4")
+        );
+        assert_eq!(
+            container_label("0::/kubepods/burstable/pod1a2b3c4d-1111/cri-containerd-abcdef012345678.scope").as_deref(),
+            Some("ctr:abcdef012345")
+        );
+        assert_eq!(container_label("0::/user.slice/user-1000.slice"), None);
     }
 }

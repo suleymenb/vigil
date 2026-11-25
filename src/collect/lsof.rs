@@ -7,6 +7,7 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
+use super::sockdiag::{DiagId, TcpStats};
 use crate::util::fmt_bytes;
 
 const FIELDS: &str = "-FpcLuftasoinPT";
@@ -26,6 +27,22 @@ pub struct OpenFile {
     pub name: String,
     pub proto: String,
     pub state: String,
+    /// Network-only extras (Linux socket scanner). Boxed so plain file entries
+    /// from lsof queries stay small.
+    pub net: Option<Box<NetExtra>>,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct NetExtra {
+    /// Network namespace label; None = the host namespace.
+    pub netns: Option<Arc<str>>,
+    pub rx_queue: u32,
+    pub tx_queue: u32,
+    pub tcp: Option<TcpStats>,
+    /// Bytes/s sent and received on this connection (from tcp_info deltas).
+    pub tx_rate: f64,
+    pub rx_rate: f64,
+    pub diag: Option<DiagId>,
 }
 
 impl OpenFile {
@@ -160,7 +177,8 @@ impl SocketBackend {
 }
 
 pub struct SocketStore {
-    pub entries: Vec<OpenFile>,
+    /// Shared snapshot: views keep indices into it instead of cloning rows.
+    pub entries: Arc<Vec<OpenFile>>,
     pub updated: Option<Instant>,
     pub took: Duration,
     pub error: Option<String>,
@@ -172,7 +190,7 @@ pub struct SocketStore {
 impl Default for SocketStore {
     fn default() -> Self {
         Self {
-            entries: Vec::new(),
+            entries: Arc::new(Vec::new()),
             updated: None,
             took: Duration::ZERO,
             error: None,
@@ -221,7 +239,7 @@ pub fn spawn_socket_worker(store: Arc<Mutex<SocketStore>>, interval: Duration, f
                 s.backend = backend;
                 match res {
                     Ok((entries, took)) => {
-                        s.entries = entries;
+                        s.entries = Arc::new(entries);
                         s.took = took;
                         s.error = None;
                     }
@@ -290,7 +308,7 @@ impl Query {
 #[derive(Default)]
 pub struct FilesStore {
     pub query: Option<Query>,
-    pub entries: Vec<OpenFile>,
+    pub entries: Arc<Vec<OpenFile>>,
     pub loading: bool,
     pub error: Option<String>,
     pub took: Duration,
@@ -318,11 +336,11 @@ pub fn spawn_query(store: Arc<Mutex<FilesStore>>, q: Query) {
         s.version += 1;
         match res {
             Ok((entries, took)) => {
-                s.entries = entries;
+                s.entries = Arc::new(entries);
                 s.took = took;
             }
             Err(e) => {
-                s.entries.clear();
+                s.entries = Arc::new(Vec::new());
                 s.error = Some(e);
             }
         }

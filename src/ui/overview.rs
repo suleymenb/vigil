@@ -281,7 +281,7 @@ fn draw_side(f: &mut Frame, app: &App, area: Rect) {
     // Connection state summary.
     let mut states: BTreeMap<String, usize> = BTreeMap::new();
     if let Ok(st) = app.sockets.lock() {
-        for e in &st.entries {
+        for e in st.entries.iter() {
             let k = if e.state.is_empty() { e.proto.clone() } else { e.state.clone() };
             *states.entry(k).or_default() += 1;
         }

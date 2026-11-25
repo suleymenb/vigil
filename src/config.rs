@@ -23,6 +23,33 @@ pub struct Config {
     pub proc_tree: bool,
     pub mouse: bool,
     pub alerts: Alerts,
+    pub network: Network,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Network {
+    /// Latency probes: "icmp:1.1.1.1", "tcp:db.internal:5432", "dns:github.com".
+    pub probes: Vec<String>,
+    /// Also ping the default gateway(s) and DNS servers.
+    pub auto_probes: bool,
+    pub probe_interval_s: u64,
+    /// Length of a one-key packet capture (C in the Sockets view).
+    pub capture_seconds: u64,
+    /// Show host names instead of IPs (n toggles it).
+    pub reverse_dns: bool,
+}
+
+impl Default for Network {
+    fn default() -> Self {
+        Self {
+            probes: Vec::new(),
+            auto_probes: true,
+            probe_interval_s: 5,
+            capture_seconds: 20,
+            reverse_dns: false,
+        }
+    }
 }
 
 /// Thresholds for the health badges in the header. 0 disables a check.
@@ -39,6 +66,18 @@ pub struct Alerts {
     pub temp_c: f32,
     /// Linux PSI `some avg10` percentage for cpu / memory / io.
     pub psi_pct: f64,
+    /// TCP retransmitted / sent segments, percent (Linux).
+    pub retrans_pct: f64,
+    /// Accept-queue overflows or drops per second (Linux).
+    pub listen_drops_per_s: f64,
+    /// UDP receive/send buffer errors per second (Linux).
+    pub udp_drops_per_s: f64,
+    /// Conntrack table usage, percent (Linux).
+    pub conntrack_pct: f64,
+    /// Packets dropped per second on any interface.
+    pub iface_drops_per_s: f64,
+    /// Latency probe loss over the last 100 probes, percent.
+    pub probe_loss_pct: f64,
 }
 
 impl Default for Config {
@@ -54,6 +93,7 @@ impl Default for Config {
             proc_tree: false,
             mouse: true,
             alerts: Alerts::default(),
+            network: Network::default(),
         }
     }
 }
@@ -69,6 +109,12 @@ impl Default for Alerts {
             time_wait: 20_000,
             temp_c: 90.0,
             psi_pct: 20.0,
+            retrans_pct: 2.0,
+            listen_drops_per_s: 1.0,
+            udp_drops_per_s: 1.0,
+            conntrack_pct: 80.0,
+            iface_drops_per_s: 10.0,
+            probe_loss_pct: 20.0,
         }
     }
 }
