@@ -236,16 +236,33 @@ pub fn by_name(name: &str) -> Option<usize> {
 
 /// Pick a sensible default: plain 16 colours when the terminal can't do truecolor.
 pub fn auto_default() -> usize {
-    let ct = std::env::var("COLORTERM").unwrap_or_default();
-    // iTerm2, WezTerm, VS Code, Ghostty… set TERM_PROGRAM and all do truecolor.
-    let truecolor = ct.contains("truecolor")
-        || ct.contains("24bit")
-        || std::env::var("TERM_PROGRAM").is_ok_and(|t| t != "Apple_Terminal");
-    if truecolor {
+    let env = |k: &str| std::env::var(k).unwrap_or_default();
+    if supports_truecolor(&env("COLORTERM"), &env("TERM"), &env("TERM_PROGRAM")) {
         0
     } else {
         by_name("ansi").unwrap_or(0)
     }
+}
+
+/// Decide whether the terminal can show 24-bit colour.
+///
+/// `COLORTERM` is the proper signal, but `sudo` strips it (env_reset keeps only
+/// TERM, PATH, HOME, …). So we fall back to TERM: every modern terminal
+/// emulator does truecolor, and the ones that don't announce themselves with a
+/// basic TERM such as `linux` (the VT console), `vt100`, `screen` or `dumb`.
+pub fn supports_truecolor(colorterm: &str, term: &str, term_program: &str) -> bool {
+    if colorterm.contains("truecolor") || colorterm.contains("24bit") {
+        return true;
+    }
+    if term_program == "Apple_Terminal" {
+        return false; // Terminal.app before macOS 26 maps RGB to wrong colours
+    }
+    let t = term.to_ascii_lowercase();
+    !(t.is_empty()
+        || matches!(
+            t.as_str(),
+            "linux" | "dumb" | "ansi" | "vt100" | "vt102" | "vt220" | "xterm" | "screen" | "cons25"
+        ))
 }
 
 macro_rules! accessors {
@@ -323,6 +340,18 @@ mod tests {
         for (i, t) in THEMES.iter().enumerate() {
             assert_eq!(by_name(t.name), Some(i));
         }
+    }
+
+    #[test]
+    fn truecolor_detection() {
+        // sudo on Ubuntu: COLORTERM stripped, TERM kept.
+        assert!(supports_truecolor("", "xterm-256color", ""));
+        assert!(supports_truecolor("", "xterm-kitty", ""));
+        assert!(supports_truecolor("truecolor", "screen", ""));
+        assert!(!supports_truecolor("", "linux", ""));
+        assert!(!supports_truecolor("", "vt100", ""));
+        assert!(!supports_truecolor("", "", ""));
+        assert!(!supports_truecolor("", "xterm-256color", "Apple_Terminal"));
     }
 
     #[test]

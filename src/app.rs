@@ -238,6 +238,9 @@ pub struct App {
     pub cfg: Config,
     /// Theme index before the picker opened (Esc restores it).
     theme_before: usize,
+    /// Set once the user confirms a theme in the picker. Only then is the
+    /// theme written to the config; otherwise "auto" stays "auto".
+    theme_user_set: bool,
     pub close_wait: usize,
     pub time_wait: usize,
     sock_cache: Vec<OpenFile>,
@@ -288,6 +291,7 @@ impl App {
             status: None,
             cfg,
             theme_before: 0,
+            theme_user_set: false,
             close_wait: 0,
             time_wait: 0,
             sock_cache: Vec::new(),
@@ -353,7 +357,9 @@ impl App {
     /// Copy the current UI state back into the config (saved on quit).
     pub fn snapshot_config(&mut self) -> Config {
         let mut c = self.cfg.clone();
-        c.theme = theme::pal().name.to_string();
+        if self.theme_user_set {
+            c.theme = theme::pal().name.to_string();
+        }
         c.interval_ms = self.interval.as_millis() as u64;
         c.proc_sort = self.proc_sort.as_str().to_string();
         c.proc_desc = self.proc_desc;
@@ -749,6 +755,7 @@ impl App {
             KeyCode::Char('b') => self.cfg.background = !self.cfg.background,
             KeyCode::Enter => {
                 self.mode = Mode::Normal;
+                self.theme_user_set = true;
                 self.set_status(format!("theme {} (saved on quit)", theme::pal().name), theme::green());
             }
             _ => {}

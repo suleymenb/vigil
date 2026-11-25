@@ -74,11 +74,45 @@ impl Default for Alerts {
 }
 
 pub fn path() -> Option<PathBuf> {
+    // Under sudo, use the invoking user's config, not root's: `vigil` and
+    // `sudo vigil` should share one set of settings.
+    if let Some(home) = sudo_user().map(|u| u.home) {
+        return Some(home.join(".config").join("vigil").join("config.toml"));
+    }
     let base = std::env::var_os("XDG_CONFIG_HOME")
         .map(PathBuf::from)
         .filter(|p| p.is_absolute())
         .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".config")))?;
     Some(base.join("vigil").join("config.toml"))
+}
+
+/// The user who ran `sudo vigil`, when we are root because of sudo.
+pub struct SudoUser {
+    pub home: PathBuf,
+    pub uid: u32,
+    pub gid: u32,
+}
+
+pub fn sudo_user() -> Option<SudoUser> {
+    let name = std::env::var("SUDO_USER").ok().filter(|n| !n.is_empty() && n != "root")?;
+    let uid = std::env::var("SUDO_UID").ok()?.parse().ok()?;
+    let gid = std::env::var("SUDO_GID").ok()?.parse().ok()?;
+    let home = std::fs::read_to_string("/etc/passwd")
+        .ok()
+        .and_then(|t| home_from_passwd(&t, &name))
+        .or_else(|| {
+            // macOS keeps regular users in Directory Services, not /etc/passwd.
+            let p = PathBuf::from("/Users").join(&name);
+            (cfg!(target_os = "macos") && p.is_dir()).then_some(p)
+        })?;
+    Some(SudoUser { home, uid, gid })
+}
+
+pub fn home_from_passwd(passwd: &str, user: &str) -> Option<PathBuf> {
+    passwd.lines().find_map(|l| {
+        let f: Vec<&str> = l.split(':').collect();
+        (f.len() >= 6 && f[0] == user && !f[5].is_empty()).then(|| PathBuf::from(f[5]))
+    })
 }
 
 /// Load the config. A broken file never stops vigil: you get defaults plus a warning.
@@ -113,6 +147,15 @@ pub fn save(cfg: &Config, explicit: Option<&PathBuf>) -> Result<PathBuf, String>
     let tmp = p.with_extension("toml.tmp");
     std::fs::write(&tmp, text).map_err(|e| e.to_string())?;
     std::fs::rename(&tmp, &p).map_err(|e| e.to_string())?;
+    // Written as root under sudo: hand the file back to the real user so a
+    // later `vigil` without sudo can still update it.
+    #[cfg(unix)]
+    if let Some(u) = sudo_user() {
+        if let Some(dir) = p.parent() {
+            let _ = std::os::unix::fs::chown(dir, Some(u.uid), Some(u.gid));
+        }
+        let _ = std::os::unix::fs::chown(&p, Some(u.uid), Some(u.gid));
+    }
     Ok(p)
 }
 
@@ -127,6 +170,13 @@ mod tests {
         assert_eq!(c.interval_ms, 1000);
         assert_eq!(c.alerts.disk_pct, 80.0);
         assert_eq!(c.alerts.close_wait, 100);
+    }
+
+    #[test]
+    fn passwd_home_lookup() {
+        let pw = "root:x:0:0:root:/root:/bin/bash\nuser:x:1000:1000:User,,,:/home/user:/usr/bin/zsh\n";
+        assert_eq!(home_from_passwd(pw, "user"), Some(PathBuf::from("/home/user")));
+        assert_eq!(home_from_passwd(pw, "nobody"), None);
     }
 
     #[test]

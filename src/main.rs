@@ -127,6 +127,14 @@ fn main() -> Result<()> {
         theme::by_name(&theme_name).unwrap_or_else(theme::auto_default)
     };
     theme::set(theme_idx);
+    let auto_note = (theme_name.eq_ignore_ascii_case("auto") && theme::pal().name == "ansi").then(|| {
+        format!(
+            "theme auto → ansi: TERM={} doesn't look truecolor. Press T to pick another theme",
+            std::env::var("TERM").unwrap_or_default()
+        )
+    });
+    let unknown_theme = (!theme_name.eq_ignore_ascii_case("auto") && theme::by_name(&theme_name).is_none())
+        .then(|| format!("unknown theme \"{theme_name}\", see --list-themes"));
 
     let tab = args
         .tab
@@ -147,7 +155,7 @@ fn main() -> Result<()> {
     if let Some(q) = args.query.as_deref().and_then(Query::parse) {
         app.run_query(q);
     }
-    if let Some(w) = cfg_warning {
+    for w in [cfg_warning, unknown_theme, auto_note].into_iter().flatten() {
         app.warn(w);
     }
 

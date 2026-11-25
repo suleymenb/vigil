@@ -135,13 +135,16 @@ Themes change glyphs as well as colours:
   monochrome green, and severity shown only by brightness, like a VT100.
 
 `ansi` uses your terminal's own 16 colours, so it works over plain SSH, in tmux without
-truecolor and on serial consoles. With `theme = "auto"` (the default), vigil picks `ansi`
-when the terminal doesn't advertise truecolor support.
+truecolor and on serial consoles. With `theme = "auto"` (the default), vigil picks `ansi` only
+on terminals that can't show 24-bit colour (the Linux VT console, `vt100`, `screen`, `dumb`);
+everything else gets `tokyo-night`. A theme is only written to the config when you pick it
+with `T` and confirm with Enter.
 
 ## Configuration
 
 Settings live in `~/.config/vigil/config.toml` (or `$XDG_CONFIG_HOME/vigil/config.toml`), on
-macOS too. Theme, interval, sort order and tree mode are saved on quit. Precedence is
+macOS too. Under `sudo`, vigil uses the config of the user who ran sudo (not root's), so
+`vigil` and `sudo vigil` share one set of settings. Theme, interval, sort order and tree mode are saved on quit. Precedence is
 command-line flags, then the config file, then defaults. A broken config never stops vigil:
 it falls back to defaults and shows a warning.
 
