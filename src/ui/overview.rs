@@ -6,6 +6,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Cell, Paragraph, Row, Table};
 use ratatui::Frame;
 
+use super::views::num;
 use super::widgets::{kv, meter, meter_solid, panel, AreaGraph, GraphColor};
 use crate::app::App;
 use crate::theme;
@@ -205,12 +206,12 @@ fn draw_top_procs(f: &mut Frame, app: &App, area: Rect) {
         .map(|p| {
             let norm = p.cpu as f64 / ncores;
             Row::new(vec![
-                Cell::from(p.pid.to_string()).style(Style::new().fg(theme::dim())),
+                num(p.pid.to_string(), Style::new().fg(theme::dim())),
                 Cell::from(truncate(&p.name, 32)).style(Style::new().fg(theme::fg())),
                 Cell::from(truncate(&p.user, 10)).style(Style::new().fg(theme::muted())),
                 Cell::from(Line::from(meter(norm.max(p.cpu as f64 / 4.0), 5))),
-                Cell::from(format!("{:5.1}", p.cpu)).style(Style::new().fg(theme::heat(p.cpu as f64))),
-                Cell::from(fmt_bytes(p.mem)).style(Style::new().fg(theme::purple())),
+                num(format!("{:.1}", p.cpu), Style::new().fg(theme::heat(p.cpu as f64))),
+                num(fmt_bytes(p.mem), Style::new().fg(theme::purple())),
             ])
         })
         .collect();
@@ -226,8 +227,7 @@ fn draw_top_procs(f: &mut Frame, app: &App, area: Rect) {
         ],
     )
     .header(
-        Row::new(["PID", "NAME", "USER", "", "CPU%", "MEM"])
-            .style(Style::new().fg(theme::blue()).bold()),
+        super::views::header(&["PID", "NAME", "USER", "", "CPU%", "MEM"]),
     )
     .block(panel("top processes", theme::green()));
     f.render_widget(t, area);
@@ -258,10 +258,10 @@ fn draw_listening(f: &mut Frame, app: &App, area: Rect) {
         .iter()
         .map(|((port, proto), (cmd, pid))| {
             Row::new(vec![
-                Cell::from(port.to_string()).style(Style::new().fg(theme::green()).bold()),
+                num(port.to_string(), Style::new().fg(theme::green()).bold()),
                 Cell::from(proto.clone()).style(Style::new().fg(theme::cyan())),
                 Cell::from(truncate(cmd, 18)).style(Style::new().fg(theme::fg())),
-                Cell::from(pid.to_string()).style(Style::new().fg(theme::dim())),
+                num(pid.to_string(), Style::new().fg(theme::dim())),
             ])
         })
         .collect();
@@ -269,7 +269,7 @@ fn draw_listening(f: &mut Frame, app: &App, area: Rect) {
         rows,
         [Constraint::Length(6), Constraint::Length(5), Constraint::Min(8), Constraint::Length(7)],
     )
-    .header(Row::new(["PORT", "PROTO", "PROCESS", "PID"]).style(Style::new().fg(theme::blue()).bold()))
+    .header(super::views::header(&["PORT", "PROTO", "PROCESS", "PID"]))
     .block(block);
     f.render_widget(t, area);
 }
@@ -293,8 +293,8 @@ fn draw_side(f: &mut Frame, app: &App, area: Rect) {
         .take(6)
         .map(|(k, n)| {
             Line::from(vec![
-                Span::styled(format!(" {k:<12}"), Style::new().fg(theme::tcp_state(k))),
-                Span::styled(format!("{n:>5}"), Style::new().fg(theme::fg()).bold()),
+                Span::styled(format!(" {k:<14}"), Style::new().fg(theme::tcp_state(k))),
+                Span::styled(format!("{n:>7}"), Style::new().fg(theme::fg()).bold()),
             ])
         })
         .collect();

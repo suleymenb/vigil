@@ -78,6 +78,24 @@ pub struct Alerts {
     pub iface_drops_per_s: f64,
     /// Latency probe loss over the last 100 probes, percent.
     pub probe_loss_pct: f64,
+    /// Open file descriptors of one process against its limit, percent.
+    pub fd_pct: f64,
+    /// System-wide file handles in use, percent.
+    pub files_pct: f64,
+    /// Ephemeral (outgoing) ports in use, percent of ip_local_port_range.
+    pub ephemeral_pct: f64,
+    /// Inodes used on any filesystem, percent.
+    pub inode_pct: f64,
+    /// Average disk request latency, ms (Linux).
+    pub disk_await_ms: f64,
+    /// Disk busy time, percent (Linux).
+    pub disk_util_pct: f64,
+    /// Days before a TLS certificate (https probe) expires.
+    pub cert_days: f64,
+    /// Share of CPU periods a container was throttled, percent.
+    pub throttle_pct: f64,
+    /// Badge for failed systemd units / launchd jobs.
+    pub failed_units: bool,
 }
 
 impl Default for Config {
@@ -115,6 +133,15 @@ impl Default for Alerts {
             conntrack_pct: 80.0,
             iface_drops_per_s: 10.0,
             probe_loss_pct: 20.0,
+            fd_pct: 90.0,
+            files_pct: 80.0,
+            ephemeral_pct: 80.0,
+            inode_pct: 90.0,
+            disk_await_ms: 100.0,
+            disk_util_pct: 95.0,
+            cert_days: 21.0,
+            throttle_pct: 25.0,
+            failed_units: true,
         }
     }
 }

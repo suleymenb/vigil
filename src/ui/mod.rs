@@ -1,5 +1,6 @@
 mod netviews;
 mod overview;
+mod sysviews;
 mod views;
 pub mod widgets;
 
@@ -42,6 +43,8 @@ pub fn draw(f: &mut Frame, app: &mut App) {
         Tab::Routes => netviews::routes(f, app, body),
         Tab::Probes => netviews::probes(f, app, body),
         Tab::Firewall => netviews::firewall(f, app, body),
+        Tab::Containers => sysviews::containers(f, app, body),
+        Tab::System => sysviews::system(f, app, body),
     }
     draw_footer(f, app, footer);
 
@@ -103,10 +106,9 @@ fn draw_header(f: &mut Frame, app: &App, area: Rect) {
 
     let titles: Vec<Line> = Tab::ALL
         .iter()
-        .enumerate()
-        .map(|(i, t)| {
+        .map(|t| {
             Line::from(vec![
-                Span::styled(format!("{}", i + 1), Style::new().fg(theme::dim())),
+                Span::styled(t.key().to_string(), Style::new().fg(theme::dim())),
                 Span::raw(" "),
                 Span::raw(t.title()),
             ])
@@ -144,7 +146,7 @@ fn hints(app: &App) -> Vec<(&'static str, &'static str)> {
             ("↵", "open files"),
             ("x", "signal"),
             ("t", "tree"),
-            ("c/m/p/n/u/i/o/w", "sort"),
+            ("c/m/p/n/u/i/o/w/e", "sort"),
             ("r", "reverse"),
         ],
         Tab::Network => vec![("↑↓", "interface")],
@@ -159,7 +161,9 @@ fn hints(app: &App) -> Vec<(&'static str, &'static str)> {
             ("x", "signal"),
         ],
         Tab::Routes => vec![("↑↓", "routes"), ("N", "names")],
-        Tab::Probes => vec![("a", "add probe"), ("d", "delete"), ("↑↓", "select")],
+        Tab::Probes => vec![("a", "add probe"), ("d", "delete"), ("t", "trace path"), ("↑↓", "select")],
+        Tab::Containers => vec![("↑↓", "select")],
+        Tab::System => vec![("e", "units ⇄ kernel events"), ("↵", "reload journal")],
         Tab::Firewall => vec![("z", "hide zero"), ("s", "sort by rate")],
         Tab::Files => vec![("↵", "who uses this"), ("p", "proc files"), ("r", "rerun"), ("x", "signal")],
         Tab::Storage => vec![],
@@ -321,7 +325,7 @@ fn draw_signal_dialog(f: &mut Frame, app: &App, area: Rect) {
 }
 
 fn draw_help(f: &mut Frame, area: Rect) {
-    let r = centered(area, 82, 41);
+    let r = centered(area, 96, 43);
     f.render_widget(Clear, r);
     let sec = |t: &str| Line::styled(format!(" {t}"), Style::new().fg(theme::purple()).bold());
     let row = |k: &str, d: &str| {
@@ -332,7 +336,7 @@ fn draw_help(f: &mut Frame, area: Rect) {
     };
     let lines = vec![
         sec("Global"),
-        row("1-6 / tab / ←→", "switch view"),
+        row("1-9 0 S / tab / ←→", "switch view (0 containers, S system)"),
         row("↑↓ j k pgup pgdn", "move selection (g / G = top / bottom)"),
         row("/", "filter current list (esc clears)"),
         row(":", "lsof query: 1234 · :443 · tcp:22 · /var/log/x · -u root -i"),
@@ -342,7 +346,7 @@ fn draw_help(f: &mut Frame, area: Rect) {
         row("R", "write a Markdown report to ./vigil-report-<time>.md"),
         row("? / q", "help / quit"),
         sec("Processes"),
-        row("c m p n u i o w", "sort cpu · mem · pid · name · user · io · conns · net/s"),
+        row("c m p n u i o w e", "sort cpu · mem · pid · name · user · io · conns · net/s · fds"),
         row("r / t", "reverse sort / toggle process tree"),
         row("↵ or f", "open files of process (lsof -p)"),
         row("x / K / del", "send signal (TERM, KILL, HUP, STOP, …)"),
@@ -354,7 +358,8 @@ fn draw_help(f: &mut Frame, area: Rect) {
         row("↵ / P", "open files of owner / everything on this port"),
         row("x", "signal the owning process"),
         sec("Probes · Firewall"),
-        row("a / d", "add a latency probe / delete it"),
+        row("a / d / t", "add a probe (1.1.1.1, tcp:host:port, dns:name, https://url) / delete / trace path"),
+        row("0 / S", "containers / system: services, journal, kernel events (e switches pane)"),
         row("z / s", "firewall: hide zero-hit rules / sort by packets per second"),
         sec("Open Files"),
         row("↵", "who else has this file / port open"),

@@ -7,7 +7,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Cell, Paragraph, Row, Table, Wrap};
 use ratatui::Frame;
 
-use super::views::{filter_title, header, local_state, scrollbar, sel_style, window};
+use super::views::{filter_title, header, local_state, none, num, scrollbar, sel_style, window};
 use super::widgets::{frame, panel, AreaGraph, GraphColor};
 use crate::app::App;
 use crate::collect::ipinfo;
@@ -59,7 +59,7 @@ pub fn routes(f: &mut Frame, app: &mut App, area: Rect) {
                     .style(Style::new().fg(theme::cyan())),
                 Cell::from(r.dev.clone()).style(Style::new().fg(theme::teal())),
                 Cell::from(r.proto.clone()).style(Style::new().fg(theme::muted())),
-                Cell::from(r.metric.clone()).style(Style::new().fg(theme::dim())),
+                num(r.metric.clone(), Style::new().fg(theme::dim())),
                 Cell::from(r.src.clone()).style(Style::new().fg(theme::dim())),
             ])
         })
@@ -210,7 +210,10 @@ pub fn probes(f: &mut Frame, app: &mut App, area: Rect) {
         .map(|p| {
             let loss = p.loss_pct();
             let stats = p.stats();
-            let ms = |v: Option<f64>| v.map(|x| format!("{x:.1}")).unwrap_or_else(|| "·".into());
+            let ms = |v: Option<f64>, st: Style| match v {
+                Some(x) => num(format!("{x:.1}"), st),
+                None => none(),
+            };
             let tail: Vec<f64> = p.hist.tail(w).into_iter().map(|x| if x.is_finite() { x } else { 0.0 }).collect();
             let max = stats.map(|s| s.2).unwrap_or(1.0).max(1.0);
             let last_col = match p.last_ms {
@@ -221,17 +224,41 @@ pub fn probes(f: &mut Frame, app: &mut App, area: Rect) {
             Row::new(vec![
                 Cell::from(truncate(&p.name, 28)).style(Style::new().fg(theme::fg()).bold()),
                 Cell::from(p.target.kind()).style(Style::new().fg(if p.auto { theme::dim() } else { theme::cyan() })),
-                Cell::from(match (&p.last_ms, &p.last_err) {
-                    (Some(v), _) => format!("{v:.1}"),
-                    (None, Some(e)) => truncate(e, 14),
-                    _ => "·".into(),
-                })
-                .style(Style::new().fg(last_col)),
-                Cell::from(ms(stats.map(|s| s.0))).style(Style::new().fg(theme::muted())),
-                Cell::from(ms(stats.map(|s| s.1))).style(Style::new().fg(theme::fg())),
-                Cell::from(ms(stats.map(|s| s.2))).style(Style::new().fg(theme::muted())),
-                Cell::from(ms(stats.map(|s| s.3))).style(Style::new().fg(theme::purple())),
-                Cell::from(format!("{loss:.0}%")).style(Style::new().fg(theme::heat(loss * 2.0)).bold()),
+                match (&p.last_ms, &p.last_err) {
+                    (Some(v), _) => num(format!("{v:.1}"), Style::new().fg(last_col)),
+                    (None, Some(e)) => num(truncate(e, 14), Style::new().fg(last_col)),
+                    _ => none(),
+                },
+                ms(stats.map(|s| s.0), Style::new().fg(theme::muted())),
+                ms(stats.map(|s| s.1), Style::new().fg(theme::fg())),
+                ms(stats.map(|s| s.2), Style::new().fg(theme::muted())),
+                ms(stats.map(|s| s.3), Style::new().fg(theme::purple())),
+                num(format!("{loss:.0}%"), Style::new().fg(theme::heat(loss * 2.0)).bold()),
+                match p.http_status {
+                    Some(st) => num(
+                        st.to_string(),
+                        Style::new().fg(match st {
+                            200..=299 => theme::green(),
+                            300..=399 => theme::cyan(),
+                            400..=499 => theme::yellow(),
+                            _ => theme::red(),
+                        }),
+                    ),
+                    None => none(),
+                },
+                match p.cert_days {
+                    Some(d) => num(
+                        format!("{d}d"),
+                        Style::new().fg(if d < 7 {
+                            theme::red()
+                        } else if d < 21 {
+                            theme::orange()
+                        } else {
+                            theme::green()
+                        }),
+                    ),
+                    None => none(),
+                },
                 Cell::from(spark(&tail, max)).style(Style::new().fg(theme::teal())),
             ])
         })
@@ -247,17 +274,77 @@ pub fn probes(f: &mut Frame, app: &mut App, area: Rect) {
             Constraint::Length(7),
             Constraint::Length(7),
             Constraint::Length(6),
+            Constraint::Length(6),
+            Constraint::Length(6),
             Constraint::Length(w as u16),
         ],
     )
-    .header(header(&["TARGET", "TYPE", "LAST ms", "MIN", "AVG", "MAX", "JITTER", "LOSS", "HISTORY"]))
+    .column_spacing(2)
+    .header(header(&["TARGET", "TYPE", "LAST ms", "MIN", "AVG", "MAX", "JITTER", "LOSS", "STATUS", "CERT", "HISTORY"]))
     .block(panel(format!("latency probes ({n})"), theme::cyan()))
     .row_highlight_style(sel_style())
     .highlight_symbol(theme::glyphs().select);
     f.render_stateful_widget(t, top, &mut local_state(&app.probe_state, off));
 
-    // Big graph of the selected probe, losses drawn as red marks underneath.
+    // Path trace (t) for the selected probe, if one was run for it.
     let Some(p) = app.probe_state.selected().and_then(|i| st.probes.get(i)) else { return };
+    let host = match &p.target {
+        crate::collect::probes::Target::Icmp(ip) => ip.to_string(),
+        crate::collect::probes::Target::Tcp(h, _) | crate::collect::probes::Target::Dns(h) => h.clone(),
+        crate::collect::probes::Target::Http(u) => u.split("://").nth(1).unwrap_or(u).split(['/', ':']).next().unwrap_or("").to_string(),
+    };
+    let trace = app.net.trace.try_lock().ok().and_then(|t| t.current.clone()).filter(|t| t.target == host);
+    if let Some(tr) = trace {
+        let title = if tr.running {
+            format!("path to {}  tracing…", tr.target)
+        } else {
+            format!("path to {}  ({}, {} hops)", tr.target, tr.tool, tr.hops.len())
+        };
+        let mut block = panel(title, theme::cyan());
+        if let Some(e) = &tr.error {
+            block = block.title_bottom(Line::styled(format!(" {e} "), Style::new().fg(theme::orange())));
+        }
+        let rows: Vec<Row> = tr
+            .hops
+            .iter()
+            .take(bottom.height.saturating_sub(3) as usize)
+            .map(|hp| {
+                let silent = hp.host == "*" || hp.host == "???";
+                Row::new(vec![
+                    num(hp.n.to_string(), Style::new().fg(theme::dim())),
+                    Cell::from(hp.host.clone()).style(Style::new().fg(if silent { theme::dim() } else { theme::fg() }).bold()),
+                    num(format!("{:.0}%", hp.loss_pct), Style::new().fg(theme::heat(hp.loss_pct * 2.0)).bold()),
+                    num(hp.sent.to_string(), Style::new().fg(theme::dim())),
+                    if silent { none() } else { num(format!("{:.1}", hp.last), Style::new().fg(theme::fg())) },
+                    if silent { none() } else { num(format!("{:.1}", hp.avg), Style::new().fg(theme::green())) },
+                    if silent { none() } else { num(format!("{:.1}", hp.best), Style::new().fg(theme::muted())) },
+                    if silent { none() } else { num(format!("{:.1}", hp.worst), Style::new().fg(theme::orange())) },
+                ])
+            })
+            .collect();
+        f.render_widget(
+            Table::new(
+                rows,
+                [
+                    Constraint::Length(4),
+                    Constraint::Min(16),
+                    Constraint::Length(6),
+                    Constraint::Length(5),
+                    Constraint::Length(8),
+                    Constraint::Length(8),
+                    Constraint::Length(8),
+                    Constraint::Length(8),
+                ],
+            )
+            .column_spacing(2)
+            .header(header(&["HOP", "HOST", "LOSS%", "SENT", "LAST ms", "AVG", "BEST", "WORST"]))
+            .block(block),
+            bottom,
+        );
+        return;
+    }
+
+    // Big graph of the selected probe, losses drawn as red marks underneath.
     let gw = bottom.width.saturating_sub(2) as usize;
     let raw = p.hist.tail(gw);
     let data: Vec<f64> = raw.iter().map(|x| if x.is_finite() { *x } else { 0.0 }).collect();
@@ -316,11 +403,10 @@ pub fn firewall(f: &mut Frame, app: &mut App, area: Rect) {
                 Cell::from(r.chain.clone()).style(Style::new().fg(theme::cyan())),
                 Cell::from(r.rule.clone()).style(Style::new().fg(theme::fg())),
                 Cell::from(r.verdict.clone()).style(Style::new().fg(vcol).bold()),
-                Cell::from(r.packets.to_string()).style(Style::new().fg(if r.packets > 0 { theme::fg() } else { theme::dim() })),
-                Cell::from(fmt_bytes(r.bytes)).style(Style::new().fg(theme::muted())),
-                Cell::from(if active { format!("{:.0}", r.pps) } else { "·".into() })
-                    .style(Style::new().fg(if active { theme::yellow() } else { theme::dim() }).bold()),
-                Cell::from(if active { fmt_rate(r.bps) } else { "·".into() }).style(Style::new().fg(theme::orange())),
+                num(r.packets.to_string(), Style::new().fg(if r.packets > 0 { theme::fg() } else { theme::dim() })),
+                num(fmt_bytes(r.bytes), Style::new().fg(theme::muted())),
+                if active { num(format!("{:.0}", r.pps), Style::new().fg(theme::yellow()).bold()) } else { none() },
+                if active { num(fmt_rate(r.bps), Style::new().fg(theme::orange())) } else { none() },
             ])
         })
         .collect();

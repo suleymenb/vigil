@@ -147,7 +147,7 @@ footer { margin-top: 72px; color: var(--muted); font-size: 13px; }
 </style>
 
 <header class="hero col">
-  <span class="eyebrow">Field handbook · v0.3</span>
+  <span class="eyebrow">Field handbook · v0.4</span>
   <h1><span class="mark">◆</span> vigil</h1>
   <p class="lead">A Rust terminal monitor for people who run servers and debug networks. Processes, sockets and open files live in one screen, with <code>lsof</code> built in. This handbook shows how it works and how to solve the usual incidents with it.</p>
   <div class="cmds">
@@ -160,7 +160,7 @@ footer { margin-top: 72px; color: var(--muted); font-size: 13px; }
 <div class="wide">
   <div class="term-wrap" role="img" aria-label="Example of vigil's Overview screen on a web server">
     <div class="term"><div class="bar"><i></i><i></i><i></i></div><pre><span class="badge"> ◆ vigil </span> <span class="c w">prod-web-01</span>  <span class="m">Ubuntu 24.04.1 LTS</span>  <span class="d">6.8.0-45-generic x86_64</span>  <span class="d">up</span> <span class="g">41d 06:12</span>  <span class="d">load</span> <span class="g">1.84</span> <span class="g">1.62</span> <span class="g">1.40</span>  <span class="d">procs</span> <span class="p">214</span>        <span class="g">● live</span>  <span class="d">1000ms</span> <span class="sig"> root </span>
- <span class="d">1</span> <span class="b"><u>Overview</u></span> <span class="bd">│</span> <span class="d">2</span> <span class="m">Procs</span> <span class="bd">│</span> <span class="d">3</span> <span class="m">Network</span> <span class="bd">│</span> <span class="d">4</span> <span class="m">Sockets</span> <span class="bd">│</span> <span class="d">5</span> <span class="m">Files</span> <span class="bd">│</span> <span class="d">6</span> <span class="m">Storage</span> <span class="bd">│</span> <span class="d">7</span> <span class="m">Routes</span> <span class="bd">│</span> <span class="d">8</span> <span class="m">Probes</span> <span class="bd">│</span> <span class="d">9</span> <span class="m">Firewall</span>                         <span class="g">✓ healthy</span>
+ <span class="d">1</span> <span class="b"><u>Overview</u></span> <span class="bd">│</span> <span class="d">2</span> <span class="m">Procs</span> <span class="bd">│</span> <span class="d">3</span> <span class="m">Network</span> <span class="bd">│</span> <span class="d">4</span> <span class="m">Sockets</span> <span class="bd">│</span> <span class="d">5</span> <span class="m">Files</span> <span class="bd">│</span> <span class="d">6</span> <span class="m">Storage</span> <span class="bd">│</span> <span class="d">7</span> <span class="m">Routes</span> <span class="bd">│</span> <span class="d">8</span> <span class="m">Probes</span> <span class="bd">│</span> <span class="d">9</span> <span class="m">Firewall</span> <span class="bd">│</span> <span class="d">0</span> <span class="m">Containers</span> <span class="bd">│</span> <span class="d">S</span> <span class="m">System</span>   <span class="g">✓ healthy</span>
 <span class="bd">╭</span> <span class="b w">cpu  AMD EPYC 7763  8c/16t  54°C</span> <span class="bd">──────────────────────────────────────────────────────────────────────────────────────╮</span>
 <span class="bd">│</span> <span class="d">total</span> <span class="y w"> 38.2%</span>  <span class="g">■■■■■■■■■■</span><span class="y">■■■■</span><span class="bd">■■■■■■■■■■■■■■■■■■■■■■■■■■</span>         <span class="m">C0 </span><span class="g">■■■</span><span class="y">■</span><span class="bd">■■■■</span><span class="y">  44% </span><span class="y">▃▄▅▅▆▄▄▅</span>   <span class="m">C8 </span><span class="g">■■</span><span class="bd">■■■■■■</span><span class="g">  21% </span><span class="g">▂▂▃▂▂▃▂▂</span> <span class="bd">│</span>
 <span class="bd">│</span>                                                       <span class="y">▄▅</span>         <span class="m">C1 </span><span class="g">■■■</span><span class="bd">■■■■■</span><span class="g">  33% </span><span class="g">▂▃▃▄▃▃▃▄</span>   <span class="m">C9 </span><span class="g">■■■</span><span class="bd">■■■■■</span><span class="g">  29% </span><span class="g">▂▃▂▃▃▃▂▃</span> <span class="bd">│</span>
@@ -275,7 +275,9 @@ footer { margin-top: 72px; color: var(--muted); font-size: 13px; }
     <div class="view"><span class="num">7 · Routes</span><h3>Routes, neighbours, DNS</h3><p>Routing table, ARP/NDP neighbours with FAILED / INCOMPLETE entries on top, default gateways, nameservers and their reachability.</p><span class="keys">Refreshes every 5 s while open.</span></div>
     <div class="view"><span class="num">8 · Probes</span><h3>Latency monitor</h3><p>ICMP, TCP-connect and DNS probes with last / min / avg / max, jitter, loss and a history graph. Gateway and DNS servers are probed automatically.</p><span class="keys"><kbd>a</kbd> add · <kbd>d</kbd> delete</span></div>
     <div class="view"><span class="num">9 · Firewall</span><h3>Rule hit counters</h3><p>nftables, iptables or pf rules with packets, bytes and live packets per second, so you see which rule is dropping traffic right now.</p><span class="keys"><kbd>z</kbd> hits only · <kbd>s</kbd> sort by rate</span></div>
-    <div class="view"><span class="num">6 · Storage</span><h3>Disks, I/O and temperatures</h3><p>Usage per filesystem, which processes are reading or writing right now, and sensors with their critical limits.</p><span class="keys">Sensors refresh every 2 s on this view.</span></div>
+    <div class="view"><span class="num">0 · Containers</span><h3>cgroup v2, no daemon needed</h3><p>CPU against its limit, <b>throttling</b>, memory against its limit, <b>OOM kills</b>, I/O and network per container. Docker, containerd/Kubernetes, CRI-O and Podman.</p><span class="keys">Linux, root for every container.</span></div>
+    <div class="view"><span class="num">S · System</span><h3>Services, journal, kernel events</h3><p>systemd units with failed and restarting ones on top, the journal of the selected unit, and kernel events: OOM kills, link flaps, NIC resets, segfaults, I/O errors.</p><span class="keys"><kbd>e</kbd> switch pane · <kbd>↵</kbd> reload journal</span></div>
+    <div class="view"><span class="num">6 · Storage</span><h3>Disks, I/O and temperatures</h3><p>Space <b>and inodes</b> per filesystem, latency and utilisation per disk device (iostat), which processes are reading or writing right now, and sensors.</p><span class="keys">Sensors refresh every 2 s on this view.</span></div>
   </div>
 </div>
 
@@ -315,6 +317,18 @@ footer { margin-top: 72px; color: var(--muted); font-size: 13px; }
 <div class="wide">
   <section id="pane-devops" role="tabpanel" aria-labelledby="tab-devops">
     <div class="plays">
+      <article class="play"><h3>"Too many open files"</h3><p class="sym">A service starts refusing connections; the <span class="mono" style="color:var(--bad)">FDS</span> badge is on.</p>
+        <ol><li><kbd>2</kbd> <kbd>e</kbd> sorts processes by open file descriptors.</li><li>The detail pane shows <code>open/limit (%)</code> for the selected process.</li><li><kbd>↵</kbd> lists its descriptors: thousands of the same socket or file means a leak.</li></ol>
+        <p class="why">Fix the leak, or raise <code>LimitNOFILE</code> in the unit. A count that only grows over time is a leak; raising the limit just delays the outage.</p></article>
+      <article class="play"><h3>Disk full, but there is space</h3><p class="sym">Writes fail with "No space left on device" while <code>df -h</code> shows free GB.</p>
+        <ol><li><kbd>6</kbd> and look at the <b>INODES</b> column, or the <span class="mono" style="color:var(--bad)">INODES</span> badge.</li><li>At 100 % no new file can be created, whatever the free space.</li><li>Find the directory with millions of small files (sessions, caches, mail queues).</li></ol>
+        <p class="why">Every file needs an inode, and ext4 fixes their number at mkfs time. Deleting small files is the only quick fix.</p></article>
+      <article class="play"><h3>Slow pod, idle node</h3><p class="sym">A container is slow while the host has spare CPU.</p>
+        <ol><li><kbd>0</kbd> Containers and look at <b>THROTTLED</b>.</li><li>A high share means it hits its CPU quota (<code>cpu.max</code>) every period.</li><li>Compare CPU% with the LIMIT column.</li></ol>
+        <p class="why">CFS throttling pauses all threads of the container until the next period, which shows up as latency spikes. Raise the limit or drop it and rely on requests.</p></article>
+      <article class="play"><h3>Something got killed</h3><p class="sym">A process disappeared; the <span class="mono" style="color:var(--bad)">OOM</span> badge is on.</p>
+        <ol><li><kbd>S</kbd> System, <kbd>e</kbd> to the kernel events: the OOM line names the victim and its memory use.</li><li>In a container: <kbd>0</kbd> shows the OOM count and memory against its limit.</li><li><kbd>e</kbd> back to the units and its journal shows what it was doing.</li></ol>
+        <p class="why">The OOM killer only logs to the kernel ring buffer. Without dmesg you just see a process that is gone.</p></article>
       <article class="play"><h3>"Address already in use"</h3><p class="sym">Your deploy fails because port 8080 is taken.</p>
         <ol><li><kbd>:</kbd> <code>:8080</code> <kbd>↵</kbd></li><li>Read the PID and COMMAND. Often it's an old instance that never exited.</li><li><kbd>x</kbd> → <code>SIGTERM</code>, and only if that doesn't work, <code>SIGKILL</code>.</li></ol>
         <p class="why">TERM first, so the process can still shut down cleanly. KILL can't be caught, so nothing gets flushed or cleaned up.</p></article>
@@ -344,6 +358,12 @@ footer { margin-top: 72px; color: var(--muted); font-size: 13px; }
 
   <section id="pane-net" role="tabpanel" aria-labelledby="tab-net" hidden>
     <div class="plays">
+      <article class="play"><h3>Where on the path is the loss?</h3><p class="sym">A probe shows loss or jitter to an external target.</p>
+        <ol><li><kbd>8</kbd>, select the probe, press <kbd>t</kbd>.</li><li>The path appears hop by hop with loss and latency (mtr, or traceroute).</li><li>Loss that starts at one hop and continues to the end is real; loss at a single middle hop is usually ICMP rate limiting.</li></ol>
+        <p class="why">This separates your network, your provider and the far end in one look.</p></article>
+      <article class="play"><h3>Certificate about to expire</h3><p class="sym">You want to know before the browser does.</p>
+        <ol><li><kbd>8</kbd> <kbd>a</kbd> <code>https://api.example.com/health</code></li><li>The CERT column shows the days left; the <span class="mono" style="color:var(--warn)">CERT</span> badge appears under 21 days.</li><li>STATUS shows the HTTP code, LAST ms the time to first byte.</li></ol>
+        <p class="why">An expired certificate is one of the most common avoidable outages. Probes are saved, so this check runs every time vigil is open.</p></article>
       <article class="play"><h3>Packet loss on the path</h3><p class="sym">Users report slowness; the <span class="mono" style="color:var(--warn)">RETRANS</span> badge is on.</p>
         <ol><li><kbd>4</kbd> <kbd>s</kbd> until you sort by <b>rtt</b>; the slow and retransmitting connections float to the top.</li><li>Do they share one remote network? Check <kbd>8</kbd> Probes for loss to the gateway versus external targets.</li><li><kbd>C</kbd> on a bad connection records 20 s of it for Wireshark.</li></ol>
         <p class="why">Loss to the gateway is local (cable, switch, Wi-Fi). Loss only beyond it is the uplink or the provider. The capture shows retransmissions and dup-ACKs as proof.</p></article>
@@ -397,23 +417,27 @@ footer { margin-top: 72px; color: var(--muted); font-size: 13px; }
 </main>
 <div class="wide">
   <div class="term-wrap" role="img" aria-label="Example of the Probes view">
-    <div class="term"><div class="bar"><i></i><i></i><i></i></div><pre><span class="bd">╭</span> <span class="c w">latency probes (5)</span> <span class="bd">────────────────────────────────────────────────────────────────────────────────────────────────╮</span>
-<span class="bd">│</span> <span class="b w">TARGET                      TYPE  LAST ms   MIN     AVG     MAX     JITTER  LOSS  HISTORY                 </span>      <span class="bd">│</span>
-<span class="bd">│</span><span class="sel"><span class="b">▌</span><span class="w">gateway 10.0.4.1           </span><span class="d">icmp </span><span class="g"> 0.4      </span><span class="m">0.3     </span>0.4     <span class="m">0.9     </span><span class="p">0.1     </span><span class="g w">0%    </span><span class="te">▁▁▁▁▁▂▁▁▁▁▁▁▁▁▁▁▁▁▁▁▂▁▁▁</span>      </span><span class="bd">│</span>
-<span class="bd">│</span> <span class="w">dns 10.0.4.53               </span><span class="d">icmp </span><span class="g"> 0.6      </span><span class="m">0.5     </span>0.6     <span class="m">1.4     </span><span class="p">0.2     </span><span class="g w">0%    </span><span class="te">▁▁▁▁▂▁▁▁▁▁▁▁▂▁▁▁▁▁▁▁▁▁▁▁</span>      <span class="bd">│</span>
-<span class="bd">│</span> <span class="w">tcp:db.internal:5432        </span><span class="c">tcp  </span><span class="g"> 1.2      </span><span class="m">0.9     </span>1.3     <span class="m">4.8     </span><span class="p">0.6     </span><span class="g w">0%    </span><span class="te">▁▂▁▁▁▃▁▁▂▁▁▁▁█▂▁▁▁▁▂▁▁▁▁</span>      <span class="bd">│</span>
-<span class="bd">│</span> <span class="w">1.1.1.1                     </span><span class="c">icmp </span><span class="o"> 118.4    </span><span class="m">9.8     </span>41.2    <span class="m">161.0   </span><span class="p">38.5    </span><span class="r w">12%   </span><span class="te">▁▁▁▁▂▂▃▅▇█▆▇█▇▅▆▇██▇▆▇▆▅</span>      <span class="bd">│</span>
-<span class="bd">│</span> <span class="w">dns:github.com              </span><span class="c">dns  </span><span class="g"> 3.1      </span><span class="m">1.8     </span>2.9     <span class="m">22.4    </span><span class="p">2.4     </span><span class="g w">0%    </span><span class="te">▁▁▁▁▁▁▁▁▁▁█▁▁▁▁▁▁▁▁▁▁▁▁▁</span>      <span class="bd">│</span>
+    <div class="term"><div class="bar"><i></i><i></i><i></i></div><pre><span class="bd">╭</span> <span class="c w">latency probes (6)</span> <span class="bd">─────────────────────────────────────────────────────────────────────────────────────────────────╮</span>
+<span class="bd">│</span><span class="b w"> TARGET                    TYPE    LAST ms     MIN     AVG     MAX  JITTER   LOSS  STATUS   CERT  HISTORY         </span>   <span class="bd">│</span>
+<span class="bd">│</span><span class="sel"><span class="b">▌</span><span class="w">gateway 10.0.4.1        </span>  <span class="d">icmp </span>  <span class="g">     0.4</span>  <span class="m">   0.3</span>     0.4  <span class="m">   0.9</span>  <span class="p">   0.1</span>  <span class="g w">   0%</span>  <span class="d">     ·</span>  <span class="d">    ·</span>  <span class="te">▁▁▁▁▁▂▁▁▁▁▁▁▁▁▁▁</span>   </span><span class="bd">│</span>
+<span class="bd">│</span> <span class="w">dns 10.0.4.53           </span>  <span class="d">icmp </span>  <span class="g">     0.6</span>  <span class="m">   0.5</span>     0.6  <span class="m">   1.4</span>  <span class="p">   0.2</span>  <span class="g w">   0%</span>  <span class="d">     ·</span>  <span class="d">    ·</span>  <span class="te">▁▁▁▁▂▁▁▁▁▁▁▁▂▁▁▁</span>   <span class="bd">│</span>
+<span class="bd">│</span> <span class="w">tcp:db.internal:5432    </span>  <span class="c">tcp  </span>  <span class="g">     1.2</span>  <span class="m">   0.9</span>     1.3  <span class="m">   4.8</span>  <span class="p">   0.6</span>  <span class="g w">   0%</span>  <span class="d">     ·</span>  <span class="d">    ·</span>  <span class="te">▁▂▁▁▁▃▁▁▂▁▁▁▁█▂▁</span>   <span class="bd">│</span>
+<span class="bd">│</span> <span class="w">api.example.com/health  </span>  <span class="c">http </span>  <span class="g">    38.2</span>  <span class="m">  31.0</span>    36.4  <span class="m">  92.7</span>  <span class="p">   5.1</span>  <span class="g w">   0%</span>  <span class="g">   200</span>  <span class="g">  63d</span>  <span class="te">▁▁▂▁▁▃▁▂▁▁▁▅▁▁▂▁</span>   <span class="bd">│</span>
+<span class="bd">│</span> <span class="w">1.1.1.1                 </span>  <span class="c">icmp </span>  <span class="o">   118.4</span>  <span class="m">   9.8</span>    41.2  <span class="m"> 161.0</span>  <span class="p">  38.5</span>  <span class="r w">  12%</span>  <span class="d">     ·</span>  <span class="d">    ·</span>  <span class="te">▂▃▅▇█▆▇█▇▅▆▇██▇▆</span>   <span class="bd">│</span>
+<span class="bd">│</span> <span class="w">shop.example.net        </span>  <span class="c">http </span>  <span class="o">   210.5</span>  <span class="m"> 180.2</span>   201.3  <span class="m"> 260.8</span>  <span class="p">   9.9</span>  <span class="g w">   0%</span>  <span class="g">   200</span>  <span class="o w">   9d</span>  <span class="te">▃▃▄▃▃▄▃▃▃▄▃▃▃▄▃▃</span>   <span class="bd">│</span>
 <span class="bd">╰─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯</span>
-<span class="bd">╭</span> <span class="c w">1.1.1.1  icmp:1.1.1.1</span> <span class="bd">───────────────────────────────────────────────────────────────────────────</span> <span class="d">scale 185.2 ms · loss 12% of 100</span> <span class="bd">╮</span>
-<span class="bd">│</span>                                                       <span class="c">▄▆</span>   <span class="c">▅▇</span>  <span class="c">▆█▇</span>    <span class="c">▅▇█▆</span>                                  <span class="bd">│</span>
-<span class="bd">│</span>                                                  <span class="te">▃▅</span><span class="c">████▆▅████▇▆████▇▅▄▆████▇▆▅▄</span>                                <span class="bd">│</span>
-<span class="bd">│</span>  <span class="te">▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▃▅███████████████████████████████▆▅▃▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂</span>  <span class="bd">│</span>
-<span class="bd">│</span>                                                       <span class="r">x</span>      <span class="r">x  x</span>        <span class="r">x</span>    <span class="r">x</span>                                     <span class="bd">│</span>
+<span class="bd">╭</span> <span class="c w">path to 1.1.1.1  (mtr, 6 hops)</span> <span class="bd">─────────────────────────────────────────────────────────────────────────────────────╮</span>
+<span class="bd">│</span><span class="b w">  HOP  HOST                     LOSS%   SENT   LAST ms       AVG      BEST     WORST</span>                                 <span class="bd">│</span>
+<span class="bd">│</span> <span class="d">   1</span>  <span class="w">10.0.4.1              </span>  <span class="g w">    0%</span>  <span class="d">   10</span>       0.4  <span class="g">     0.4</span>  <span class="m">     0.3</span>  <span class="o">     0.9</span>                                 <span class="bd">│</span>
+<span class="bd">│</span> <span class="d">   2</span>  <span class="w">100.64.0.1            </span>  <span class="g w">    0%</span>  <span class="d">   10</span>       2.1  <span class="g">     2.3</span>  <span class="m">     1.9</span>  <span class="o">     3.8</span>                                 <span class="bd">│</span>
+<span class="bd">│</span> <span class="d">   3</span>  <span class="w">203.0.113.9           </span>  <span class="g w">    0%</span>  <span class="d">   10</span>       4.8  <span class="g">     5.0</span>  <span class="m">     4.5</span>  <span class="o">     7.1</span>                                 <span class="bd">│</span>
+<span class="bd">│</span> <span class="d">   4</span>  <span class="w">198.51.100.22         </span>  <span class="r w">   40%</span>  <span class="d">   10</span>      38.0  <span class="g">    61.2</span>  <span class="m">    35.4</span>  <span class="o">   152.0</span>                                 <span class="bd">│</span>
+<span class="bd">│</span> <span class="d">   5</span>  <span class="w">198.51.100.70         </span>  <span class="r w">   30%</span>  <span class="d">   10</span>      40.2  <span class="g">    58.9</span>  <span class="m">    39.0</span>  <span class="o">   149.3</span>                                 <span class="bd">│</span>
+<span class="bd">│</span> <span class="d">   6</span>  <span class="w">1.1.1.1               </span>  <span class="r w">   30%</span>  <span class="d">   10</span>      41.0  <span class="g">    60.4</span>  <span class="m">    39.8</span>  <span class="o">   161.0</span>                                 <span class="bd">│</span>
 <span class="bd">╰─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯</span>
- <span class="b w">a</span> <span class="d">add probe  </span><span class="b w">d</span> <span class="d">delete  </span><span class="b w">↑↓</span> <span class="d">select  </span><span class="b w">:</span> <span class="d">lsof query  </span><span class="b w">?</span> <span class="d">help</span></pre></div>
+ <span class="b w">a</span> <span class="d">add probe  </span><span class="b w">d</span> <span class="d">delete  </span><span class="b w">t</span> <span class="d">trace path  </span><span class="b w">↑↓</span> <span class="d">select  </span><span class="b w">?</span> <span class="d">help</span></pre></div>
   </div>
-  <p class="term-cap col">Probes: the gateway, DNS server and database answer within a millisecond; the path to 1.1.1.1 started losing packets and its latency jumped. That points at the uplink, not at your network.</p>
+  <p class="term-cap col">Probes: gateway, DNS and database answer within a millisecond, the API returns 200 with 63 days left on its certificate, but shop.example.net expires in 9 days. The trace (<kbd>t</kbd>) shows the loss to 1.1.1.1 starts at hop 4: outside your network.</p>
 </div>
 
 <main class="col">
@@ -568,14 +592,11 @@ footer { margin-top: 72px; color: var(--muted); font-size: 13px; }
   </table></div>
 
   <h2 id="roadmap">Roadmap</h2>
-  <p style="margin-top:12px">What comes next, in order of priority. v0.3 shipped sock_diag TCP internals, per-process bandwidth, kernel counters, routes, probes, firewall counters, capture and namespaces.</p>
+  <p style="margin-top:12px">What comes next. v0.4 shipped containers, services and the journal, kernel events, fd/port/inode exhaustion, disk latency, HTTPS probes with certificate expiry and path tracing.</p>
   <div class="road">
-    <div class="item"><span class="pri p1">Next</span><div><h3>Containers: Docker, Podman and cgroups</h3><p>CPU, memory and network per container from cgroup v2, without the Docker daemon. Sockets are already tagged per container; this adds the resource side.</p></div></div>
-    <div class="item"><span class="pri p1">Next</span><div><h3>Alert hooks</h3><p>Run a command or call a webhook when a health badge appears, so vigil can page you while you look at something else.</p></div></div>
-    <div class="item"><span class="pri p2">Then</span><div><h3>systemd units and the journal</h3><p>Status, restarts and the last log lines per unit, next to the processes they own.</p></div></div>
     <div class="item"><span class="pri p2">Then</span><div><h3>UDP and QUIC bandwidth</h3><p>Per-flow byte counters for UDP need eBPF; TCP is covered by sock_diag today.</p></div></div>
-    <div class="item"><span class="pri p3">Later</span><div><h3>Record and replay</h3><p>Write snapshots to disk and replay them later for a post-mortem: what was going on at 03:12?</p></div></div>
     <div class="item"><span class="pri p3">Later</span><div><h3>Custom themes in the config file</h3><p>Define your own palette in <code>config.toml</code>.</p></div></div>
+    <div class="item"><span class="pri p3">Later</span><div><h3>GPU</h3><p>Utilisation and memory per GPU and per process, for machines that have one.</p></div></div>
   </div>
 
   <h2 id="keys">Keyboard shortcuts</h2>
@@ -592,13 +613,14 @@ footer { margin-top: 72px; color: var(--muted); font-size: 13px; }
       <dt><kbd>R</kbd></dt><dd>write a report</dd>
       <dt><kbd>N</kbd></dt><dd>reverse DNS on/off</dd>
       <dt><kbd>7</kbd> <kbd>8</kbd> <kbd>9</kbd></dt><dd>routes · probes · firewall</dd>
+      <dt><kbd>0</kbd> <kbd>S</kbd></dt><dd>containers · system</dd>
       <dt><kbd>space</kbd></dt><dd>pause</dd>
       <dt><kbd>+</kbd> <kbd>-</kbd></dt><dd>interval ±250 ms</dd>
       <dt><kbd>?</kbd> <kbd>q</kbd></dt><dd>help / quit</dd></dl></div>
     <div><h3>Processes</h3><dl>
       <dt><kbd>c</kbd> <kbd>m</kbd> <kbd>p</kbd></dt><dd>sort cpu / mem / pid</dd>
       <dt><kbd>n</kbd> <kbd>u</kbd></dt><dd>sort name / user</dd>
-      <dt><kbd>i</kbd> <kbd>o</kbd> <kbd>w</kbd></dt><dd>sort disk io / sockets / net</dd>
+      <dt><kbd>i</kbd> <kbd>o</kbd> <kbd>w</kbd> <kbd>e</kbd></dt><dd>sort disk io / sockets / net / fds</dd>
       <dt><kbd>r</kbd> <kbd>t</kbd></dt><dd>reverse / process tree</dd>
       <dt><kbd>↵</kbd> <kbd>f</kbd></dt><dd>open files (lsof -p)</dd>
       <dt><kbd>x</kbd> <kbd>K</kbd></dt><dd>send signal</dd></dl></div>
@@ -612,6 +634,7 @@ footer { margin-top: 72px; color: var(--muted); font-size: 13px; }
       <dt><kbd>x</kbd></dt><dd>signal the owner</dd></dl></div>
     <div><h3>Probes · Firewall</h3><dl>
       <dt><kbd>a</kbd> <kbd>d</kbd></dt><dd>add / delete a probe</dd>
+      <dt><kbd>t</kbd></dt><dd>trace the path (mtr)</dd>
       <dt><kbd>z</kbd></dt><dd>firewall: rules with hits only</dd>
       <dt><kbd>s</kbd></dt><dd>firewall: sort by packets/s</dd></dl></div>
     <div><h3>Open Files</h3><dl>

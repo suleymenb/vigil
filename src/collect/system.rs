@@ -119,6 +119,8 @@ pub struct DiskInfo {
     pub total: u64,
     pub avail: u64,
     pub removable: bool,
+    pub inodes_total: u64,
+    pub inodes_free: u64,
 }
 
 impl DiskInfo {
@@ -132,7 +134,32 @@ impl DiskInfo {
             self.used() as f64 / self.total as f64 * 100.0
         }
     }
+
+    /// Inode usage; None for filesystems without a fixed inode table (btrfs, zfs, apfs report 0).
+    pub fn inode_pct(&self) -> Option<f64> {
+        (self.inodes_total > 0).then(|| {
+            self.inodes_total.saturating_sub(self.inodes_free) as f64 / self.inodes_total as f64 * 100.0
+        })
+    }
 }
+
+/// (total, free) inodes for a mount point.
+#[cfg(unix)]
+fn inodes(mount: &str) -> (u64, u64) {
+    let Ok(c) = std::ffi::CString::new(mount) else { return (0, 0) };
+    let mut st: libc::statvfs = unsafe { std::mem::zeroed() };
+    if unsafe { libc::statvfs(c.as_ptr(), &mut st) } != 0 {
+        return (0, 0);
+    }
+    #[allow(clippy::unnecessary_cast)]
+    (st.f_files as u64, st.f_ffree as u64)
+}
+
+#[cfg(not(unix))]
+fn inodes(_mount: &str) -> (u64, u64) {
+    (0, 0)
+}
+
 
 #[derive(Clone, Debug)]
 pub struct TempInfo {
@@ -199,14 +226,20 @@ fn spawn_slow_worker(store: Arc<Mutex<SlowData>>, fast: Arc<AtomicBool>) {
             if changed {
                 let mut d: Vec<DiskInfo> = disks
                     .iter()
-                    .map(|d| DiskInfo {
-                        name: d.name().to_string_lossy().into_owned(),
-                        mount: d.mount_point().display().to_string(),
-                        fs: d.file_system().to_string_lossy().into_owned(),
-                        kind: d.kind().to_string(),
-                        total: d.total_space(),
-                        avail: d.available_space(),
-                        removable: d.is_removable(),
+                    .map(|d| {
+                        let mount = d.mount_point().display().to_string();
+                        let (inodes_total, inodes_free) = inodes(&mount);
+                        DiskInfo {
+                            name: d.name().to_string_lossy().into_owned(),
+                            fs: d.file_system().to_string_lossy().into_owned(),
+                            kind: d.kind().to_string(),
+                            total: d.total_space(),
+                            avail: d.available_space(),
+                            removable: d.is_removable(),
+                            inodes_total,
+                            inodes_free,
+                            mount,
+                        }
                     })
                     .collect();
                 d.sort_by(|a, b| a.mount.cmp(&b.mount));
@@ -269,6 +302,7 @@ pub struct Sampler {
     pub iface_hist: HashMap<String, (History, History)>,
     prev_drops: HashMap<String, u64>,
     pub knet: super::kernelnet::KernelNet,
+    pub diskio: super::diskio::DiskIo,
 
     pub procs: Vec<ProcInfo>,
     pub ifaces: Vec<IfaceInfo>,
@@ -393,6 +427,7 @@ impl Sampler {
             iface_hist: HashMap::new(),
             prev_drops: HashMap::new(),
             knet: super::kernelnet::KernelNet::new(),
+            diskio: super::diskio::DiskIo::default(),
             procs: Vec::new(),
             ifaces: Vec::new(),
             disks_info: Vec::new(),
@@ -436,6 +471,7 @@ impl Sampler {
         self.sample_procs();
         self.sample_net();
         self.knet.refresh();
+        self.diskio.refresh();
         self.pull_slow();
     }
 

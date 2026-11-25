@@ -1,10 +1,16 @@
 pub mod capture;
+pub mod containers;
+pub mod diskio;
 pub mod firewall;
 pub mod ipinfo;
 pub mod kernelnet;
+pub mod kmsg;
+pub mod limits;
 pub mod lsof;
 pub mod netinfo;
 pub mod probes;
 pub mod procnet;
+pub mod services;
 pub mod sockdiag;
 pub mod system;
+pub mod trace;

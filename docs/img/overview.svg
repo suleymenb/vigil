@@ -52,8 +52,14 @@
 <text x="720.0" y="71" fill="#4a5378" textLength="7.8" lengthAdjust="spacingAndGlyphs">│</text>
 <text x="735.6" y="71" fill="#565f89" textLength="7.8" lengthAdjust="spacingAndGlyphs">9</text>
 <text x="751.2" y="71" fill="#7a84b2" textLength="62.4" lengthAdjust="spacingAndGlyphs">Firewall</text>
-<text x="1008.6" y="71" fill="#9ece6a" textLength="7.8" lengthAdjust="spacingAndGlyphs">✓</text>
-<text x="1024.2" y="71" fill="#9ece6a" textLength="54.6" lengthAdjust="spacingAndGlyphs">healthy</text>
+<text x="821.4" y="71" fill="#4a5378" textLength="7.8" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="837.0" y="71" fill="#565f89" textLength="7.8" lengthAdjust="spacingAndGlyphs">0</text>
+<text x="852.6" y="71" fill="#7a84b2" textLength="78.0" lengthAdjust="spacingAndGlyphs">Containers</text>
+<text x="938.4" y="71" fill="#4a5378" textLength="7.8" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="954.0" y="71" fill="#565f89" textLength="7.8" lengthAdjust="spacingAndGlyphs">S</text>
+<text x="969.6" y="71" fill="#7a84b2" textLength="46.8" lengthAdjust="spacingAndGlyphs">System</text>
+<text x="1039.8" y="71" fill="#9ece6a" textLength="7.8" lengthAdjust="spacingAndGlyphs">✓</text>
+<text x="1055.4" y="71" fill="#9ece6a" textLength="54.6" lengthAdjust="spacingAndGlyphs">healthy</text>
 <text x="18.0" y="89" fill="#4a5378" textLength="7.8" lengthAdjust="spacingAndGlyphs">╭</text>
 <text x="33.6" y="89" fill="#c0caf5" textLength="23.4" lengthAdjust="spacingAndGlyphs" font-weight="700">cpu</text>
 <text x="72.6" y="89" fill="#c0caf5" textLength="23.4" lengthAdjust="spacingAndGlyphs" font-weight="700">AMD</text>

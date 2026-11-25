@@ -4,6 +4,8 @@
 //!   `icmp:1.1.1.1` / `1.1.1.1`   ICMP echo (unprivileged ping socket, raw as root)
 //!   `tcp:db.internal:5432`       TCP connect time (a RST still proves reachability)
 //!   `dns:github.com`             system resolver lookup time
+//!   `https://api.example.com/`   HTTP status, time to first byte and days
+//!                                until the TLS certificate expires (via curl)
 //! Auto probes ping the default gateway(s) and DNS servers, so nothing leaves
 //! your own network unless you add targets yourself.
 //!
@@ -24,11 +26,29 @@ pub enum Target {
     Icmp(IpAddr),
     Tcp(String, u16),
     Dns(String),
+    Http(String),
+}
+
+/// One successful probe.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Outcome {
+    pub ms: f64,
+    pub status: Option<u16>,
+    pub cert_days: Option<i64>,
+}
+
+impl Outcome {
+    fn ms(ms: f64) -> Self {
+        Self { ms, ..Default::default() }
+    }
 }
 
 impl Target {
     pub fn parse(s: &str) -> Option<Target> {
         let s = s.trim();
+        if s.starts_with("http://") || s.starts_with("https://") {
+            return Some(Target::Http(s.to_string()));
+        }
         if let Some(r) = s.strip_prefix("icmp:") {
             return r.parse().ok().map(Target::Icmp);
         }
@@ -47,6 +67,7 @@ impl Target {
             Target::Icmp(_) => "icmp",
             Target::Tcp(..) => "tcp",
             Target::Dns(_) => "dns",
+            Target::Http(_) => "http",
         }
     }
 
@@ -55,11 +76,15 @@ impl Target {
             Target::Icmp(ip) => ip.to_string(),
             Target::Tcp(h, p) => format!("{h}:{p}"),
             Target::Dns(n) => n.clone(),
+            Target::Http(u) => u.trim_start_matches("https://").trim_start_matches("http://").trim_end_matches('/').to_string(),
         }
     }
 
     pub fn spec(&self) -> String {
-        format!("{}:{}", self.kind(), self.label())
+        match self {
+            Target::Http(u) => u.clone(),
+            _ => format!("{}:{}", self.kind(), self.label()),
+        }
     }
 }
 
@@ -73,6 +98,8 @@ pub struct Probe {
     recent: Vec<bool>,
     pub last_ms: Option<f64>,
     pub last_err: Option<String>,
+    pub http_status: Option<u16>,
+    pub cert_days: Option<i64>,
 }
 
 impl Probe {
@@ -85,6 +112,8 @@ impl Probe {
             recent: Vec::new(),
             last_ms: None,
             last_err: None,
+            http_status: None,
+            cert_days: None,
         }
     }
 
@@ -116,13 +145,19 @@ impl Probe {
         Some((min, avg, max, jitter))
     }
 
-    fn record(&mut self, r: Result<f64, String>) {
+    fn record(&mut self, r: Result<Outcome, String>) {
         match r {
-            Ok(ms) => {
-                self.hist.push(ms);
-                self.last_ms = Some(ms);
+            Ok(o) => {
+                self.hist.push(o.ms);
+                self.last_ms = Some(o.ms);
                 self.last_err = None;
                 self.recent.push(true);
+                if o.status.is_some() {
+                    self.http_status = o.status;
+                }
+                if o.cert_days.is_some() {
+                    self.cert_days = o.cert_days;
+                }
             }
             Err(e) => {
                 self.hist.push(f64::NAN);
@@ -178,9 +213,10 @@ impl ProbeStore {
     }
 }
 
-pub fn run_once(t: &Target) -> Result<f64, String> {
+pub fn run_once(t: &Target) -> Result<Outcome, String> {
     let start = Instant::now();
     match t {
+        Target::Http(url) => http(url),
         Target::Tcp(host, port) => {
             let addr: SocketAddr = (host.as_str(), *port)
                 .to_socket_addrs()
@@ -189,19 +225,47 @@ pub fn run_once(t: &Target) -> Result<f64, String> {
                 .ok_or("no address")?;
             let t0 = Instant::now();
             match TcpStream::connect_timeout(&addr, TIMEOUT) {
-                Ok(_) => Ok(t0.elapsed().as_secs_f64() * 1000.0),
+                Ok(_) => Ok(Outcome::ms(t0.elapsed().as_secs_f64() * 1000.0)),
                 // A RST means the host answered: reachable, port closed.
-                Err(e) if e.kind() == std::io::ErrorKind::ConnectionRefused => Ok(t0.elapsed().as_secs_f64() * 1000.0),
+                Err(e) if e.kind() == std::io::ErrorKind::ConnectionRefused => Ok(Outcome::ms(t0.elapsed().as_secs_f64() * 1000.0)),
                 Err(e) if e.kind() == std::io::ErrorKind::TimedOut => Err("timeout".into()),
                 Err(e) => Err(e.to_string()),
             }
         }
         Target::Dns(name) => {
             (name.as_str(), 0).to_socket_addrs().map_err(|e| e.to_string())?;
-            Ok(start.elapsed().as_secs_f64() * 1000.0)
+            Ok(Outcome::ms(start.elapsed().as_secs_f64() * 1000.0))
         }
-        Target::Icmp(ip) => icmp::ping(*ip, TIMEOUT),
+        Target::Icmp(ip) => icmp::ping(*ip, TIMEOUT).map(Outcome::ms),
     }
+}
+
+/// HTTP(S) via curl: status code, time to first byte, certificate expiry.
+fn http(url: &str) -> Result<Outcome, String> {
+    let out = std::process::Command::new("curl")
+        .args(["-sS", "-o", "/dev/null", "-v", "--max-time", "5", "-w", "%{http_code} %{time_starttransfer}"])
+        .arg(url)
+        .output()
+        .map_err(|e| format!("curl: {e}"))?;
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    let mut it = stdout.split_whitespace();
+    let status: u16 = it.next().and_then(|s| s.parse().ok()).unwrap_or(0);
+    let ttfb: f64 = it.next().and_then(|s| s.parse().ok()).unwrap_or(0.0);
+    if !out.status.success() || status == 0 {
+        let e = stderr.lines().rfind(|l| l.starts_with("curl:")).unwrap_or("request failed");
+        return Err(e.trim_start_matches("curl: ").chars().take(60).collect());
+    }
+    Ok(Outcome { ms: ttfb * 1000.0, status: Some(status), cert_days: cert_days(&stderr, std::time::SystemTime::now()) })
+}
+
+/// Days until the certificate in curl's verbose output expires.
+pub fn cert_days(verbose: &str, now: std::time::SystemTime) -> Option<i64> {
+    let line = verbose.lines().find(|l| l.contains("expire date:"))?;
+    let date = line.split_once("expire date:")?.1.trim();
+    let expiry = crate::util::parse_cert_date(date)?;
+    let now = now.duration_since(std::time::UNIX_EPOCH).ok()?.as_secs() as i64;
+    Some((expiry - now).div_euclid(86_400))
 }
 
 pub fn spawn_worker(
@@ -397,6 +461,7 @@ mod tests {
         assert_eq!(Target::parse("tcp:db.internal:5432"), Some(Target::Tcp("db.internal".into(), 5432)));
         assert_eq!(Target::parse("tcp:[::1]:22"), Some(Target::Tcp("::1".into(), 22)));
         assert_eq!(Target::parse("dns:github.com"), Some(Target::Dns("github.com".into())));
+        assert_eq!(Target::parse("https://api.example.com/health"), Some(Target::Http("https://api.example.com/health".into())));
         assert_eq!(Target::parse("nonsense"), None);
     }
 
@@ -409,10 +474,18 @@ mod tests {
     }
 
     #[test]
+    fn cert_expiry() {
+        let now = std::time::UNIX_EPOCH + std::time::Duration::from_secs(1_795_600_000); // 2026-11-25
+        let v = "*  start date: Jan 27 00:00:00 2026 GMT\n*  expire date: Jan 27 23:59:59 2027 GMT\n";
+        assert_eq!(cert_days(v, now), Some(63));
+        assert_eq!(cert_days("no tls here", now), None);
+    }
+
+    #[test]
     fn stats_and_loss() {
         let mut p = Probe::new("x".into(), Target::Dns("x".into()), false);
-        p.record(Ok(10.0));
-        p.record(Ok(20.0));
+        p.record(Ok(Outcome::ms(10.0)));
+        p.record(Ok(Outcome::ms(20.0)));
         p.record(Err("timeout".into()));
         assert!((p.loss_pct() - 33.33).abs() < 0.1);
         let (min, avg, max, jit) = p.stats().unwrap();
@@ -423,7 +496,7 @@ mod tests {
     fn icmp_loopback_or_permission_error() {
         // Either works, or fails with a clear message: never hangs or panics.
         match run_once(&Target::Icmp("127.0.0.1".parse().unwrap())) {
-            Ok(ms) => assert!(ms < 1500.0),
+            Ok(o) => assert!(o.ms < 1500.0),
             Err(e) => assert!(!e.is_empty()),
         }
     }

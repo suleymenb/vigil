@@ -28,6 +28,19 @@ use crate::config::Alerts;
 use crate::theme;
 use crate::util::{fmt_bytes, fmt_duration, fmt_rate};
 
+// ───────────────────────────── inputs ─────────────────────────────
+
+/// Data from collectors outside the sampler. The TUI fills it from its live
+/// stores; `vigil report` collects it once.
+#[derive(Default)]
+pub struct Inputs {
+    pub health: crate::app::ExtraHealth,
+    pub limits: Option<crate::collect::limits::Limits>,
+    pub containers: Vec<crate::collect::containers::Container>,
+    pub units: Vec<crate::collect::services::Unit>,
+    pub events: Vec<crate::collect::kmsg::KEvent>,
+}
+
 // ───────────────────────────── data model ─────────────────────────────
 
 #[derive(Serialize)]
@@ -46,7 +59,70 @@ pub struct Report {
     pub processes: Processes,
     pub network: Network,
     pub filesystems: Vec<Filesystem>,
+    pub devices: Vec<Device>,
+    pub limits: LimitsR,
+    pub containers: Vec<ContainerR>,
+    pub services: Vec<ServiceR>,
+    pub kernel_events: Vec<EventR>,
     pub temperatures: Vec<Temperature>,
+}
+
+#[derive(Serialize)]
+pub struct Device {
+    pub name: String,
+    pub reads_per_s: f64,
+    pub writes_per_s: f64,
+    pub read_bytes_per_s: f64,
+    pub write_bytes_per_s: f64,
+    pub await_ms: f64,
+    pub util_pct: f64,
+    pub queue: f64,
+}
+
+#[derive(Serialize, Default)]
+pub struct LimitsR {
+    /// Processes closest to their open-file limit.
+    pub fd_top: Vec<FdUse>,
+    pub system_files: Option<(u64, u64)>,
+    pub ephemeral_range: Option<(u16, u16)>,
+    pub ephemeral_used_pct: Option<f64>,
+}
+
+#[derive(Serialize)]
+pub struct FdUse {
+    pub pid: u32,
+    pub name: String,
+    pub open: u32,
+    pub limit: Option<u64>,
+    pub pct: Option<f64>,
+}
+
+#[derive(Serialize)]
+pub struct ContainerR {
+    pub name: String,
+    pub runtime: &'static str,
+    pub cpu_pct: f64,
+    pub cpu_limit: Option<f64>,
+    pub throttled_pct: f64,
+    pub memory_bytes: u64,
+    pub memory_limit: Option<u64>,
+    pub oom_kills: u64,
+    pub pids: u64,
+}
+
+#[derive(Serialize)]
+pub struct ServiceR {
+    pub name: String,
+    pub state: String,
+    pub restarts: u64,
+    pub description: String,
+}
+
+#[derive(Serialize)]
+pub struct EventR {
+    pub when_utc: String,
+    pub kind: &'static str,
+    pub message: String,
 }
 
 #[derive(Serialize)]
@@ -204,6 +280,7 @@ pub struct Filesystem {
     pub total_bytes: u64,
     pub used_bytes: u64,
     pub used_pct: f64,
+    pub inodes_used_pct: Option<f64>,
 }
 
 #[derive(Serialize)]
@@ -244,7 +321,18 @@ fn finding_from_alert(text: &str, critical: bool) -> Finding {
         "LISTEN" => ("Network", "The accept queue of a listening socket overflowed: new connections were dropped silently.", "The service accepts too slowly. Raise its backlog (and net.core.somaxconn) or add workers."),
         "UDP" => ("Network", "UDP packets were dropped because a socket buffer was full (DNS, syslog, metrics …).", "Raise net.core.rmem_max / the application's SO_RCVBUF, or make the consumer faster."),
         "CONNTRACK" => ("Network", "The connection-tracking table is nearly full. When full, the kernel drops new connections.", "Raise net.netfilter.nf_conntrack_max or shorten conntrack timeouts."),
-        "LOSS" => ("Network", "A latency probe is losing packets.", "Check the path to that target: gateway, firewall or upstream link."),
+        "LOSS" => ("Network", "A latency probe is losing packets.", "Check the path to that target: gateway, firewall or upstream link. `t` in the Probes view traces it hop by hop."),
+        "FDS" => ("Limits", "A process is close to its open-file limit. At the limit, accept() and open() fail with \"Too many open files\".", "Look for a descriptor leak (count keeps growing) or raise LimitNOFILE / ulimit -n for that service."),
+        "FILES" => ("Limits", "The system-wide file table is nearly full.", "Find the processes with the most descriptors (sort Procs by FDS with `e`) or raise fs.file-max."),
+        "EPHEMERAL" => ("Network", "Most local ports for outgoing connections are in use; new connections will fail with EADDRNOTAVAIL.", "Reuse connections (keep-alive, pooling), check TIME_WAIT counts, or widen net.ipv4.ip_local_port_range."),
+        "INODES" => ("Storage", "A filesystem is running out of inodes: file creation fails even though `df` shows free space.", "Find directories with huge numbers of small files (`du --inodes`, sessions, caches, mail queues) and clean them up."),
+        "CERT" => ("TLS", "A TLS certificate checked by a probe expires soon.", "Renew the certificate and verify automatic renewal (certbot/ACME) actually runs."),
+        "HTTP" => ("Availability", "An HTTP probe returns a server error.", "Check the service and its upstreams; the System view shows its journal."),
+        "THROTTLED" => ("Containers", "A container hits its CPU quota: its threads wait even when the host has idle CPU, which shows up as latency.", "Raise the CPU limit (or remove it and use requests only), or reduce the work in that container."),
+        "OOM" => ("Memory", "The kernel killed a process because memory ran out (or a container hit its memory limit).", "Check which process was killed (System view, kernel events) and raise its memory limit or fix its memory use."),
+        "FAILED" => ("Services", "One or more systemd units are in the failed state.", "`systemctl status <unit>` and the journal (System view) show why; fix and `systemctl restart`."),
+        _ if text.contains("AWAIT") => ("Storage", "A disk takes long to complete requests; everything waiting on I/O slows down.", "Check the device's utilisation and queue in the Storage view and which processes write the most."),
+        _ if text.contains("BUSY") => ("Storage", "A disk is busy almost all the time.", "Find the heaviest readers/writers (Storage view) or move load to faster storage."),
         _ if text.contains("DROPS") => ("Network", "An interface is dropping packets.", "Check ring buffers (ethtool -g), CPU saturation on softirq and link utilization."),
         _ => ("System", "A configured health threshold was crossed.", "See the matching section below."),
     };
@@ -288,8 +376,10 @@ pub fn build(
     backend: SocketBackend,
     socket_error: Option<String>,
     alerts: &Alerts,
+    inputs: &Inputs,
     top: usize,
 ) -> Report {
+    let extra = &inputs.health;
     let pct = |u: u64, t: u64| if t == 0 { 0.0 } else { u as f64 / t as f64 * 100.0 };
 
     // Socket-derived numbers.
@@ -369,7 +459,7 @@ pub fn build(
     let zombies = s.procs.iter().filter(|p| p.status == "Zombie").count();
 
     // Findings: every health badge, plus checks only a report has room for.
-    let badges = compute_alerts(s, alerts, close_wait, time_wait, &[]);
+    let badges = compute_alerts(s, alerts, close_wait, time_wait, extra);
     let mut findings: Vec<Finding> = badges.iter().map(|(t, c)| finding_from_alert(t, *c == theme::red())).collect();
     for l in listening.iter().filter(|l| l.exposed) {
         if let Some((_, name)) = l.port.and_then(|p| SENSITIVE.iter().find(|(sp, _)| *sp == p)) {
@@ -505,7 +595,78 @@ pub fn build(
                 total_bytes: d.total,
                 used_bytes: d.used(),
                 used_pct: d.pct(),
+                inodes_used_pct: d.inode_pct(),
             })
+            .collect(),
+        devices: s
+            .diskio
+            .devices
+            .iter()
+            .map(|d| Device {
+                name: d.name.clone(),
+                reads_per_s: d.r_iops,
+                writes_per_s: d.w_iops,
+                read_bytes_per_s: d.r_bps,
+                write_bytes_per_s: d.w_bps,
+                await_ms: d.await_ms,
+                util_pct: d.util_pct,
+                queue: d.queue,
+            })
+            .collect(),
+        limits: inputs
+            .limits
+            .as_ref()
+            .map(|l| {
+                let names: std::collections::HashMap<u32, &str> = s.procs.iter().map(|p| (p.pid, &*p.name)).collect();
+                let mut v: Vec<FdUse> = l
+                    .fds
+                    .iter()
+                    .map(|(pid, (n, lim))| FdUse {
+                        pid: *pid,
+                        name: names.get(pid).copied().unwrap_or("?").to_string(),
+                        open: *n,
+                        limit: *lim,
+                        pct: lim.filter(|x| *x > 0).map(|x| *n as f64 / x as f64 * 100.0),
+                    })
+                    .collect();
+                v.sort_by(|a, b| b.pct.unwrap_or(0.0).total_cmp(&a.pct.unwrap_or(0.0)).then(b.open.cmp(&a.open)));
+                v.truncate(top);
+                LimitsR { fd_top: v, system_files: l.files, ephemeral_range: l.ephemeral, ephemeral_used_pct: extra.ephemeral_pct }
+            })
+            .unwrap_or_default(),
+        containers: inputs
+            .containers
+            .iter()
+            .map(|c| ContainerR {
+                name: c.name.clone(),
+                runtime: c.runtime,
+                cpu_pct: c.cpu_pct,
+                cpu_limit: c.cpu_limit,
+                throttled_pct: c.throttled_pct,
+                memory_bytes: c.mem,
+                memory_limit: c.mem_max,
+                oom_kills: c.oom_kills,
+                pids: c.pids,
+            })
+            .collect(),
+        services: inputs
+            .units
+            .iter()
+            .filter(|u| u.failed() || u.restarts > 0)
+            .take(top.max(10))
+            .map(|u| ServiceR {
+                name: u.name.clone(),
+                state: format!("{}/{}", u.active, u.sub),
+                restarts: u.restarts,
+                description: u.description.clone(),
+            })
+            .collect(),
+        kernel_events: inputs
+            .events
+            .iter()
+            .rev()
+            .take(20)
+            .map(|e| EventR { when_utc: utc_timestamp(e.at), kind: e.kind, message: e.text.clone() })
             .collect(),
         temperatures: s
             .temps
@@ -571,7 +732,7 @@ pub fn to_markdown(r: &Report) -> String {
     );
     let _ = writeln!(
         o,
-        "**Contents:** [Summary](#summary) · [Findings](#findings) · [Processes](#processes) · [Network](#network) · [Storage](#storage) · [System](#system)\n"
+        "**Contents:** [Summary](#summary) · [Findings](#findings) · [Processes](#processes) · [Network](#network) · [Storage](#storage) · [Limits](#limits) · [Containers](#containers) · [Services](#services) · [Kernel events](#kernel-events) · [System](#system)\n"
     );
 
     // ── Summary
@@ -781,16 +942,30 @@ pub fn to_markdown(r: &Report) -> String {
 
     // ── Storage
     let _ = writeln!(o, "## Storage\n");
-    let _ = writeln!(o, "| Mount | Device | FS | Size | Used | Free | Use |\n|---|---|---|---:|---:|---:|---:|");
+    let _ = writeln!(o, "| Mount | Device | FS | Size | Used | Free | Use | Inodes |\n|---|---|---|---:|---:|---:|---:|---:|");
     for f in &r.filesystems {
         let _ = writeln!(
             o,
-            "| `{}` | {} | {} | {} | {} | {} | {:.0} % |",
+            "| `{}` | {} | {} | {} | {} | {} | {:.0} % | {} |",
             md(&f.mount), md(&f.device), f.fs, fmt_bytes(f.total_bytes), fmt_bytes(f.used_bytes),
-            fmt_bytes(f.total_bytes.saturating_sub(f.used_bytes)), f.used_pct
+            fmt_bytes(f.total_bytes.saturating_sub(f.used_bytes)), f.used_pct,
+            f.inodes_used_pct.map(|p| format!("{p:.0} %")).unwrap_or_else(|| "-".into())
         );
     }
     o.push('\n');
+    if !r.devices.is_empty() {
+        let _ = writeln!(o, "### Disk devices\n");
+        let _ = writeln!(o, "| Device | Reads/s | Writes/s | Read/s | Write/s | Await ms | Util | Queue |\n|---|---:|---:|---:|---:|---:|---:|---:|");
+        for d in &r.devices {
+            let _ = writeln!(
+                o,
+                "| `{}` | {:.0} | {:.0} | {} | {} | {:.1} | {:.0} % | {:.2} |",
+                d.name, d.reads_per_s, d.writes_per_s, fmt_rate(d.read_bytes_per_s), fmt_rate(d.write_bytes_per_s),
+                d.await_ms, d.util_pct, d.queue
+            );
+        }
+        o.push('\n');
+    }
     if !r.temperatures.is_empty() {
         let _ = writeln!(o, "<details><summary>Temperatures ({} sensors)</summary>\n", r.temperatures.len());
         let _ = writeln!(o, "| Sensor | °C | Critical |\n|---|---:|---:|");
@@ -802,6 +977,69 @@ pub fn to_markdown(r: &Report) -> String {
             );
         }
         let _ = writeln!(o, "\n</details>\n");
+    }
+
+    // ── Limits
+    let l = &r.limits;
+    if !l.fd_top.is_empty() || l.system_files.is_some() {
+        let _ = writeln!(o, "## Limits\n");
+        if let Some((n, m)) = l.system_files {
+            let _ = writeln!(o, "- **System file handles:** {n} in use of {m}");
+        }
+        if let (Some((lo, hi)), Some(p)) = (l.ephemeral_range, l.ephemeral_used_pct) {
+            let _ = writeln!(o, "- **Ephemeral ports:** {p:.1} % of {lo}–{hi} in use");
+        }
+        o.push('\n');
+        let _ = writeln!(o, "| PID | Process | Open fds | Limit | Use |\n|---:|---|---:|---:|---:|");
+        for f in &l.fd_top {
+            let _ = writeln!(
+                o,
+                "| {} | {} | {} | {} | {} |",
+                f.pid, md(&f.name), f.open,
+                f.limit.map(|x| x.to_string()).unwrap_or_else(|| "-".into()),
+                f.pct.map(|p| format!("{p:.0} %")).unwrap_or_else(|| "-".into())
+            );
+        }
+        o.push('\n');
+    }
+
+    // ── Containers
+    if !r.containers.is_empty() {
+        let _ = writeln!(o, "## Containers\n");
+        let _ = writeln!(o, "| Container | Runtime | CPU % | Limit | Throttled | Memory | Mem limit | OOM kills | PIDs |\n|---|---|---:|---:|---:|---:|---:|---:|---:|");
+        for c in &r.containers {
+            let _ = writeln!(
+                o,
+                "| {} | {} | {:.1} | {} | {:.0} % | {} | {} | {} | {} |",
+                md(&c.name), c.runtime, c.cpu_pct,
+                c.cpu_limit.map(|x| format!("{x:.1} cpu")).unwrap_or_else(|| "-".into()),
+                c.throttled_pct, fmt_bytes(c.memory_bytes),
+                c.memory_limit.map(fmt_bytes).unwrap_or_else(|| "-".into()),
+                c.oom_kills, c.pids
+            );
+        }
+        o.push('\n');
+    }
+
+    // ── Services
+    if !r.services.is_empty() {
+        let _ = writeln!(o, "## Services\n");
+        let _ = writeln!(o, "Failed units and units that restarted.\n");
+        let _ = writeln!(o, "| Unit | State | Restarts | Description |\n|---|---|---:|---|");
+        for u in &r.services {
+            let _ = writeln!(o, "| `{}` | {} | {} | {} |", md(&u.name), u.state, u.restarts, md(&u.description));
+        }
+        o.push('\n');
+    }
+
+    // ── Kernel events
+    if !r.kernel_events.is_empty() {
+        let _ = writeln!(o, "## Kernel events\n");
+        let _ = writeln!(o, "| When | Kind | Message |\n|---|---|---|");
+        for e in &r.kernel_events {
+            let _ = writeln!(o, "| {} | {} | {} |", e.when_utc, e.kind, code(&e.message, 120));
+        }
+        o.push('\n');
     }
 
     // ── System
@@ -846,14 +1084,36 @@ pub fn run_cli(opts: Options, alerts: &Alerts) -> std::io::Result<i32> {
     let mut sampler = Sampler::new();
     let mut scanner = SocketScanner::new(opts.force_lsof);
     let _ = scanner.scan(); // first pass primes per-connection byte counters
+    let mut ctr = crate::collect::containers::Collector::new();
+    let _ = ctr.collect(); // first pass primes container counters
     std::thread::sleep(opts.sample);
     sampler.refresh();
     let (res, backend) = scanner.scan();
+    let mut inputs = Inputs {
+        limits: Some(crate::collect::limits::collect_once()),
+        containers: ctr.collect().unwrap_or_default(),
+        units: crate::collect::services::collect_once(),
+        events: crate::collect::kmsg::read_existing(),
+        ..Default::default()
+    };
     let (sockets, err) = match res {
         Ok((e, _)) => (e, None),
         Err(e) => (Vec::new(), Some(e)),
     };
-    let report = build(&sampler, &sockets, backend, err, alerts, opts.top);
+    let snapshot = std::sync::Arc::new(sockets.clone());
+    if let Some(l) = &inputs.limits {
+        inputs.health.fill_limits(l, &sampler, Some(snapshot));
+    }
+    for c in &inputs.containers {
+        inputs.health.throttled.push((c.name.clone(), c.throttled_pct));
+    }
+    inputs.health.failed_units = inputs.units.iter().filter(|u| u.failed() && cfg!(target_os = "linux")).count();
+    inputs.health.kernel_ooms = inputs
+        .events
+        .iter()
+        .filter(|e| e.kind == "OOM" && SystemTime::now().duration_since(e.at).map(|d| d.as_secs() < 600).unwrap_or(true))
+        .count();
+    let report = build(&sampler, &sockets, backend, err, alerts, &inputs, opts.top);
     let text = if opts.json { to_json(&report) } else { to_markdown(&report) };
     match &opts.output {
         Some(p) => std::fs::write(p, &text)?,
@@ -869,8 +1129,9 @@ pub fn write_from_tui(
     sockets: &[OpenFile],
     backend: SocketBackend,
     alerts: &Alerts,
+    inputs: &Inputs,
 ) -> Result<PathBuf, String> {
-    let report = build(s, sockets, backend, None, alerts, 15);
+    let report = build(s, sockets, backend, None, alerts, inputs, 15);
     let text = to_markdown(&report);
     let name = format!("vigil-report-{}.md", file_stamp(SystemTime::now()));
     let mut dirs: Vec<PathBuf> = vec![PathBuf::from(".")];
@@ -939,7 +1200,7 @@ mod tests {
         let socks = crate::collect::lsof::parse(
             "p1\ncnginx\nLroot\nf6\ntIPv4\nPTCP\nn*:80\nTST=LISTEN\nf7\ntIPv4\nPTCP\nn10.0.0.1:80->10.0.0.9:5000\nTST=CLOSE_WAIT\np2\ncpostgres\nLpostgres\nf5\ntIPv4\nPTCP\nn*:5432\nTST=LISTEN\n",
         );
-        let r = build(&s, &socks, SocketBackend::Lsof, None, &Alerts::default(), 5);
+        let r = build(&s, &socks, SocketBackend::Lsof, None, &Alerts::default(), &Inputs::default(), 5);
         assert_eq!(r.network.listening.len(), 2);
         assert!(r.network.listening[0].exposed);
         assert_eq!(r.network.states.get("CLOSE_WAIT"), Some(&1));

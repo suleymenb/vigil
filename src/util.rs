@@ -103,3 +103,43 @@ pub fn is_root() -> bool {
         .map(|o| String::from_utf8_lossy(&o.stdout).trim() == "0")
         .unwrap_or(false)
 }
+
+/// Days since 1970-01-01 for a civil date (Howard Hinnant's algorithm).
+pub fn days_from_civil(y: i64, m: u32, d: u32) -> i64 {
+    let y = if m <= 2 { y - 1 } else { y };
+    let era = y.div_euclid(400);
+    let yoe = y - era * 400;
+    let mp = (m as i64 + 9) % 12;
+    let doy = (153 * mp + 2) / 5 + d as i64 - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    era * 146_097 + doe - 719_468
+}
+
+/// Parse an OpenSSL-style date `Jan 27 23:59:59 2027 GMT` to Unix seconds.
+pub fn parse_cert_date(s: &str) -> Option<i64> {
+    let f: Vec<&str> = s.split_whitespace().collect();
+    if f.len() < 4 {
+        return None;
+    }
+    const MONTHS: [&str; 12] = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    let m = MONTHS.iter().position(|x| *x == f[0])? as u32 + 1;
+    let d: u32 = f[1].parse().ok()?;
+    let mut hms = f[2].split(':').map(|x| x.parse::<i64>().ok());
+    let (h, mi, sec) = (hms.next()??, hms.next()??, hms.next()??);
+    let y: i64 = f[3].parse().ok()?;
+    Some(days_from_civil(y, m, d) * 86_400 + h * 3600 + mi * 60 + sec)
+}
+
+#[cfg(test)]
+mod date_tests {
+    use super::*;
+
+    #[test]
+    fn cert_dates() {
+        assert_eq!(days_from_civil(1970, 1, 1), 0);
+        assert_eq!(days_from_civil(2000, 2, 29), 11_016);
+        assert_eq!(parse_cert_date("Jan  1 00:00:00 1970 GMT"), Some(0));
+        assert_eq!(parse_cert_date("Feb 29 00:00:00 2000 GMT"), Some(951_782_400));
+        assert_eq!(parse_cert_date("garbage"), None);
+    }
+}

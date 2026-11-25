@@ -13,10 +13,42 @@ use crate::app::{App, ProcSort};
 use crate::theme;
 use crate::util::{fmt_bytes, fmt_duration, fmt_rate, spark, truncate};
 
+/// Column headings. Headings of numeric columns are right-aligned so they sit
+/// above their numbers: anything that measures (%, /s, ms, sizes, counts).
 pub(super) fn header(cols: &[&str]) -> Row<'static> {
-    Row::new(cols.iter().map(|c| Cell::from(c.to_string())).collect::<Vec<_>>())
+    Row::new(cols.iter().map(|c| head_cell(c, is_numeric_col(c), false)).collect::<Vec<_>>())
         .style(Style::new().fg(theme::blue()).bold())
         .bottom_margin(0)
+}
+
+pub(super) fn is_numeric_col(name: &str) -> bool {
+    let n = name.trim_end_matches(['▼', '▲']);
+    const EXACT: &[&str] = &[
+        "PID", "CPU%", "MEM", "MEM%", "IO R/W", "CONN", "NET/s", "FDS", "TIME", "RTT ms", "RETR", "RECV/SEND Q",
+        "↓ RX/s", "↑ TX/s", "RX/s", "TX/s", "UTIL", "DROPS", "ERR", "RX Σ", "TX Σ", "MTU", "LINK", "SIZE", "USED",
+        "AVAIL", "INODES", "READ/s", "WRITE/s", "TOTAL R", "TOTAL W", "SIZE/OFF", "NODE", "PORT", "LAST ms", "MIN",
+        "AVG", "MAX", "JITTER", "LOSS", "PACKETS", "BYTES", "PKT/s", "BYTES/s", "METRIC", "CPU", "THROTTLED",
+        "PIDS", "IO R/s", "IO W/s", "NET ↓/s", "NET ↑/s", "OOM", "RESTARTS", "MEMORY", "R IOPS", "W IOPS",
+        "AWAIT ms", "QUEUE", "R/s", "W/s", "STATUS", "CERT", "HOP", "SENT", "BEST", "WORST", "CPU%/LIM", "MEM%",
+        "CPU%", "CONN", "LOSS%", "%",
+    ];
+    EXACT.contains(&n)
+}
+
+fn head_cell(name: &str, right: bool, active: bool) -> Cell<'static> {
+    let style = if active { Style::new().fg(theme::yellow()).bold() } else { Style::new().fg(theme::blue()).bold() };
+    let line = Line::from(name.to_string());
+    Cell::from(if right { line.right_aligned() } else { line }).style(style)
+}
+
+/// A right-aligned (numeric) cell.
+pub(super) fn num(text: impl Into<String>, style: Style) -> Cell<'static> {
+    Cell::from(Line::from(text.into()).right_aligned()).style(style)
+}
+
+/// Placeholder for "no value", right-aligned and dimmed.
+pub(super) fn none() -> Cell<'static> {
+    num("·", Style::new().fg(theme::dim()))
 }
 
 pub(super) fn sel_style() -> Style {
@@ -98,7 +130,7 @@ pub fn processes(f: &mut Frame, app: &mut App, area: Rect) {
         Layout::vertical([Constraint::Min(5), Constraint::Length(6)]).areas(area);
 
     let arrow = if app.proc_desc { "▼" } else { "▲" };
-    let cols: [(&str, Option<ProcSort>); 12] = [
+    let cols: [(&str, Option<ProcSort>); 13] = [
         ("PID", Some(ProcSort::Pid)),
         ("USER", Some(ProcSort::User)),
         ("CPU%", Some(ProcSort::Cpu)),
@@ -108,6 +140,7 @@ pub fn processes(f: &mut Frame, app: &mut App, area: Rect) {
         ("IO R/W", Some(ProcSort::Io)),
         ("CONN", Some(ProcSort::Conn)),
         ("NET/s", Some(ProcSort::Net)),
+        ("FDS", Some(ProcSort::Fds)),
         ("ST", None),
         ("TIME", None),
         ("COMMAND", Some(ProcSort::Name)),
@@ -115,13 +148,12 @@ pub fn processes(f: &mut Frame, app: &mut App, area: Rect) {
     let head: Vec<Cell> = cols
         .iter()
         .map(|(name, s)| {
-            if *s == Some(app.proc_sort) {
-                Cell::from(format!("{name}{arrow}")).style(Style::new().fg(theme::yellow()).bold())
-            } else {
-                Cell::from(name.to_string()).style(Style::new().fg(theme::blue()).bold())
-            }
+            let active = *s == Some(app.proc_sort);
+            let label = if active { format!("{name}{arrow}") } else { name.to_string() };
+            head_cell(&label, is_numeric_col(name), active)
         })
         .collect();
+    let fds = app.net.limits.try_lock().map(|l| l.fds.clone()).unwrap_or_default();
 
     let (off, h) = window(&mut app.proc_state, app.proc_rows.len(), table_area);
     let procs = &app.sampler.procs;
@@ -139,32 +171,37 @@ pub fn processes(f: &mut Frame, app: &mut App, area: Rect) {
             let (st, st_color) = status_code(p.status);
             let conn = conns.get(&p.pid).copied().unwrap_or(0);
             let cmd = if p.cmd.is_empty() { String::new() } else { format!(" {}", p.cmd) };
+            let net = app.proc_net.get(&p.pid).map(|(t, r)| t + r).unwrap_or(0.0);
+            let fd = fds.get(&p.pid).copied();
+            let fd_pct = fd.and_then(|(n, l)| l.filter(|l| *l > 0).map(|l| n as f64 / l as f64 * 100.0));
             Row::new(vec![
-                Cell::from(p.pid.to_string()).style(Style::new().fg(theme::muted())),
+                num(p.pid.to_string(), Style::new().fg(theme::muted())),
                 Cell::from(truncate(&p.user, 10)).style(Style::new().fg(if &*p.user == "root" {
                     theme::red()
                 } else {
                     theme::teal()
                 })),
-                Cell::from(format!("{:5.1}", p.cpu)).style(Style::new().fg(theme::heat(p.cpu as f64 / ncores.min(4.0) as f64))),
+                num(format!("{:.1}", p.cpu), Style::new().fg(theme::heat(p.cpu as f64 / ncores.min(4.0) as f64))),
                 Cell::from(Line::from(meter((p.cpu / ncores.min(4.0)) as f64, 5))),
-                Cell::from(fmt_bytes(p.mem)).style(Style::new().fg(theme::purple())),
-                Cell::from(format!("{mem_pct:4.1}")).style(Style::new().fg(theme::heat(mem_pct * 3.0))),
-                Cell::from(if io > 0.0 {
-                    format!("{}/{}", fmt_bytes(p.read_rate as u64), fmt_bytes(p.write_rate as u64))
+                num(fmt_bytes(p.mem), Style::new().fg(theme::purple())),
+                num(format!("{mem_pct:.1}"), Style::new().fg(theme::heat(mem_pct * 3.0))),
+                if io > 0.0 {
+                    num(format!("{}/{}", fmt_bytes(p.read_rate as u64), fmt_bytes(p.write_rate as u64)), Style::new().fg(theme::yellow()))
                 } else {
-                    "·".into()
-                })
-                .style(Style::new().fg(if io > 0.0 { theme::yellow() } else { theme::dim() })),
-                Cell::from(if conn > 0 { conn.to_string() } else { "·".into() })
-                    .style(Style::new().fg(if conn > 0 { theme::cyan() } else { theme::dim() })),
-                {
-                    let net = app.proc_net.get(&p.pid).map(|(t, r)| t + r).unwrap_or(0.0);
-                    Cell::from(if net >= 1.0 { fmt_bytes(net as u64) } else { "·".into() })
-                        .style(Style::new().fg(if net >= 1.0 { theme::teal() } else { theme::dim() }))
+                    none()
+                },
+                if conn > 0 { num(conn.to_string(), Style::new().fg(theme::cyan())) } else { none() },
+                if net >= 1.0 { num(fmt_bytes(net as u64), Style::new().fg(theme::teal())) } else { none() },
+                match fd {
+                    Some((n, _)) => num(n.to_string(), Style::new().fg(match fd_pct {
+                        Some(p) if p >= 90.0 => theme::red(),
+                        Some(p) if p >= 70.0 => theme::orange(),
+                        _ => theme::muted(),
+                    })),
+                    None => none(),
                 },
                 Cell::from(st.to_string()).style(Style::new().fg(st_color)),
-                Cell::from(fmt_duration(p.run_time)).style(Style::new().fg(theme::dim())),
+                num(fmt_duration(p.run_time), Style::new().fg(theme::dim())),
                 Cell::from(Line::from(vec![
                     Span::styled(r.prefix.clone(), Style::new().fg(theme::border())),
                     Span::styled(p.name.to_string(), Style::new().fg(theme::fg()).bold()),
@@ -197,11 +234,13 @@ pub fn processes(f: &mut Frame, app: &mut App, area: Rect) {
             Constraint::Length(13),
             Constraint::Length(5),
             Constraint::Length(7),
+            Constraint::Length(5),
             Constraint::Length(2),
             Constraint::Length(10),
             Constraint::Min(20),
         ],
     )
+    .column_spacing(1)
     .header(Row::new(head))
     .block(block)
     .row_highlight_style(sel_style())
@@ -225,6 +264,15 @@ pub fn processes(f: &mut Frame, app: &mut App, area: Rect) {
                         kv("rss", fmt_bytes(p.mem), theme::purple()),
                         kv("virt", fmt_bytes(p.virt), theme::purple()),
                         kv("sockets", conn.to_string(), theme::cyan()),
+                        kv(
+                            "fds",
+                            match app.fd_info(p.pid) {
+                                Some((n, Some(l))) => format!("{n}/{l} ({:.0}%)", n as f64 / l.max(1) as f64 * 100.0),
+                                Some((n, None)) => n.to_string(),
+                                None => "·".into(),
+                            },
+                            theme::fg(),
+                        ),
                         kv(
                             "net",
                             app.proc_net
@@ -292,16 +340,28 @@ pub fn network(f: &mut Frame, app: &mut App, area: Rect) {
                 Cell::from(i.name.clone()).style(Style::new().fg(if active { theme::cyan() } else { theme::muted() }).bold()),
                 Cell::from(if oper.is_empty() { "·".into() } else { oper.clone() }).style(Style::new().fg(ocol)),
                 Cell::from(kind).style(Style::new().fg(theme::purple())),
-                Cell::from(speed).style(Style::new().fg(theme::fg())),
-                Cell::from(if i.mtu > 0 { i.mtu.to_string() } else { "·".into() }).style(Style::new().fg(if i.mtu > 0 && i.mtu != 1500 { theme::yellow() } else { theme::dim() })),
-                Cell::from(fmt_rate(i.rx_rate)).style(Style::new().fg(theme::green())),
-                Cell::from(fmt_rate(i.tx_rate)).style(Style::new().fg(theme::orange())),
-                Cell::from(util.map(|u| format!("{u:.0}%")).unwrap_or_else(|| "·".into())).style(Style::new().fg(theme::heat(util.unwrap_or(0.0))).bold()),
-                Cell::from(if i.drop_rate > 0.0 { format!("{:.0}/s", i.drop_rate) } else if i.rx_dropped + i.tx_dropped > 0 { format!("Σ{}", i.rx_dropped + i.tx_dropped) } else { "·".into() })
-                    .style(Style::new().fg(if i.drop_rate > 0.0 { theme::red() } else { theme::dim() })),
-                Cell::from(if errs > 0 { format!("{}/{}", i.rx_errors, i.tx_errors) } else { "·".into() }).style(Style::new().fg(if errs > 0 { theme::red() } else { theme::dim() })),
-                Cell::from(fmt_bytes(i.rx_total)).style(Style::new().fg(theme::fg())),
-                Cell::from(fmt_bytes(i.tx_total)).style(Style::new().fg(theme::fg())),
+                if speed == "·" { none() } else { num(speed, Style::new().fg(theme::fg())) },
+                if i.mtu > 0 {
+                    num(i.mtu.to_string(), Style::new().fg(if i.mtu != 1500 { theme::yellow() } else { theme::dim() }))
+                } else {
+                    none()
+                },
+                num(fmt_rate(i.rx_rate), Style::new().fg(theme::green())),
+                num(fmt_rate(i.tx_rate), Style::new().fg(theme::orange())),
+                match util {
+                    Some(u) => num(format!("{u:.0}%"), Style::new().fg(theme::heat(u)).bold()),
+                    None => none(),
+                },
+                if i.drop_rate > 0.0 {
+                    num(format!("{:.0}/s", i.drop_rate), Style::new().fg(theme::red()))
+                } else if i.rx_dropped + i.tx_dropped > 0 {
+                    num(format!("Σ{}", i.rx_dropped + i.tx_dropped), Style::new().fg(theme::dim()))
+                } else {
+                    none()
+                },
+                if errs > 0 { num(format!("{}/{}", i.rx_errors, i.tx_errors), Style::new().fg(theme::red())) } else { none() },
+                num(fmt_bytes(i.rx_total), Style::new().fg(theme::fg())),
+                num(fmt_bytes(i.tx_total), Style::new().fg(theme::fg())),
                 Cell::from(i.addrs.join("  ")).style(Style::new().fg(theme::teal())),
             ])
         })
@@ -313,7 +373,7 @@ pub fn network(f: &mut Frame, app: &mut App, area: Rect) {
             Constraint::Length(6),
             Constraint::Length(12),
             Constraint::Length(7),
-            Constraint::Length(6),
+            Constraint::Length(5),
             Constraint::Length(10),
             Constraint::Length(10),
             Constraint::Length(5),
@@ -324,6 +384,7 @@ pub fn network(f: &mut Frame, app: &mut App, area: Rect) {
             Constraint::Min(10),
         ],
     )
+    .column_spacing(2)
     .header(header(&["IFACE", "STATE", "KIND", "LINK", "MTU", "RX/s", "TX/s", "UTIL", "DROPS", "ERR", "RX Σ", "TX Σ", "ADDRESSES"]))
     .block(panel(format!("interfaces ({})", ifaces.len()), theme::cyan()))
     .row_highlight_style(sel_style())
@@ -363,15 +424,15 @@ pub fn network(f: &mut Frame, app: &mut App, area: Rect) {
     }
 
     let [kpanel, talkers, peers] =
-        Layout::vertical([Constraint::Length(15), Constraint::Percentage(50), Constraint::Min(4)]).areas(side);
+        Layout::vertical([Constraint::Length(17), Constraint::Percentage(50), Constraint::Min(4)]).areas(side);
 
     // Kernel TCP/UDP health.
-    let lines = match &app.sampler.knet.counters {
+    let mut lines = match &app.sampler.knet.counters {
         Some(c) => {
             let row = |k: &str, v: String, col| {
                 Line::from(vec![
-                    Span::styled(format!(" {k:<18}"), Style::new().fg(theme::muted())),
-                    Span::styled(v, Style::new().fg(col).bold()),
+                    Span::styled(format!(" {k:<17}"), Style::new().fg(theme::muted())),
+                    Span::styled(format!("{v:>20}"), Style::new().fg(col).bold()),
                 ])
             };
             let warn = |v: f64| if v > 0.0 { theme::orange() } else { theme::dim() };
@@ -400,6 +461,24 @@ pub fn network(f: &mut Frame, app: &mut App, area: Rect) {
         }
         None => vec![Line::styled(" kernel counters: Linux only", Style::new().fg(theme::dim()))],
     };
+    if let Ok(l) = app.net.limits.try_lock() {
+        let mut x = crate::app::ExtraHealth::default();
+        x.fill_limits(&l, &app.sampler, app.socket_snapshot());
+        let row = |k: &str, v: String, pct: Option<f64>| {
+            Line::from(vec![
+                Span::styled(format!(" {k:<17}"), Style::new().fg(theme::muted())),
+                Span::styled(format!("{v:>20}"), Style::new().fg(theme::heat(pct.unwrap_or(0.0))).bold()),
+            ])
+        };
+        if let (Some((lo, hi)), Some(p)) = (l.ephemeral, x.ephemeral_pct) {
+            lines.push(row("ephemeral ports", format!("{p:.1}% of {lo}-{hi}"), Some(p)));
+        }
+        if let (Some((n, m)), Some(p)) = (l.files, x.files_pct) {
+            lines.push(row("open files (sys)", format!("{n}/{m}"), Some(p)));
+        } else if let Some((n, _)) = l.files {
+            lines.push(row("open files (sys)", n.to_string(), None));
+        }
+    }
     f.render_widget(Paragraph::new(lines).block(panel("tcp / udp health", theme::orange())), kpanel);
 
     // Top talkers: bandwidth per process from tcp_info deltas.
@@ -412,8 +491,8 @@ pub fn network(f: &mut Frame, app: &mut App, area: Rect) {
         .map(|(pid, tx, rx)| {
             Row::new(vec![
                 Cell::from(truncate(names.get(pid).copied().unwrap_or("?"), 16)).style(Style::new().fg(theme::fg())),
-                Cell::from(fmt_rate(*rx)).style(Style::new().fg(theme::green())),
-                Cell::from(fmt_rate(*tx)).style(Style::new().fg(theme::orange())),
+                num(fmt_rate(*rx), Style::new().fg(theme::green())),
+                num(fmt_rate(*tx), Style::new().fg(theme::orange())),
             ])
         })
         .collect();
@@ -456,7 +535,7 @@ pub fn network(f: &mut Frame, app: &mut App, area: Rect) {
             Row::new(vec![
                 Cell::from(truncate(&label, 26)).style(Style::new().fg(theme::teal())),
                 Cell::from(sc).style(Style::new().fg(theme::dim())),
-                Cell::from(n.to_string()).style(Style::new().fg(theme::fg()).bold()),
+                num(n.to_string(), Style::new().fg(theme::fg()).bold()),
             ])
         })
         .collect();
@@ -544,25 +623,32 @@ pub fn sockets(f: &mut Frame, app: &mut App, area: Rect) {
             ];
             if has_tcp {
                 let rtt_ms = t.map(|t| t.rtt_us as f64 / 1000.0);
-                cells.push(
-                    Cell::from(rtt_ms.filter(|v| *v > 0.0).map(|v| format!("{v:.1}")).unwrap_or_else(|| "·".into()))
-                        .style(Style::new().fg(match rtt_ms {
-                            Some(v) if v >= 100.0 => theme::red(),
-                            Some(v) if v >= 30.0 => theme::yellow(),
-                            _ => theme::green(),
-                        })),
-                );
+                cells.push(match rtt_ms.filter(|v| *v > 0.0) {
+                    Some(v) => num(
+                        format!("{v:.1}"),
+                        Style::new().fg(if v >= 100.0 {
+                            theme::red()
+                        } else if v >= 30.0 {
+                            theme::yellow()
+                        } else {
+                            theme::green()
+                        }),
+                    ),
+                    None => none(),
+                });
                 let retr = t.map(|t| t.total_retrans).unwrap_or(0);
-                cells.push(Cell::from(if retr > 0 { retr.to_string() } else { "·".into() }).style(Style::new().fg(if retr > 0 { theme::orange() } else { theme::dim() })));
+                cells.push(if retr > 0 { num(retr.to_string(), Style::new().fg(theme::orange())) } else { none() });
                 let (rq, sq) = n.map(|n| (n.rx_queue, n.tx_queue)).unwrap_or((0, 0));
-                let q = if rq + sq > 0 { format!("{}/{}", fmt_bytes(rq as u64), fmt_bytes(sq as u64)) } else { "·".into() };
-                cells.push(Cell::from(q).style(Style::new().fg(if rq + sq > 0 { theme::yellow() } else { theme::dim() })));
+                cells.push(if rq + sq > 0 {
+                    num(format!("{}/{}", fmt_bytes(rq as u64), fmt_bytes(sq as u64)), Style::new().fg(theme::yellow()))
+                } else {
+                    none()
+                });
                 let (tx, rx) = n.map(|n| (n.tx_rate, n.rx_rate)).unwrap_or((0.0, 0.0));
-                let rate = |v: f64| if v >= 1.0 { fmt_rate(v) } else { "·".into() };
-                cells.push(Cell::from(rate(rx)).style(Style::new().fg(theme::green())));
-                cells.push(Cell::from(rate(tx)).style(Style::new().fg(theme::orange())));
+                cells.push(if rx >= 1.0 { num(fmt_rate(rx), Style::new().fg(theme::green())) } else { none() });
+                cells.push(if tx >= 1.0 { num(fmt_rate(tx), Style::new().fg(theme::orange())) } else { none() });
             }
-            cells.push(Cell::from(if e.pid == 0 { "-".into() } else { e.pid.to_string() }).style(Style::new().fg(theme::muted())));
+            cells.push(num(if e.pid == 0 { "-".into() } else { e.pid.to_string() }, Style::new().fg(theme::muted())));
             cells.push(Cell::from(e.command.clone()).style(Style::new().fg(theme::fg()).bold()));
             if has_ns {
                 cells.push(Cell::from(n.and_then(|n| n.netns.as_deref()).unwrap_or("host").to_string()).style(Style::new().fg(theme::purple())));
@@ -601,6 +687,7 @@ pub fn sockets(f: &mut Frame, app: &mut App, area: Rect) {
     widths.push(Constraint::Length(9));
     heads.push("USER");
     let t = Table::new(rows, widths)
+    .column_spacing(1)
     .header(header(&heads))
     .block(frame().title(Line::from(title)))
     .row_highlight_style(sel_style())
@@ -704,13 +791,13 @@ pub fn files(f: &mut Frame, app: &mut App, area: Rect) {
         .range(off, off + h)
         .map(|e| {
             Row::new(vec![
-                Cell::from(e.pid.to_string()).style(Style::new().fg(theme::muted())),
+                num(e.pid.to_string(), Style::new().fg(theme::muted())),
                 Cell::from(truncate(&e.command, 15)).style(Style::new().fg(theme::fg()).bold()),
                 Cell::from(truncate(&e.user, 10)).style(Style::new().fg(theme::teal())),
                 Cell::from(e.fd_display()).style(Style::new().fg(theme::yellow())),
                 Cell::from(e.ftype.clone()).style(Style::new().fg(theme::file_type(&e.ftype))),
-                Cell::from(e.size_off()).style(Style::new().fg(theme::dim())),
-                Cell::from(e.node.clone()).style(Style::new().fg(theme::dim())),
+                num(e.size_off(), Style::new().fg(theme::dim())),
+                num(e.node.clone(), Style::new().fg(theme::dim())),
                 Cell::from(Line::from(vec![
                     Span::styled(e.name.clone(), Style::new().fg(theme::file_type(&e.ftype))),
                     Span::styled(
@@ -753,25 +840,33 @@ pub fn files(f: &mut Frame, app: &mut App, area: Rect) {
 
 pub fn storage(f: &mut Frame, app: &mut App, area: Rect) {
     let s = &app.sampler;
-    let h = (s.disks_info.len() as u16 + 3).min((area.height / 2).max(5));
-    let [disks, bottom] = Layout::vertical([Constraint::Length(h), Constraint::Min(6)]).areas(area);
+    let fs_h = (s.disks_info.len() as u16 + 3).min((area.height / 3).max(5));
+    let dev_h = if s.diskio.devices.is_empty() { 0 } else { (s.diskio.devices.len() as u16 + 3).min(area.height / 4).max(4) };
+    let [disks, devices, bottom] =
+        Layout::vertical([Constraint::Length(fs_h), Constraint::Length(dev_h), Constraint::Min(6)]).areas(area);
 
+    // Filesystems: space and inodes.
     let bar_w = 20;
     let rows: Vec<Row> = s
         .disks_info
         .iter()
         .map(|d| {
             let pct = d.pct();
+            let ino = d.inode_pct();
             Row::new(vec![
                 Cell::from(d.mount.clone()).style(Style::new().fg(theme::fg()).bold()),
                 Cell::from(truncate(&d.name, 20)).style(Style::new().fg(theme::muted())),
                 Cell::from(d.fs.clone()).style(Style::new().fg(theme::cyan())),
                 Cell::from(format!("{}{}", d.kind, if d.removable { " ⏏" } else { "" })).style(Style::new().fg(theme::dim())),
-                Cell::from(fmt_bytes(d.total)).style(Style::new().fg(theme::fg())),
-                Cell::from(fmt_bytes(d.used())).style(Style::new().fg(theme::yellow())),
-                Cell::from(fmt_bytes(d.avail)).style(Style::new().fg(theme::green())),
+                num(fmt_bytes(d.total), Style::new().fg(theme::fg())),
+                num(fmt_bytes(d.used()), Style::new().fg(theme::yellow())),
+                num(fmt_bytes(d.avail), Style::new().fg(theme::green())),
                 Cell::from(Line::from(meter(pct, bar_w))),
-                Cell::from(format!("{pct:5.1}%")).style(Style::new().fg(theme::heat(pct)).bold()),
+                num(format!("{pct:.1}%"), Style::new().fg(theme::heat(pct)).bold()),
+                match ino {
+                    Some(p) => num(format!("{p:.1}%"), Style::new().fg(theme::heat(p))),
+                    None => none(),
+                },
             ])
         })
         .collect();
@@ -787,33 +882,78 @@ pub fn storage(f: &mut Frame, app: &mut App, area: Rect) {
                 Constraint::Length(8),
                 Constraint::Length(8),
                 Constraint::Length(bar_w as u16),
+                Constraint::Length(6),
                 Constraint::Length(7),
             ],
         )
-        .header(header(&["MOUNT", "DEVICE", "FS", "KIND", "SIZE", "USED", "AVAIL", "USAGE", ""]))
+        .column_spacing(2)
+        .header(header(&["MOUNT", "DEVICE", "FS", "KIND", "SIZE", "USED", "AVAIL", "USAGE", "%", "INODES"]))
         .block(panel(format!("filesystems ({})", s.disks_info.len()), theme::yellow())),
         disks,
     );
 
+    // Block devices: iostat -x.
+    if dev_h > 0 {
+        let rows: Vec<Row> = s
+            .diskio
+            .devices
+            .iter()
+            .map(|d| {
+                let busy = d.r_iops + d.w_iops >= 1.0;
+                Row::new(vec![
+                    Cell::from(d.name.clone()).style(Style::new().fg(theme::fg()).bold()),
+                    num(format!("{:.0}", d.r_iops), Style::new().fg(theme::green())),
+                    num(format!("{:.0}", d.w_iops), Style::new().fg(theme::orange())),
+                    num(fmt_rate(d.r_bps), Style::new().fg(theme::green())),
+                    num(fmt_rate(d.w_bps), Style::new().fg(theme::orange())),
+                    if busy {
+                        num(format!("{:.1}", d.await_ms), Style::new().fg(theme::heat(d.await_ms)).bold())
+                    } else {
+                        none()
+                    },
+                    num(format!("{:.0}%", d.util_pct), Style::new().fg(theme::heat(d.util_pct))),
+                    num(format!("{:.2}", d.queue), Style::new().fg(theme::muted())),
+                    Cell::from(Line::from(meter(d.util_pct, 16))),
+                ])
+            })
+            .collect();
+        f.render_widget(
+            Table::new(
+                rows,
+                [
+                    Constraint::Min(10),
+                    Constraint::Length(7),
+                    Constraint::Length(7),
+                    Constraint::Length(10),
+                    Constraint::Length(10),
+                    Constraint::Length(9),
+                    Constraint::Length(6),
+                    Constraint::Length(6),
+                    Constraint::Length(16),
+                ],
+            )
+            .column_spacing(2)
+            .header(header(&["DEVICE", "R/s", "W/s", "READ/s", "WRITE/s", "AWAIT ms", "UTIL", "QUEUE", ""]))
+            .block(panel("devices (iostat)", theme::orange())),
+            devices,
+        );
+    }
+
     let [io, temps] = Layout::horizontal([Constraint::Percentage(60), Constraint::Percentage(40)]).areas(bottom);
 
     let mut procs: Vec<_> = s.procs.iter().filter(|p| p.read_rate + p.write_rate > 0.0).collect();
-    procs.sort_by(|a, b| {
-        (b.read_rate + b.write_rate)
-            .partial_cmp(&(a.read_rate + a.write_rate))
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
+    procs.sort_by(|a, b| (b.read_rate + b.write_rate).total_cmp(&(a.read_rate + a.write_rate)));
     let rows: Vec<Row> = procs
         .iter()
         .take(io.height as usize)
         .map(|p| {
             Row::new(vec![
-                Cell::from(p.pid.to_string()).style(Style::new().fg(theme::muted())),
+                num(p.pid.to_string(), Style::new().fg(theme::muted())),
                 Cell::from(truncate(&p.name, 24)).style(Style::new().fg(theme::fg()).bold()),
-                Cell::from(fmt_rate(p.read_rate)).style(Style::new().fg(theme::green())),
-                Cell::from(fmt_rate(p.write_rate)).style(Style::new().fg(theme::orange())),
-                Cell::from(fmt_bytes(p.read_total)).style(Style::new().fg(theme::dim())),
-                Cell::from(fmt_bytes(p.write_total)).style(Style::new().fg(theme::dim())),
+                num(fmt_rate(p.read_rate), Style::new().fg(theme::green())),
+                num(fmt_rate(p.write_rate), Style::new().fg(theme::orange())),
+                num(fmt_bytes(p.read_total), Style::new().fg(theme::dim())),
+                num(fmt_bytes(p.write_total), Style::new().fg(theme::dim())),
             ])
         })
         .collect();
@@ -838,6 +978,7 @@ pub fn storage(f: &mut Frame, app: &mut App, area: Rect) {
                 Constraint::Length(9),
             ],
         )
+        .column_spacing(2)
         .header(header(&["PID", "PROCESS", "READ/s", "WRITE/s", "TOTAL R", "TOTAL W"]))
         .block(io_block),
         io,
@@ -859,12 +1000,9 @@ pub fn storage(f: &mut Frame, app: &mut App, area: Rect) {
         .map(|t| {
             let crit = t.critical.filter(|c| *c > 0.0).unwrap_or(100.0);
             let pct = (t.temp / crit * 100.0) as f64;
-            let mut sp = vec![Span::styled(
-                format!(" {:<20}", truncate(&t.label, 20)),
-                Style::new().fg(theme::muted()),
-            )];
+            let mut sp = vec![Span::styled(format!(" {:<20}", truncate(&t.label, 20)), Style::new().fg(theme::muted()))];
             sp.extend(meter(pct, bw));
-            sp.push(Span::styled(format!(" {:5.1}°C", t.temp), Style::new().fg(theme::heat(pct)).bold()));
+            sp.push(Span::styled(format!(" {:>6.1}°C", t.temp), Style::new().fg(theme::heat(pct)).bold()));
             Line::from(sp)
         })
         .collect();

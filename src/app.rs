@@ -13,6 +13,11 @@ use sysinfo::Signal;
 use std::sync::atomic::AtomicBool;
 
 use crate::collect::capture::{self, CaptureState};
+use crate::collect::containers::{self, ContainerStore};
+use crate::collect::kmsg::{self, KmsgStore};
+use crate::collect::limits::{self, Limits};
+use crate::collect::services::{self, ServiceStore};
+use crate::collect::trace::{self, TraceStore};
 use crate::collect::firewall::{self, FwRule, FwStore};
 use crate::collect::ipinfo::{self, Resolver};
 use crate::collect::lsof::{self, FilesStore, OpenFile, Query, SocketStore};
@@ -33,10 +38,12 @@ pub enum Tab {
     Routes,
     Probes,
     Firewall,
+    Containers,
+    System,
 }
 
 impl Tab {
-    pub const ALL: [Tab; 9] = [
+    pub const ALL: [Tab; 11] = [
         Tab::Overview,
         Tab::Processes,
         Tab::Network,
@@ -46,6 +53,8 @@ impl Tab {
         Tab::Routes,
         Tab::Probes,
         Tab::Firewall,
+        Tab::Containers,
+        Tab::System,
     ];
 
     pub fn title(self) -> &'static str {
@@ -59,6 +68,17 @@ impl Tab {
             Tab::Routes => "Routes",
             Tab::Probes => "Probes",
             Tab::Firewall => "Firewall",
+            Tab::Containers => "Containers",
+            Tab::System => "System",
+        }
+    }
+
+    /// Key shown in the tab bar and used to jump to the view.
+    pub fn key(self) -> char {
+        match self {
+            Tab::Containers => '0',
+            Tab::System => 'S',
+            t => char::from(b'1' + t.index() as u8),
         }
     }
 
@@ -89,6 +109,7 @@ pub enum ProcSort {
     Io,
     Conn,
     Net,
+    Fds,
 }
 
 impl ProcSort {
@@ -102,6 +123,7 @@ impl ProcSort {
             ProcSort::Io => "io",
             ProcSort::Conn => "conn",
             ProcSort::Net => "net",
+            ProcSort::Fds => "fds",
         }
     }
     pub fn parse(s: &str) -> Option<Self> {
@@ -114,6 +136,7 @@ impl ProcSort {
             "io" => ProcSort::Io,
             "conn" | "connections" => ProcSort::Conn,
             "net" | "network" => ProcSort::Net,
+            "fds" | "fd" => ProcSort::Fds,
             _ => return None,
         })
     }
@@ -179,13 +202,48 @@ pub const SIGNALS: [(&str, &str, Signal); 9] = [
 ];
 
 /// Every `[alerts]` threshold that is exceeded. Shared by the header badges and `vigil report`.
+/// Inputs for health badges that come from collectors outside the sampler.
+#[derive(Default)]
+pub struct ExtraHealth {
+    pub probe_losses: Vec<(String, f64)>,
+    pub certs: Vec<(String, i64)>,
+    pub http_errors: Vec<(String, u16)>,
+    /// (process name, pct of its fd limit)
+    pub fd_worst: Option<(String, f64)>,
+    pub files_pct: Option<f64>,
+    pub ephemeral_pct: Option<f64>,
+    pub throttled: Vec<(String, f64)>,
+    pub container_ooms: Vec<String>,
+    pub kernel_ooms: usize,
+    pub failed_units: usize,
+}
+
+impl ExtraHealth {
+    pub fn fill_limits(&mut self, l: &Limits, s: &Sampler, sockets: Option<Arc<Vec<OpenFile>>>) {
+        if let Some((pid, _, _, pct)) = l.worst() {
+            let name = s.procs.iter().find(|p| p.pid == pid).map(|p| p.name.to_string()).unwrap_or_else(|| pid.to_string());
+            self.fd_worst = Some((name, pct));
+        }
+        self.files_pct = l.files.filter(|(_, m)| *m > 0 && *m < u64::MAX / 4).map(|(n, m)| n as f64 / m as f64 * 100.0);
+        if let (Some((lo, hi)), Some(socks)) = (l.ephemeral, sockets) {
+            let size = (hi.saturating_sub(lo) as f64 + 1.0).max(1.0);
+            let used = socks
+                .iter()
+                .filter(|e| e.proto == "TCP" && !e.is_listening() && e.local_port().is_some_and(|p| p >= lo && p <= hi))
+                .count();
+            self.ephemeral_pct = Some(used as f64 / size * 100.0);
+        }
+    }
+}
+
 pub fn compute_alerts(
     s: &Sampler,
     a: &Alerts,
     close_wait: usize,
     time_wait: usize,
-    probe_losses: &[(String, f64)],
+    x: &ExtraHealth,
 ) -> Vec<(String, Color)> {
+    let probe_losses = &x.probe_losses;
     let mut out = Vec::new();
     let pct = |u: u64, t: u64| if t == 0 { 0.0 } else { u as f64 / t as f64 * 100.0 };
     let mem = pct(s.mem_used, s.mem_total);
@@ -251,6 +309,63 @@ pub fn compute_alerts(
             }
         }
     }
+    if a.fd_pct > 0.0 {
+        if let Some((n, p)) = x.fd_worst.as_ref().filter(|(_, p)| *p >= a.fd_pct) {
+            out.push((format!("FDS {n} {p:.0}%"), theme::red()));
+        }
+    }
+    if let (Some(p), true) = (x.files_pct, a.files_pct > 0.0) {
+        if p >= a.files_pct {
+            out.push((format!("FILES {p:.0}%"), theme::red()));
+        }
+    }
+    if let (Some(p), true) = (x.ephemeral_pct, a.ephemeral_pct > 0.0) {
+        if p >= a.ephemeral_pct {
+            out.push((format!("EPHEMERAL PORTS {p:.0}%"), theme::red()));
+        }
+    }
+    if a.inode_pct > 0.0 {
+        if let Some((d, p)) = s
+            .disks_info
+            .iter()
+            .filter_map(|d| d.inode_pct().map(|p| (d, p)))
+            .filter(|(_, p)| *p >= a.inode_pct)
+            .max_by(|x, y| x.1.total_cmp(&y.1))
+        {
+            out.push((format!("INODES {} {p:.0}%", d.mount), theme::red()));
+        }
+    }
+    for d in &s.diskio.devices {
+        if a.disk_await_ms > 0.0 && d.await_ms >= a.disk_await_ms && d.r_iops + d.w_iops >= 1.0 {
+            out.push((format!("{} AWAIT {:.0}ms", d.name, d.await_ms), theme::orange()));
+        } else if a.disk_util_pct > 0.0 && d.util_pct >= a.disk_util_pct {
+            out.push((format!("{} BUSY {:.0}%", d.name, d.util_pct), theme::orange()));
+        }
+    }
+    if a.cert_days > 0.0 {
+        for (n, d) in &x.certs {
+            if (*d as f64) < a.cert_days {
+                out.push((format!("CERT {n} {d}d"), if *d < 7 { theme::red() } else { theme::orange() }));
+            }
+        }
+    }
+    for (n, st) in &x.http_errors {
+        out.push((format!("HTTP {n} {st}"), theme::red()));
+    }
+    if a.throttle_pct > 0.0 {
+        if let Some((n, p)) = x.throttled.iter().filter(|(_, p)| *p >= a.throttle_pct).max_by(|a, b| a.1.total_cmp(&b.1)) {
+            out.push((format!("THROTTLED {n} {p:.0}%"), theme::orange()));
+        }
+    }
+    for n in &x.container_ooms {
+        out.push((format!("OOM {n}"), theme::red()));
+    }
+    if x.kernel_ooms > 0 && x.container_ooms.is_empty() {
+        out.push((format!("OOM KILLS {}", x.kernel_ooms), theme::red()));
+    }
+    if a.failed_units && x.failed_units > 0 {
+        out.push((format!("FAILED UNITS {}", x.failed_units), theme::red()));
+    }
     if let (Some(p), true) = (s.psi, a.psi_pct > 0.0) {
         for (name, v) in ["cpu", "mem", "io"].iter().zip(p) {
             if v >= a.psi_pct {
@@ -308,6 +423,13 @@ pub struct NetHandles {
     pub fw: Arc<Mutex<FwStore>>,
     pub fw_active: Arc<AtomicBool>,
     pub capture: Arc<Mutex<CaptureState>>,
+    pub limits: Arc<Mutex<Limits>>,
+    pub kmsg: Arc<Mutex<KmsgStore>>,
+    pub containers: Arc<Mutex<ContainerStore>>,
+    pub containers_active: Arc<AtomicBool>,
+    pub services: Arc<Mutex<ServiceStore>>,
+    pub services_active: Arc<AtomicBool>,
+    pub trace: Arc<Mutex<TraceStore>>,
 }
 
 impl NetHandles {
@@ -320,6 +442,13 @@ impl NetHandles {
             fw: Arc::default(),
             fw_active: Arc::default(),
             capture: Arc::default(),
+            limits: Arc::default(),
+            kmsg: Arc::default(),
+            containers: Arc::default(),
+            containers_active: Arc::default(),
+            services: Arc::default(),
+            services_active: Arc::default(),
+            trace: Arc::default(),
         }
     }
 
@@ -341,6 +470,10 @@ impl NetHandles {
             cfg.network.auto_probes,
         );
         firewall::spawn_worker(h.fw.clone(), h.fw_active.clone());
+        limits::spawn_worker(h.limits.clone());
+        kmsg::spawn_worker(h.kmsg.clone());
+        containers::spawn_worker(h.containers.clone(), h.containers_active.clone());
+        services::spawn_worker(h.services.clone(), h.services_active.clone());
         (h, warnings)
     }
 }
@@ -408,6 +541,11 @@ pub struct App {
     pub fw_hide_zero: bool,
     pub fw_by_rate: bool,
     pub close_target: Option<OpenFile>,
+    pub ctr_state: TableState,
+    pub svc_state: TableState,
+    /// Which System-view pane has the cursor: false = services, true = kernel events.
+    pub sys_events_focus: bool,
+    pub ev_state: TableState,
 }
 
 impl App {
@@ -472,6 +610,10 @@ impl App {
             fw_hide_zero: false,
             fw_by_rate: false,
             close_target: None,
+            ctr_state: TableState::default().with_selected(0),
+            svc_state: TableState::default().with_selected(0),
+            sys_events_focus: false,
+            ev_state: TableState::default().with_selected(0),
         };
         app.rebuild();
         app
@@ -522,17 +664,53 @@ impl App {
         self.sampler.sensors_fast.store(self.tab == Tab::Storage, Relaxed);
         self.net.routes_active.store(self.tab == Tab::Routes, Relaxed);
         self.net.fw_active.store(self.tab == Tab::Firewall, Relaxed);
+        self.net.containers_active.store(self.tab == Tab::Containers, Relaxed);
+        self.net.services_active.store(self.tab == Tab::System, Relaxed);
     }
 
     /// Health badges for the header: every threshold from `[alerts]` that is exceeded.
     pub fn alerts(&self) -> Vec<(String, Color)> {
-        let losses: Vec<(String, f64)> = self
-            .net
-            .probes
-            .try_lock()
-            .map(|p| p.probes.iter().filter(|p| p.sent() >= 5).map(|p| (p.name.clone(), p.loss_pct())).collect())
-            .unwrap_or_default();
-        compute_alerts(&self.sampler, &self.cfg.alerts, self.close_wait, self.time_wait, &losses)
+        let mut x = ExtraHealth::default();
+        if let Ok(p) = self.net.probes.try_lock() {
+            for pr in &p.probes {
+                if pr.sent() >= 5 {
+                    x.probe_losses.push((pr.name.clone(), pr.loss_pct()));
+                }
+                if let Some(d) = pr.cert_days {
+                    x.certs.push((pr.name.clone(), d));
+                }
+                if let Some(st) = pr.http_status.filter(|s| *s >= 500) {
+                    x.http_errors.push((pr.name.clone(), st));
+                }
+            }
+        }
+        if let Ok(l) = self.net.limits.try_lock() {
+            x.fill_limits(&l, &self.sampler, self.socket_snapshot());
+        }
+        if let Ok(c) = self.net.containers.try_lock() {
+            for ct in &c.containers {
+                x.throttled.push((ct.name.clone(), ct.throttled_pct));
+                if ct.new_ooms > 0 {
+                    x.container_ooms.push(ct.name.clone());
+                }
+            }
+        }
+        if let Ok(k) = self.net.kmsg.try_lock() {
+            x.kernel_ooms = k.recent("OOM", Duration::from_secs(600));
+        }
+        if let Ok(sv) = self.net.services.try_lock() {
+            x.failed_units = sv.units.iter().filter(|u| u.failed() && sv.manager == "systemd").count();
+        }
+        compute_alerts(&self.sampler, &self.cfg.alerts, self.close_wait, self.time_wait, &x)
+    }
+
+    pub fn socket_snapshot(&self) -> Option<Arc<Vec<OpenFile>>> {
+        self.sockets.try_lock().ok().map(|s| s.entries.clone())
+    }
+
+    /// (open fds, limit) for a pid, from the limits collector.
+    pub fn fd_info(&self, pid: u32) -> Option<(u32, Option<u64>)> {
+        self.net.limits.try_lock().ok()?.fds.get(&pid).copied()
     }
 
     /// Display form of a socket endpoint: host name (if resolved and names are
@@ -587,7 +765,21 @@ impl App {
             Ok(s) => (s.entries.clone(), s.backend),
             Err(_) => (Arc::new(Vec::new()), crate::collect::lsof::SocketBackend::Lsof),
         };
-        match crate::report::write_from_tui(&self.sampler, &entries, backend, &self.cfg.alerts) {
+        let mut inputs = crate::report::Inputs::default();
+        if let Ok(l) = self.net.limits.lock() {
+            inputs.health.fill_limits(&l, &self.sampler, Some(entries.clone()));
+            inputs.limits = Some(l.clone());
+        }
+        if let Ok(c) = self.net.containers.lock() {
+            inputs.containers = c.containers.clone();
+        }
+        if let Ok(sv) = self.net.services.lock() {
+            inputs.units = sv.units.clone();
+        }
+        if let Ok(k) = self.net.kmsg.lock() {
+            inputs.events = k.events.iter().cloned().collect();
+        }
+        match crate::report::write_from_tui(&self.sampler, &entries, backend, &self.cfg.alerts, &inputs) {
             Ok(p) => self.set_status(format!("report written to {}", p.display()), theme::green()),
             Err(e) => self.set_status(format!("report failed: {e}"), theme::red()),
         }
@@ -612,7 +804,7 @@ impl App {
 
     /// Everything that can change the screen without user input.
     /// The main loop redraws only when this (or input / a tick) changes.
-    pub fn external_key(&self) -> ([u64; 7], bool) {
+    pub fn external_key(&self) -> ([u64; 10], bool) {
         let v = |o: Option<u64>| o.unwrap_or(0);
         let sv = v(self.sockets.try_lock().ok().map(|s| s.version));
         let fv = v(self.files.try_lock().ok().map(|s| s.version));
@@ -621,12 +813,19 @@ impl App {
         let pr = if self.tab == Tab::Probes { v(self.net.probes.try_lock().ok().map(|s| s.version)) } else { 0 };
         let fw = if self.tab == Tab::Firewall { v(self.net.fw.try_lock().ok().map(|s| s.version)) } else { 0 };
         let cap = v(self.net.capture.try_lock().ok().map(|s| s.version));
+        let ct = if self.tab == Tab::Containers { v(self.net.containers.try_lock().ok().map(|s| s.version)) } else { 0 };
+        let sys = if self.tab == Tab::System {
+            v(self.net.services.try_lock().ok().map(|s| s.version)) + v(self.net.kmsg.try_lock().ok().map(|s| s.version))
+        } else {
+            0
+        };
+        let tr = if self.tab == Tab::Probes { v(self.net.trace.try_lock().ok().map(|s| s.version)) } else { 0 };
         let status_live = self
             .status
             .as_ref()
             .is_some_and(|(_, _, at)| at.elapsed() < Duration::from_secs(4))
             || self.net.capture.try_lock().map(|c| c.running.is_some()).unwrap_or(false);
-        ([sv, fv, self.sampler.slow_version(), ni, pr, fw, cap], status_live)
+        ([sv, fv, self.sampler.slow_version(), ni, pr, fw, cap, ct, sys, tr], status_live)
     }
 
     pub fn warn(&mut self, msg: impl Into<String>) {
@@ -649,6 +848,10 @@ impl App {
             ProcSort::Io => (a.read_rate + a.write_rate)
                 .partial_cmp(&(b.read_rate + b.write_rate))
                 .unwrap_or(Ordering::Equal),
+            ProcSort::Fds => {
+                let f = |p: &ProcInfo| self.fd_info(p.pid).map(|(n, _)| n).unwrap_or(0);
+                f(a).cmp(&f(b))
+            }
             ProcSort::Net => {
                 let n = |p: &ProcInfo| self.proc_net.get(&p.pid).map(|(t, r)| t + r).unwrap_or(0.0);
                 n(a).total_cmp(&n(b))
@@ -871,6 +1074,9 @@ impl App {
             Tab::Routes => self.net.netinfo.try_lock().map(|n| n.routes.len()).unwrap_or(0),
             Tab::Probes => self.net.probes.try_lock().map(|p| p.probes.len()).unwrap_or(0),
             Tab::Firewall => self.fw_rows().len(),
+            Tab::Containers => self.net.containers.try_lock().map(|c| c.containers.len()).unwrap_or(0),
+            Tab::System if self.sys_events_focus => self.net.kmsg.try_lock().map(|k| k.events.len()).unwrap_or(0),
+            Tab::System => self.net.services.try_lock().map(|s| s.units.len()).unwrap_or(0),
             _ => 0,
         }
     }
@@ -884,6 +1090,9 @@ impl App {
             Tab::Routes => Some(&mut self.route_state),
             Tab::Probes => Some(&mut self.probe_state),
             Tab::Firewall => Some(&mut self.fw_state),
+            Tab::Containers => Some(&mut self.ctr_state),
+            Tab::System if self.sys_events_focus => Some(&mut self.ev_state),
+            Tab::System => Some(&mut self.svc_state),
             _ => None,
         }
     }
@@ -1069,6 +1278,21 @@ impl App {
                 self.input.clear();
                 self.mode = Mode::AddProbe;
             }
+            KeyCode::Char('t') => {
+                let target = self.net.probes.try_lock().ok().and_then(|p| {
+                    p.probes.get(self.probe_state.selected().unwrap_or(0)).map(|pr| match &pr.target {
+                        probes::Target::Icmp(ip) => ip.to_string(),
+                        probes::Target::Tcp(h, _) | probes::Target::Dns(h) => h.clone(),
+                        probes::Target::Http(u) => {
+                            u.split("://").nth(1).unwrap_or(u).split(['/', ':']).next().unwrap_or("").to_string()
+                        }
+                    })
+                });
+                if let Some(t) = target.filter(|t| !t.is_empty()) {
+                    trace::start(self.net.trace.clone(), t.clone());
+                    self.set_status(format!("tracing the path to {t}…"), theme::cyan());
+                }
+            }
             KeyCode::Char('d') | KeyCode::Delete => {
                 let i = self.probe_state.selected().unwrap_or(0);
                 let auto = match self.net.probes.lock() {
@@ -1087,6 +1311,32 @@ impl App {
                 }
             }
             _ => {}
+        }
+    }
+
+    fn key_system(&mut self, k: KeyEvent) {
+        match k.code {
+            KeyCode::Char('e') => self.sys_events_focus = !self.sys_events_focus,
+            KeyCode::Enter | KeyCode::Char('l') => self.load_selected_journal(true),
+            _ => {}
+        }
+    }
+
+    /// Show the journal of the selected unit (loads in the background).
+    pub fn load_selected_journal(&mut self, force: bool) {
+        let unit = self
+            .net
+            .services
+            .try_lock()
+            .ok()
+            .and_then(|s| self.svc_state.selected().and_then(|i| s.units.get(i)).map(|u| u.name.clone()));
+        if let Some(u) = unit {
+            if force {
+                if let Ok(mut s) = self.net.services.lock() {
+                    s.journal_unit = None;
+                }
+            }
+            services::load_journal(self.net.services.clone(), u);
         }
     }
 
@@ -1129,6 +1379,8 @@ impl App {
                 self.tab = Tab::ALL[(self.tab.index() + Tab::ALL.len() - 1) % Tab::ALL.len()]
             }
             KeyCode::Char(c @ '1'..='9') => self.tab = Tab::ALL[c as usize - '1' as usize],
+            KeyCode::Char('0') => self.tab = Tab::Containers,
+            KeyCode::Char('S') => self.tab = Tab::System,
             KeyCode::Char('N') => {
                 self.show_names = !self.show_names;
                 if self.show_names && self.resolver.is_none() {
@@ -1180,6 +1432,7 @@ impl App {
                 Tab::Sockets => self.key_sockets(k),
                 Tab::Files => self.key_files(k),
                 Tab::Probes => self.key_probes(k),
+                Tab::System => self.key_system(k),
                 Tab::Firewall => self.key_firewall(k),
                 _ => {}
             },
@@ -1206,6 +1459,7 @@ impl App {
             KeyCode::Char('i') => self.set_proc_sort(ProcSort::Io),
             KeyCode::Char('o') => self.set_proc_sort(ProcSort::Conn),
             KeyCode::Char('w') => self.set_proc_sort(ProcSort::Net),
+            KeyCode::Char('e') => self.set_proc_sort(ProcSort::Fds),
             KeyCode::Char('r') => {
                 self.proc_desc = !self.proc_desc;
                 self.rebuild_procs();

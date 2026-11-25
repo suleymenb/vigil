@@ -4,7 +4,7 @@
 
 **The terminal monitor for people who run servers and debug networks.**
 
-Processes, sockets, open files, routes, latency and firewall counters on one screen.<br>
+Processes, containers, services, sockets, open files, routes, latency and firewall counters on one screen.<br>
 One static binary. `lsof` built in. Linux and macOS.
 
 [![CI](https://github.com/suleymenb/vigil/actions/workflows/ci.yml/badge.svg)](https://github.com/suleymenb/vigil/actions/workflows/ci.yml)
@@ -22,9 +22,10 @@ One static binary. `lsof` built in. Linux and macOS.
 
 ## Why vigil
 
-- **Built for incidents.** Health badges in the header tell you what's wrong before you start looking: memory, disk, load, retransmits, listen-queue drops, conntrack, packet loss.
+- **Built for incidents.** Health badges in the header tell you what's wrong before you start looking: memory, disk, inodes, file descriptors, ephemeral ports, disk latency, OOM kills, failed services, container throttling, retransmits, listen-queue drops, conntrack, packet loss, expiring certificates.
 - **lsof built in.** Who uses this port, who holds this file, which deleted file is filling the disk: one keystroke or one flag.
-- **Network internals without five other tools.** RTT, retransmits and bandwidth per connection (`ss -ti`), kernel counters (`nstat`), routes and neighbours (`ip`), latency probes (`ping`), firewall hits (`nft`) and one-key packet capture (`tcpdump`).
+- **Network internals without five other tools.** RTT, retransmits and bandwidth per connection (`ss -ti`), kernel counters (`nstat`), routes and neighbours (`ip`), latency and path probes (`ping`, `mtr`), HTTP and TLS checks (`curl`), firewall hits (`nft`) and one-key packet capture (`tcpdump`).
+- **Containers and services without their daemons.** CPU, throttling, memory and OOM kills per container straight from cgroup v2; systemd units, restart loops, the journal and kernel events (`dmesg`) side by side.
 - **Light.** About 2.5 % of one core and 16 MB of RAM at a 1 s refresh. Nothing is drawn when nothing changes.
 - **Readable reports.** `vigil report` writes a Markdown or JSON snapshot with findings and recommended actions, ready for a ticket.
 
@@ -94,24 +95,34 @@ Every common question, as one command.
 | Write a report for an incident ticket | `sudo vigil report > incident.md` |
 | Get machine-readable output | `vigil report -f json \| jq .findings` |
 | Alert from cron when something is wrong | `vigil report --fail-on-alert -o /tmp/vigil.md \|\| mail -s "$(hostname)" ops@example.com < /tmp/vigil.md` |
+| Find processes close to "Too many open files" | `sudo vigil -t procs`, then `e` |
+| Check inodes ("disk full" with free space) | `vigil -t storage`, column **INODES** |
+| See disk latency and utilisation (iostat) | `vigil -t storage`, table **devices** |
+| See which container is CPU-throttled or OOM-killed | `sudo vigil -t containers` |
+| See failed services and restart loops, with logs | `sudo vigil -t system` |
+| See OOM kills, link flaps and NIC resets | `sudo vigil -t system`, then `e` |
+| Check an HTTPS endpoint and its certificate expiry | `vigil -t probes`, `a`, then `https://api.example.com/health` |
+| Trace the path to a target, loss per hop (mtr) | `vigil -t probes`, select it, press `t` |
 | Use it over plain SSH or in tmux | `vigil --theme ansi` |
 | Change the colours | press `T` |
 
 ## Views
 
-Switch with `1`–`9`, `Tab` or `←` `→`.
+Switch with `1`–`9`, `0`, `S`, `Tab` or `←` `→`.
 
 | Key | View | What you see |
 |:---:|---|---|
 | `1` | **Overview** | CPU graph and per-core meters, memory, rx/tx graphs, top processes, listening ports, TCP states, disks |
-| `2` | **Procs** | Sortable process table with CPU, memory, disk I/O, sockets and **bandwidth per process**; tree view; signals |
+| `2` | **Procs** | Sortable process table with CPU, memory, disk I/O, sockets, **bandwidth** and **open fds per process**; tree view; signals |
 | `3` | **Network** | Interfaces with link speed, duplex, MTU, utilisation, drops and errors; TCP/UDP health counters; top talkers and peers |
 | `4` | **Sockets** | Every connection with owner, state, **RTT, retransmits, queues and bandwidth**; container namespace; service names |
 | `5` | **Files** | lsof queries by pid, port, path or raw arguments |
-| `6` | **Storage** | Filesystem usage, disk I/O per process, temperature sensors |
+| `6` | **Storage** | Filesystem usage **and inodes**, **disk latency per device** (iostat), disk I/O per process, sensors |
 | `7` | **Routes** | Routing table, neighbours (failed first), default gateways, DNS servers |
-| `8` | **Probes** | ICMP, TCP and DNS latency with jitter, loss and history |
+| `8` | **Probes** | ICMP, TCP, DNS and **HTTPS** probes with jitter, loss, status code, **certificate expiry**, and an **mtr-style path trace** |
 | `9` | **Firewall** | nftables, iptables or pf rules with packets, bytes and live packets per second |
+| `0` | **Containers** | Docker, containerd/Kubernetes, CRI-O, Podman: CPU, **throttling**, memory vs limit, **OOM kills**, I/O, network |
+| `S` | **System** | systemd units (failed and restarting first), the **journal** of the selected unit, and **kernel events**: OOM kills, link flaps, NIC resets, segfaults, I/O errors |
 
 <img src="docs/img/probes.svg" alt="Probes view: gateway, DNS and database under a millisecond, 12 percent loss to 1.1.1.1" width="100%">
 
@@ -133,6 +144,13 @@ The right side of the tab row shows a badge for every threshold that is crossed,
 | `LOSS <probe>` | 20 % | A latency probe is losing packets |
 | `PSI` | 20 % | Linux pressure stall: tasks waiting on CPU, memory or I/O |
 | `TEMP` | 90 °C | Hottest sensor |
+| `FDS <proc>` / `FILES` | 90 % / 80 % | A process near its open-file limit / system file table filling up |
+| `EPHEMERAL PORTS` | 80 % | Local ports for outgoing connections running out |
+| `INODES <mount>` | 90 % | Filesystem running out of inodes |
+| `<dev> AWAIT` / `BUSY` | 100 ms / 95 % | Slow or saturated disk |
+| `CERT <probe>` / `HTTP <probe>` | 21 days / 5xx | Certificate expiring / endpoint returning server errors |
+| `THROTTLED <ctr>` / `OOM` | 25 % / any | Container hitting its CPU quota / a process was OOM-killed |
+| `FAILED UNITS` | any | systemd units in the failed state |
 
 ## Keys
 
@@ -153,6 +171,7 @@ The right side of the tab row shows a badge for every threshold that is crossed,
 | `T` | theme picker |
 | `space` | pause |
 | `+` / `-` | refresh ±250 ms |
+| `0` / `S` | containers / system |
 | `?` / `q` | help / quit |
 
 </td><td valign="top">
@@ -163,6 +182,7 @@ The right side of the tab row shows a badge for every threshold that is crossed,
 |---|---|
 | `c` `m` `p` `n` | sort cpu, mem, pid, name |
 | `u` `i` `o` `w` | sort user, io, sockets, net |
+| `e` | sort by open fds |
 | `r` | reverse sort |
 | `t` | process tree |
 | `↵` | open files |
@@ -173,6 +193,14 @@ The right side of the tab row shows a badge for every threshold that is crossed,
 | Key | Action |
 |---|---|
 | `a` / `d` | add / delete probe |
+| `t` | trace the path (mtr) |
+
+**System**
+
+| Key | Action |
+|---|---|
+| `e` | units ⇄ kernel events |
+| `↵` | reload the journal |
 
 </td><td valign="top">
 
@@ -278,7 +306,7 @@ proc_tree = false
 mouse = true
 
 [network]
-probes = ["1.1.1.1", "tcp:db.internal:5432", "dns:github.com"]
+probes = ["1.1.1.1", "tcp:db.internal:5432", "dns:github.com", "https://api.example.com/health"]
 auto_probes = true          # also ping default gateway(s) and DNS servers
 probe_interval_s = 5
 capture_seconds = 20        # length of a C capture
@@ -299,6 +327,15 @@ udp_drops_per_s = 1.0
 conntrack_pct = 80.0
 iface_drops_per_s = 10.0
 probe_loss_pct = 20.0
+fd_pct = 90.0
+files_pct = 80.0
+ephemeral_pct = 80.0
+inode_pct = 90.0
+disk_await_ms = 100.0
+disk_util_pct = 95.0
+cert_days = 21.0
+throttle_pct = 25.0
+failed_units = true
 ```
 
 </details>
@@ -308,7 +345,7 @@ probe_loss_pct = 20.0
 
 ```
 vigil [OPTIONS]
-  -t, --tab <name>            start view: overview procs network sockets files storage routes probes firewall
+  -t, --tab <name>            start view: overview procs network sockets files storage routes probes firewall containers system
   -q, --query <query>         run an lsof query at start, e.g. ":443" or "1234"
   -i, --interval <ms>         sampling interval (default 1000)
       --theme <name>          colour theme, or "auto"
@@ -340,6 +377,14 @@ vigil report [-f md|json] [-o FILE] [--top N] [--sample-ms MS] [--fail-on-alert]
 | Packet capture (`C`) | ✅ | ✅ |
 | Close one connection (`D`) | ✅ root | – |
 | PSI pressure | ✅ | – |
+| Open fds per process | ✅ with limits | ✅ counts |
+| Inodes per filesystem | ✅ | ✅ |
+| Disk latency per device (iostat) | ✅ | – |
+| HTTPS probes with certificate expiry | ✅ | ✅ |
+| Path trace (mtr / traceroute) | ✅ | ✅ |
+| Containers (cgroup v2) | ✅ | – (Docker Desktop runs in a VM) |
+| Services | ✅ systemd + journal | ✅ launchd |
+| Kernel events (OOM, link, NIC, segfault) | ✅ root | – |
 
 ## FAQ
 
@@ -374,6 +419,18 @@ Reading rule counters needs root: `sudo vigil -t firewall`. Linux uses `nft`, th
 </details>
 
 <details>
+<summary><b>The System view shows no kernel events</b></summary>
+
+Reading `/dev/kmsg` needs root on most distributions (`kernel.dmesg_restrict = 1`): `sudo vigil -t system`.
+</details>
+
+<details>
+<summary><b>HTTPS probes or the path trace don't work</b></summary>
+
+HTTPS probes use `curl`; the path trace uses `mtr` if installed, otherwise `traceroute`. Install them with your package manager.
+</details>
+
+<details>
 <summary><b>How do I update?</b></summary>
 
 Run the install one-liner again. From source: `git pull && cargo install --path . --locked --force`.
@@ -386,7 +443,7 @@ Run the install one-liner again. From source: `git pull && cargo install --path 
 
 - Collectors run on background threads; the UI thread only handles keys and drawing.
 - The screen is redrawn only when something changed: a key, a tick, or new data from a collector.
-- Routes, firewall and reverse DNS only run while their view is open or the feature is on.
+- Routes, firewall, containers, services and reverse DNS poll fast only while their view is open; in the background they refresh rarely, just enough for the health badges.
 - On Linux, sockets come straight from `/proc/net` and netlink `sock_diag` instead of `lsof -i`.
 - Socket and file lists are views of one shared snapshot: filtering stores indices, not copies.
 - Tables only build the rows that are visible.
