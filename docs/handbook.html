@@ -1,4 +1,4 @@
-<title>vigil veldhandboek</title>
+<title>vigil field handbook</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -135,23 +135,32 @@ footer { margin-top: 72px; color: var(--muted); font-size: 13px; }
   h2 { margin-top: 56px; }
 }
 @media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; transition: none !important; } }
+
+/* themes + health (v0.2) */
+.swatches { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; margin-top: 20px; }
+.sw { border-radius: 10px; padding: 14px 16px; font: 13px var(--f-mono); display: flex; flex-direction: column; gap: 10px; border: 1px solid var(--line); min-width: 0; }
+.sw .nm { font-weight: 700; }
+.sw .dots { display: flex; gap: 4px; }
+.sw .dots i { flex: 1; height: 16px; border-radius: 3px; }
+.badges { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
+.hb { font: 700 12.5px var(--f-mono); padding: 3px 8px; border-radius: 4px; color: var(--t-bg); }
 </style>
 
 <header class="hero col">
-  <span class="eyebrow">Veldhandboek · v0.1</span>
+  <span class="eyebrow">Field handbook · v0.2</span>
   <h1><span class="mark">◆</span> vigil</h1>
-  <p class="lead">Een terminal-monitor in Rust voor wie servers draait en netwerken debugt. Processen, sockets en open bestanden zitten in één scherm, met <code>lsof</code> erin ingebouwd. Dit handboek laat zien hoe het werkt en hoe je de bekende incidenten ermee oplost.</p>
+  <p class="lead">A Rust terminal monitor for people who run servers and debug networks. Processes, sockets and open files live in one screen, with <code>lsof</code> built in. This handbook shows how it works and how to solve the usual incidents with it.</p>
   <div class="cmds">
-    <span class="cmd"><b>$</b> cargo install --path .</span>
+    <span class="cmd"><b>$</b> cargo install --git https://github.com/suleymenb/vigil</span>
     <span class="cmd"><b>$</b> sudo vigil</span>
     <span class="cmd"><b>$</b> sudo vigil -q :5432</span>
   </div>
 </header>
 
 <div class="wide">
-  <div class="term-wrap" role="img" aria-label="Voorbeeld van het Overview-scherm van vigil op een webserver">
+  <div class="term-wrap" role="img" aria-label="Example of vigil's Overview screen on a web server">
     <div class="term"><div class="bar"><i></i><i></i><i></i></div><pre><span class="badge"> ◆ vigil </span> <span class="c w">prod-web-01</span>  <span class="m">Ubuntu 24.04.1 LTS</span>  <span class="d">6.8.0-45-generic x86_64</span>  <span class="d">up</span> <span class="g">41d 06:12</span>  <span class="d">load</span> <span class="g">1.84</span> <span class="g">1.62</span> <span class="g">1.40</span>  <span class="d">procs</span> <span class="p">214</span>        <span class="g">● live</span>  <span class="d">1000ms</span> <span class="sig"> root </span>
- <span class="d">1</span> <span class="b"><u>Overview</u></span> <span class="bd">│</span> <span class="d">2</span> <span class="m">Processes</span> <span class="bd">│</span> <span class="d">3</span> <span class="m">Network</span> <span class="bd">│</span> <span class="d">4</span> <span class="m">Sockets</span> <span class="bd">│</span> <span class="d">5</span> <span class="m">Open Files</span> <span class="bd">│</span> <span class="d">6</span> <span class="m">Storage</span>
+ <span class="d">1</span> <span class="b"><u>Overview</u></span> <span class="bd">│</span> <span class="d">2</span> <span class="m">Processes</span> <span class="bd">│</span> <span class="d">3</span> <span class="m">Network</span> <span class="bd">│</span> <span class="d">4</span> <span class="m">Sockets</span> <span class="bd">│</span> <span class="d">5</span> <span class="m">Open Files</span> <span class="bd">│</span> <span class="d">6</span> <span class="m">Storage</span>                                                     <span class="g">✓ healthy</span>
 <span class="bd">╭</span> <span class="b w">cpu  AMD EPYC 7763  8c/16t  54°C</span> <span class="bd">──────────────────────────────────────────────────────────────────────────────────────╮</span>
 <span class="bd">│</span> <span class="d">total</span> <span class="y w"> 38.2%</span>  <span class="g">■■■■■■■■■■</span><span class="y">■■■■</span><span class="bd">■■■■■■■■■■■■■■■■■■■■■■■■■■</span>         <span class="m">C0 </span><span class="g">■■■</span><span class="y">■</span><span class="bd">■■■■</span><span class="y">  44% </span><span class="y">▃▄▅▅▆▄▄▅</span>   <span class="m">C8 </span><span class="g">■■</span><span class="bd">■■■■■■</span><span class="g">  21% </span><span class="g">▂▂▃▂▂▃▂▂</span> <span class="bd">│</span>
 <span class="bd">│</span>                                                       <span class="y">▄▅</span>         <span class="m">C1 </span><span class="g">■■■</span><span class="bd">■■■■■</span><span class="g">  33% </span><span class="g">▂▃▃▄▃▃▃▄</span>   <span class="m">C9 </span><span class="g">■■■</span><span class="bd">■■■■■</span><span class="g">  29% </span><span class="g">▂▃▂▃▃▃▂▃</span> <span class="bd">│</span>
@@ -175,76 +184,71 @@ footer { margin-top: 72px; color: var(--muted); font-size: 13px; }
 <span class="bd">╰─────────────────────────────────────────╯╰──────────────────────────────────╯╰───────────────────────╯</span>
  <span class="b w">:</span> <span class="d">lsof query  </span><span class="b w">space</span> <span class="d">pause  </span><span class="b w">?</span> <span class="d">help  </span><span class="b w">q</span> <span class="d">quit</span></pre></div>
   </div>
-  <p class="term-cap col">Overview op een fictieve webserver. Alles wat je bij een incident als eerste wilt weten staat in één scherm: CPU, geheugen, verkeer, welke poorten open staan en hoe het met de TCP-verbindingen gaat.</p>
+  <p class="term-cap col">Overview on a fictional web server. Everything you want to know first during an incident is on one screen: CPU, memory, traffic, which ports are open and how the TCP connections are doing.</p>
 </div>
 
 <main class="col">
-
-  <h2 id="werking">Hoe het werkt</h2>
+  <h2 id="how">How it works</h2>
   <div class="stack" style="margin-top:14px">
-    <p>vigil gebruikt drie achtergrond-threads die data verzamelen. De hoofdthread doet niets anders dan toetsen afhandelen en tekenen. Zo bevriest de interface nooit, ook niet als <code>lsof</code> op een drukke server een paar seconden nodig heeft.</p>
+    <p>vigil collects data on three background threads. The main thread does nothing but handle keys and draw. That keeps the interface responsive, even when <code>lsof</code> needs a few seconds on a busy server.</p>
   </div>
 </main>
 
 <div class="wide">
   <figure class="fig" style="margin-inline:0">
-    <svg viewBox="0 0 1060 360" role="img" aria-label="Architectuur: drie collectors voeden de app-state, die alleen bij wijzigingen hertekent">
+    <svg viewBox="0 0 1060 360" role="img" aria-label="Architecture: three collectors feed the app state, which only redraws on change">
       <defs>
         <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="var(--muted)"/></marker>
       </defs>
-      <!-- sources -->
       <g font-size="12">
-        <text x="20" y="28" fill="var(--muted)" font-size="11" letter-spacing="1.5">BRONNEN</text>
+        <text x="20" y="28" fill="var(--muted)" font-size="11" letter-spacing="1.5">SOURCES</text>
         <rect x="20" y="44" width="200" height="62" rx="8" fill="var(--code-bg)" stroke="var(--line)"/>
         <text x="34" y="70" fill="var(--fg)" font-weight="700">kernel / sysinfo</text>
         <text x="34" y="90" fill="var(--muted)">cpu · mem · procs · net</text>
         <rect x="20" y="146" width="200" height="62" rx="8" fill="var(--code-bg)" stroke="var(--line)"/>
-        <text x="34" y="172" fill="var(--fg)" font-weight="700">/proc/net  of  lsof -i</text>
-        <text x="34" y="192" fill="var(--muted)">sockets + eigenaar</text>
+        <text x="34" y="172" fill="var(--fg)" font-weight="700">/proc/net  or  lsof -i</text>
+        <text x="34" y="192" fill="var(--muted)">sockets + owner</text>
         <rect x="20" y="248" width="200" height="62" rx="8" fill="var(--code-bg)" stroke="var(--line)"/>
         <text x="34" y="274" fill="var(--fg)" font-weight="700">IOKit / hwmon / statfs</text>
-        <text x="34" y="294" fill="var(--muted)">sensoren · disks</text>
+        <text x="34" y="294" fill="var(--muted)">sensors · disks · PSI</text>
       </g>
-      <!-- threads -->
       <g font-size="12">
         <text x="290" y="28" fill="var(--muted)" font-size="11" letter-spacing="1.5">THREADS</text>
         <rect x="290" y="44" width="230" height="62" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5"/>
         <text x="304" y="70" fill="var(--accent)" font-weight="700">sampler (main)</text>
-        <text x="304" y="90" fill="var(--muted)">elke tick · ≈4 ms</text>
+        <text x="304" y="90" fill="var(--muted)">every tick · ≈4 ms</text>
         <rect x="290" y="146" width="230" height="62" rx="8" fill="var(--surface)" stroke="var(--accent-2)" stroke-width="1.5"/>
-        <text x="304" y="172" fill="var(--accent-2)" font-weight="700">socket-worker</text>
-        <text x="304" y="192" fill="var(--muted)">elke 3 s · version++</text>
+        <text x="304" y="172" fill="var(--accent-2)" font-weight="700">socket worker</text>
+        <text x="304" y="192" fill="var(--muted)">every 3 s · version++</text>
         <rect x="290" y="248" width="230" height="62" rx="8" fill="var(--surface)" stroke="var(--accent-2)" stroke-width="1.5"/>
-        <text x="304" y="274" fill="var(--accent-2)" font-weight="700">slow-worker</text>
-        <text x="304" y="294" fill="var(--muted)">disks 10 s · sensoren 2–10 s</text>
+        <text x="304" y="274" fill="var(--accent-2)" font-weight="700">slow worker</text>
+        <text x="304" y="294" fill="var(--muted)">disks 10 s · sensors 2–10 s</text>
         <rect x="290" y="326" width="230" height="30" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-dasharray="4 3"/>
-        <text x="304" y="346" fill="var(--muted)">query-thread (per lsof-query)</text>
+        <text x="304" y="346" fill="var(--muted)">query thread (per lsof query)</text>
       </g>
-      <!-- state -->
       <g font-size="12">
-        <text x="590" y="28" fill="var(--muted)" font-size="11" letter-spacing="1.5">APP-STATE</text>
+        <text x="590" y="28" fill="var(--muted)" font-size="11" letter-spacing="1.5">APP STATE</text>
         <rect x="590" y="44" width="220" height="266" rx="10" fill="var(--code-bg)" stroke="var(--line)"/>
         <text x="606" y="72" fill="var(--fg)" font-weight="700">App</text>
-        <text x="606" y="100" fill="var(--muted)">history ring-buffers (600)</text>
-        <text x="606" y="124" fill="var(--muted)">proc-rows (sort, boom)</text>
-        <text x="606" y="148" fill="var(--muted)">socket-cache  ⟵ key:</text>
+        <text x="606" y="100" fill="var(--muted)">history ring buffers (600)</text>
+        <text x="606" y="124" fill="var(--muted)">proc rows (sort, tree)</text>
+        <text x="606" y="148" fill="var(--muted)">socket cache  ⟵ key:</text>
         <text x="618" y="166" fill="var(--muted)">(version, filter, sort)</text>
-        <text x="606" y="190" fill="var(--muted)">files-cache   ⟵ key:</text>
+        <text x="606" y="190" fill="var(--muted)">files cache   ⟵ key:</text>
         <text x="618" y="208" fill="var(--muted)">(version, filter)</text>
-        <text x="606" y="232" fill="var(--muted)">conn_counts per pid</text>
+        <text x="606" y="232" fill="var(--muted)">conn counts · alerts</text>
         <text x="606" y="256" fill="var(--muted)">Arc&lt;str&gt; per pid</text>
-        <text x="606" y="290" fill="var(--accent)">rebuild alleen bij wijziging</text>
+        <text x="606" y="290" fill="var(--accent)">rebuilt only on change</text>
       </g>
-      <!-- render -->
       <g font-size="12">
-        <text x="880" y="28" fill="var(--muted)" font-size="11" letter-spacing="1.5">TEKENEN</text>
+        <text x="880" y="28" fill="var(--muted)" font-size="11" letter-spacing="1.5">DRAWING</text>
         <rect x="880" y="120" width="160" height="110" rx="10" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5"/>
         <text x="896" y="148" fill="var(--accent)" font-weight="700">draw()</text>
-        <text x="896" y="172" fill="var(--muted)">alleen als dirty:</text>
-        <text x="896" y="192" fill="var(--muted)">toets · tick ·</text>
-        <text x="896" y="212" fill="var(--muted)">nieuwe versie</text>
-        <text x="880" y="266" fill="var(--muted)">alleen zichtbare</text>
-        <text x="880" y="284" fill="var(--muted)">rijen worden gebouwd</text>
+        <text x="896" y="172" fill="var(--muted)">only when dirty:</text>
+        <text x="896" y="192" fill="var(--muted)">key · tick ·</text>
+        <text x="896" y="212" fill="var(--muted)">new version</text>
+        <text x="880" y="266" fill="var(--muted)">only visible rows</text>
+        <text x="880" y="284" fill="var(--muted)">are built</text>
       </g>
       <g stroke="var(--muted)" stroke-width="1.4" fill="none" marker-end="url(#ar)">
         <path d="M220 75 H284"/><path d="M220 177 H284"/><path d="M220 279 H284"/>
@@ -252,30 +256,54 @@ footer { margin-top: 72px; color: var(--muted); font-size: 13px; }
         <path d="M810 175 H874"/>
       </g>
     </svg>
-    <figcaption class="cap">Elke collector publiceert met een versienummer. De hoofdloop tekent alleen opnieuw als er een toets is ingedrukt, een tick voorbij is of een versienummer is veranderd. Doet er niemand iets, dan wordt er ook niets getekend.</figcaption>
+    <figcaption class="cap">Every collector publishes with a version number. The main loop only redraws when a key was pressed, a tick passed or a version number changed. When nothing happens, nothing is drawn.</figcaption>
   </figure>
 </div>
 
 <main class="col">
-  <div class="note">Op <b>Linux</b> leest vigil sockets rechtstreeks uit <code>/proc/net/tcp*</code> en <code>/proc/net/udp*</code>. Dat is veel sneller dan <code>lsof -i</code> en laat ook <code>TIME_WAIT</code> zien, wat lsof mist omdat zo'n socket geen eigenaar meer heeft. Wil je toch lsof gebruiken, start dan met <code>--lsof-sockets</code>. Op macOS wordt altijd lsof gebruikt.</div>
+  <div class="note">On <b>Linux</b>, vigil reads sockets straight from <code>/proc/net/tcp*</code> and <code>/proc/net/udp*</code>. That is much faster than <code>lsof -i</code> and also shows <code>TIME_WAIT</code>, which lsof misses because those sockets no longer have an owner. To use lsof anyway, start with <code>--lsof-sockets</code>. macOS always uses lsof.</div>
 
-  <h2 id="views">De zes views</h2>
+  <h2 id="views">The six views</h2>
 </main>
 <div class="wide">
   <div class="views">
-    <div class="view"><span class="num">1 · Overview</span><h3>Het hele systeem in één scherm</h3><p>CPU met kleurverloop en per core, RAM/swap, rx/tx, top-processen, luisterende poorten, aantallen per TCP-state en disks.</p><span class="keys">Begin hier bij elk incident.</span></div>
-    <div class="view"><span class="num">2 · Processes</span><h3>Sorteren, boom en signalen</h3><p>CPU, MEM, disk-I/O/s en het aantal sockets per proces. Onderaan een detailpaneel met ppid, exe en het volledige commando.</p><span class="keys"><kbd>c</kbd><kbd>m</kbd><kbd>i</kbd><kbd>o</kbd> sorteren · <kbd>t</kbd> boom · <kbd>↵</kbd> open files · <kbd>x</kbd> signaal</span></div>
-    <div class="view"><span class="num">3 · Network</span><h3>Interfaces en peers</h3><p>Per interface de snelheid, totalen, pakketten, <b>errors</b>, MAC en adressen. Grafiek van de gekozen interface en de remote hosts met de meeste verbindingen.</p><span class="keys"><kbd>↑</kbd><kbd>↓</kbd> interface kiezen</span></div>
-    <div class="view"><span class="num">4 · Sockets</span><h3>Elke verbinding met eigenaar</h3><p>Proto, local, remote, state in kleur, pid, proces, user en fd. Bovenaan staat per state hoeveel sockets er zijn.</p><span class="keys"><kbd>l</kbd> alleen LISTEN · <kbd>s</kbd> sorteren · <kbd>P</kbd> alles op poort</span></div>
-    <div class="view"><span class="num">5 · Open Files</span><h3>lsof op afroep</h3><p>Op pid, poort, pad of met ruwe argumenten. Bovenaan zie je hoeveel bestanden er per type zijn (REG, IPv4, PIPE, unix …).</p><span class="keys"><kbd>:</kbd> query · <kbd>↵</kbd> wie heeft dit nog open · <kbd>r</kbd> opnieuw</span></div>
-    <div class="view"><span class="num">6 · Storage</span><h3>Disks, I/O en temperaturen</h3><p>Gebruik per filesystem, welke processen nu lezen of schrijven, en sensoren met kritieke grenzen.</p><span class="keys">Sensoren verversen hier elke 2 s.</span></div>
+    <div class="view"><span class="num">1 · Overview</span><h3>The whole system on one screen</h3><p>Gradient CPU graph and per-core meters, RAM/swap, rx/tx, top processes, listening ports, counts per TCP state and disks.</p><span class="keys">Start here for every incident.</span></div>
+    <div class="view"><span class="num">2 · Processes</span><h3>Sort, tree and signals</h3><p>CPU, memory, disk I/O per second and the number of sockets per process. A detail pane at the bottom shows ppid, exe and the full command line.</p><span class="keys"><kbd>c</kbd><kbd>m</kbd><kbd>i</kbd><kbd>o</kbd> sort · <kbd>t</kbd> tree · <kbd>↵</kbd> open files · <kbd>x</kbd> signal</span></div>
+    <div class="view"><span class="num">3 · Network</span><h3>Interfaces and peers</h3><p>Per interface: rates, totals, packets, <b>errors</b>, MAC and addresses. A graph for the selected interface and the remote hosts with the most connections.</p><span class="keys"><kbd>↑</kbd><kbd>↓</kbd> pick an interface</span></div>
+    <div class="view"><span class="num">4 · Sockets</span><h3>Every connection with its owner</h3><p>Proto, local, remote, colour-coded state, pid, process, user and fd. The top bar counts sockets per state.</p><span class="keys"><kbd>l</kbd> LISTEN only · <kbd>s</kbd> sort · <kbd>P</kbd> everything on this port</span></div>
+    <div class="view"><span class="num">5 · Open Files</span><h3>lsof on demand</h3><p>By pid, port, path or with raw arguments. The top bar counts files per type (REG, IPv4, PIPE, unix …).</p><span class="keys"><kbd>:</kbd> query · <kbd>↵</kbd> who else has this open · <kbd>r</kbd> rerun</span></div>
+    <div class="view"><span class="num">6 · Storage</span><h3>Disks, I/O and temperatures</h3><p>Usage per filesystem, which processes are reading or writing right now, and sensors with their critical limits.</p><span class="keys">Sensors refresh every 2 s on this view.</span></div>
   </div>
 </div>
 
 <main class="col">
+  <h2 id="health">Health badges</h2>
+  <p style="margin-top:12px">The right side of the tab row shows a badge for every threshold that is crossed, on every view. When all is well it reads <span class="mono" style="color:var(--ok)">✓ healthy</span>. You set the thresholds in the <code>[alerts]</code> section of the config file; <code>0</code> turns a check off.</p>
+  <div class="badges" aria-label="Example health badges">
+    <span class="hb" style="background:var(--t-red)">MEM 93%</span>
+    <span class="hb" style="background:var(--t-red)">DISK /var 94%</span>
+    <span class="hb" style="background:var(--t-orange)">LOAD 2.1/core</span>
+    <span class="hb" style="background:var(--t-orange)">CLOSE_WAIT 412</span>
+    <span class="hb" style="background:var(--t-yellow)">TIME_WAIT 28117</span>
+    <span class="hb" style="background:var(--t-purple)">PSI io 37%</span>
+  </div>
+  <div class="tbl"><table>
+    <thead><tr><th>Badge</th><th>Default</th><th>What it tells you</th></tr></thead>
+    <tbody>
+      <tr><td class="num">MEM</td><td class="num">90 %</td><td>Used memory, excluding cache that the kernel can reclaim.</td></tr>
+      <tr><td class="num">SWAP</td><td class="num">50 %</td><td>Heavy swap use usually means the box is undersized or something leaks.</td></tr>
+      <tr><td class="num">DISK</td><td class="num">90 %</td><td>The fullest filesystem above the limit, with its mount point.</td></tr>
+      <tr><td class="num">LOAD</td><td class="num">1.5 / core</td><td>1-minute load divided by logical cores, so the limit means the same on 2 or 64 cores.</td></tr>
+      <tr><td class="num">CLOSE_WAIT</td><td class="num">100</td><td>An application is not closing its sockets. Always an app bug.</td></tr>
+      <tr><td class="num">TIME_WAIT</td><td class="num">20 000</td><td>Many short-lived connections; ephemeral ports can run out.</td></tr>
+      <tr><td class="num">TEMP</td><td class="num">90 °C</td><td>Hottest sensor.</td></tr>
+      <tr><td class="num">PSI</td><td class="num">20 %</td><td>Linux only. Share of the last 10 s in which tasks were stalled waiting for CPU, memory or I/O. This answers <i>why</i> a box is slow, which load average can't.</td></tr>
+    </tbody>
+  </table></div>
+
   <h2 id="playbooks">Playbooks</h2>
-  <p class="lead" style="margin-top:12px">Veelvoorkomende incidenten, elk met het symptoom, de toetsen die je indrukt en waarom dat werkt.</p>
-  <div class="tabs" role="tablist" aria-label="Playbook-categorie">
+  <p class="lead" style="margin-top:12px">Common incidents, each with the symptom, the keys you press and why it works.</p>
+  <div class="tabs" role="tablist" aria-label="Playbook category">
     <button role="tab" id="tab-devops" aria-selected="true" aria-controls="pane-devops">DevOps &amp; sysadmin</button>
     <button role="tab" id="tab-net" aria-selected="false" aria-controls="pane-net">Network engineering</button>
   </div>
@@ -284,70 +312,70 @@ footer { margin-top: 72px; color: var(--muted); font-size: 13px; }
 <div class="wide">
   <section id="pane-devops" role="tabpanel" aria-labelledby="tab-devops">
     <div class="plays">
-      <article class="play"><h3>„Address already in use”</h3><p class="sym">Je deploy faalt omdat poort 8080 bezet is.</p>
-        <ol><li><kbd>:</kbd> <code>:8080</code> <kbd>↵</kbd></li><li>Kijk naar PID en COMMAND. Vaak is het een oude instantie die is blijven hangen.</li><li><kbd>x</kbd> → <code>SIGTERM</code>, en pas als dat niet helpt <code>SIGKILL</code>.</li></ol>
-        <p class="why">TERM eerst, zodat het proces zelf nog netjes kan afsluiten. KILL kan het proces niet tegenhouden.</p></article>
-      <article class="play"><h3>Disk vol, maar <code>du</code> vindt niets</h3><p class="sym"><code>df</code> zegt 100%, maar <code>du</code> komt tientallen GB tekort.</p>
-        <ol><li><kbd>:</kbd> <code>+L1</code> <kbd>↵</kbd> toont verwijderde bestanden die nog open zijn.</li><li>Sorteer in gedachten op SIZE/OFF. Meestal is het een geroteerde log die nog openstaat.</li><li>Selecteer het proces en stuur <code>SIGHUP</code> zodat het zijn logs heropent.</li></ol>
-        <p class="why">Een bestand dat is verwijderd terwijl een proces het nog open heeft, blijft ruimte innemen. Pas als de laatste fd dicht is, komt die ruimte vrij.</p></article>
-      <article class="play"><h3>Config herladen zonder downtime</h3><p class="sym">Je hebt de nginx- of haproxy-config aangepast.</p>
-        <ol><li><kbd>2</kbd> <kbd>/</kbd> <code>nginx</code> <kbd>↵</kbd>, <kbd>t</kbd> voor de boom</li><li>Selecteer het <b>master</b>-proces, dus de bovenste in de boom.</li><li><kbd>x</kbd> → <code>SIGHUP</code></li></ol>
-        <p class="why">In de boomweergave zie je meteen welk proces de master is en welke de workers zijn. HUP stuur je alleen naar de master.</p></article>
-      <article class="play"><h3>Geheugenlek opsporen</h3><p class="sym">Swap loopt langzaam vol.</p>
-        <ol><li><kbd>2</kbd> <kbd>m</kbd> sorteert op geheugen.</li><li>Laat het een paar minuten lopen. Het geselecteerde proces blijft geselecteerd, ook als de volgorde verschuift.</li><li>In het detailpaneel kun je RSS en virt vergelijken.</li></ol>
-        <p class="why">Groeit RSS steeds terwijl het verkeer gelijk blijft, dan heb je waarschijnlijk een lek. Groeit alleen virt, dan is er meestal niets aan de hand.</p></article>
-      <article class="play"><h3>Wie schrijft er naar dit bestand?</h3><p class="sym">Een logbestand of database-file groeit snel.</p>
-        <ol><li><kbd>:</kbd> <code>/var/log/app/out.log</code> <kbd>↵</kbd></li><li>De FD-kolom toont <code>w</code> of <code>u</code> bij processen die schrijven.</li><li><kbd>6</kbd> toont per proces hoeveel er nu geschreven wordt.</li></ol>
-        <p class="why">lsof vertelt wie het bestand open heeft, de Storage-view hoeveel. Samen weet je wie de veroorzaker is.</p></article>
-      <article class="play"><h3>Zombies en wezen</h3><p class="sym">Het aantal processen blijft stijgen.</p>
-        <ol><li><kbd>2</kbd> <kbd>t</kbd> zet de boomweergave aan.</li><li>Zoek naar <span class="mono" style="color:var(--bad)">Z</span> in de ST-kolom.</li><li>Stuur een signaal naar de <b>ouder</b>, niet naar de zombie zelf.</li></ol>
-        <p class="why">Een zombie is al dood en reageert op geen enkel signaal. Pas als de ouder <code>wait()</code> aanroept of zelf stopt, verdwijnt hij.</p></article>
-      <article class="play"><h3>Welke container is dit?</h3><p class="sym">Er draait een onbekend proces met veel CPU.</p>
-        <ol><li>Selecteer het en open het detailpaneel. Kijk naar <code>exe</code> en <code>cmd</code>.</li><li><kbd>↵</kbd> toont de open files. Paden onder <code>/var/lib/docker/overlay2</code> of <code>containerd</code> verraden een container.</li><li>Is de ouder <code>containerd-shim</code>? Dan zie je dat in de boom.</li></ol>
-        <p class="why">Zolang er nog geen container-view is, is dit de snelste manier om een proces aan een container te koppelen.</p></article>
-      <article class="play"><h3>Wat draait er onder deze user?</h3><p class="sym">Je doet een audit van een service-account.</p>
-        <ol><li><kbd>:</kbd> <code>-u www-data</code> <kbd>↵</kbd> toont alles wat die user open heeft.</li><li><kbd>/</kbd> <code>IPv</code> filtert dat naar alleen netwerk.</li></ol>
-        <p class="why">Alles wat met <code>-</code> of <code>+</code> begint, gaat ongewijzigd naar lsof. Daarmee kun je elke lsof-optie gebruiken.</p></article>
+      <article class="play"><h3>"Address already in use"</h3><p class="sym">Your deploy fails because port 8080 is taken.</p>
+        <ol><li><kbd>:</kbd> <code>:8080</code> <kbd>↵</kbd></li><li>Read the PID and COMMAND. Often it's an old instance that never exited.</li><li><kbd>x</kbd> → <code>SIGTERM</code>, and only if that doesn't work, <code>SIGKILL</code>.</li></ol>
+        <p class="why">TERM first, so the process can still shut down cleanly. KILL can't be caught, so nothing gets flushed or cleaned up.</p></article>
+      <article class="play"><h3>Disk full, but <code>du</code> finds nothing</h3><p class="sym"><code>df</code> says 100 %, but <code>du</code> comes up tens of GB short.</p>
+        <ol><li><kbd>:</kbd> <code>+L1</code> <kbd>↵</kbd> lists deleted files that are still open.</li><li>Look at SIZE/OFF. It's usually a rotated log that is still held open.</li><li>Select the process and send <code>SIGHUP</code> so it reopens its logs.</li></ol>
+        <p class="why">A file deleted while a process still has it open keeps using space. The space only comes back when the last fd closes.</p></article>
+      <article class="play"><h3>Reload a config without downtime</h3><p class="sym">You changed the nginx or haproxy config.</p>
+        <ol><li><kbd>2</kbd> <kbd>/</kbd> <code>nginx</code> <kbd>↵</kbd>, <kbd>t</kbd> for the tree</li><li>Select the <b>master</b> process, the top one in the tree.</li><li><kbd>x</kbd> → <code>SIGHUP</code></li></ol>
+        <p class="why">The tree view shows at a glance which process is the master and which are workers. Send HUP to the master only.</p></article>
+      <article class="play"><h3>Track down a memory leak</h3><p class="sym">Swap slowly fills up.</p>
+        <ol><li><kbd>2</kbd> <kbd>m</kbd> sorts by memory.</li><li>Let it run for a few minutes. The selected process stays selected even when the order shifts.</li><li>Compare RSS and virt in the detail pane.</li></ol>
+        <p class="why">If RSS keeps growing while traffic stays flat, you probably have a leak. If only virt grows, there's usually nothing wrong.</p></article>
+      <article class="play"><h3>Who is writing to this file?</h3><p class="sym">A log or database file grows fast.</p>
+        <ol><li><kbd>:</kbd> <code>/var/log/app/out.log</code> <kbd>↵</kbd></li><li>The FD column shows <code>w</code> or <code>u</code> for processes that write.</li><li><kbd>6</kbd> shows how much each process is writing right now.</li></ol>
+        <p class="why">lsof tells you who has the file open, the Storage view tells you how much. Together you know who's responsible.</p></article>
+      <article class="play"><h3>Zombies and orphans</h3><p class="sym">The process count keeps rising.</p>
+        <ol><li><kbd>2</kbd> <kbd>t</kbd> turns on the tree view.</li><li>Look for <span class="mono" style="color:var(--bad)">Z</span> in the ST column.</li><li>Signal the <b>parent</b>, not the zombie itself.</li></ol>
+        <p class="why">A zombie is already dead and ignores every signal. It only goes away when the parent calls <code>wait()</code> or exits.</p></article>
+      <article class="play"><h3>Which container is this?</h3><p class="sym">An unknown process is burning CPU.</p>
+        <ol><li>Select it and check <code>exe</code> and <code>cmd</code> in the detail pane.</li><li><kbd>↵</kbd> shows its open files. Paths under <code>/var/lib/docker/overlay2</code> or <code>containerd</code> give a container away.</li><li>Is the parent <code>containerd-shim</code>? The tree shows it.</li></ol>
+        <p class="why">Until there's a container view, this is the fastest way to tie a process to a container.</p></article>
+      <article class="play"><h3>What runs under this user?</h3><p class="sym">You're auditing a service account.</p>
+        <ol><li><kbd>:</kbd> <code>-u www-data</code> <kbd>↵</kbd> shows everything that user has open.</li><li><kbd>/</kbd> <code>IPv</code> narrows that to network only.</li></ol>
+        <p class="why">Anything starting with <code>-</code> or <code>+</code> goes to lsof unchanged, so every lsof option is available.</p></article>
     </div>
   </section>
 
   <section id="pane-net" role="tabpanel" aria-labelledby="tab-net" hidden>
     <div class="plays">
-      <article class="play"><h3>TIME_WAIT-storm</h3><p class="sym">Uitgaande verbindingen mislukken af en toe met <code>EADDRNOTAVAIL</code>.</p>
-        <ol><li><kbd>4</kbd> en kijk naar de <span class="mono" style="color:var(--warn)">TIME_WAIT</span>-chip bovenaan.</li><li><kbd>s</kbd> tot je op <b>remote</b> sorteert. Dan zie je naar welke upstream het gaat.</li><li>Tienduizenden naar één backend betekent dat er geen keep-alive of connection pooling is.</li></ol>
-        <p class="why">Elke kortlevende verbinding houdt na het sluiten nog 60 s een ephemeral poort vast. Gebruik pooling of keep-alive, of verruim <code>ip_local_port_range</code>.</p></article>
-      <article class="play"><h3>CLOSE_WAIT-lek</h3><p class="sym">Het aantal CLOSE_WAIT stijgt en zakt niet meer.</p>
-        <ol><li><kbd>4</kbd> <kbd>/</kbd> <code>close_wait</code></li><li>Lees de PROCESS-kolom. Meestal is het steeds dezelfde applicatie.</li><li><kbd>↵</kbd> toont al haar fd's. Groeit dat aantal mee?</li></ol>
-        <p class="why">CLOSE_WAIT betekent dat de andere kant de verbinding heeft gesloten, maar jouw applicatie de socket nooit sluit. Dat is altijd een bug in de app, niet in het netwerk.</p></article>
-      <article class="play"><h3>Hangende SYN_SENT</h3><p class="sym">Verbindingen naar een bepaalde host hangen.</p>
-        <ol><li><kbd>4</kbd> <kbd>/</kbd> <code>syn_sent</code></li><li>Lees het remote IP en de poort.</li><li>Blijft hij in SYN_SENT staan? Dan komt er geen SYN-ACK terug.</li></ol>
-        <p class="why">Een firewall die stil pakketten weggooit, verkeerde routing of een security group. Bij een RST krijg je meteen een fout. Een DROP laat de verbinding hangen.</p></article>
-      <article class="play"><h3>Blootstellingsaudit</h3><p class="sym">Wat is er van buitenaf bereikbaar?</p>
-        <ol><li><kbd>4</kbd> <kbd>l</kbd> toont alleen sockets die luisteren.</li><li><code>*:5432</code> luistert op alle interfaces, <code>127.0.0.1:5432</code> alleen lokaal.</li><li><kbd>P</kbd> op een rij toont alles wat die poort gebruikt.</li></ol>
-        <p class="why">Een database of Redis die op <code>*</code> luistert, is een veelvoorkomend lek. Controleer dit na elke deploy.</p></article>
-      <article class="play"><h3>Interface-errors</h3><p class="sym">Pakketverlies of een trage verbinding.</p>
-        <ol><li><kbd>3</kbd> en kijk naar de ERR-kolom. Die wordt rood zodra hij boven 0 komt.</li><li>Selecteer de interface en bekijk de grafiek op pieken of een plafond.</li><li>Een vlak plafond in de grafiek betekent dat de link verzadigd is.</li></ol>
-        <p class="why">rx-errors die oplopen wijzen op laag 1 of 2: een slechte kabel, een duplex-mismatch of een driverprobleem. Dat los je niet op in de applicatie.</p></article>
-      <article class="play"><h3>Wie praat met wie?</h3><p class="sym">Je wilt weten met welke hosts een server praat.</p>
-        <ol><li><kbd>3</kbd> en kijk naar de lijst <b>top peers</b> rechts.</li><li>Zie je een onbekend IP? <kbd>4</kbd> <kbd>/</kbd> en plak het IP.</li><li>Dan zie je welk proces en welke user de verbinding hebben.</li></ol>
-        <p class="why">Zo vind je ook vergeten cronjobs en verbindingen naar oude endpoints. Bij een security-incident is dit vaak de eerste stap.</p></article>
-      <article class="play"><h3>IPv4 of IPv6?</h3><p class="sym">Een service is wel via IPv4 bereikbaar, maar niet via IPv6.</p>
-        <ol><li><kbd>4</kbd> <kbd>l</kbd> en kijk naar de PROTO-kolom: <code>TCP v4</code> of <code>TCP v6</code>.</li><li>Ontbreekt de v6-listener, dan bindt de service niet op <code>[::]</code>.</li></ol>
-        <p class="why">Op Linux accepteert een socket op <code>[::]</code> standaard ook IPv4, tenzij <code>bindv6only</code> aan staat. Bindt een service alleen op <code>0.0.0.0</code>, dan is hij via IPv6 niet bereikbaar.</p></article>
-      <article class="play"><h3>UDP-services</h3><p class="sym">DNS, syslog of WireGuard doet het niet.</p>
-        <ol><li><kbd>:</kbd> <code>udp:53</code> <kbd>↵</kbd> (of <code>udp:514</code>, <code>udp:51820</code>)</li><li>Kijk welk proces de poort heeft. Bij DNS is dat vaak systemd-resolved op <code>127.0.0.53</code>.</li></ol>
-        <p class="why">UDP heeft geen states. Een socket zonder remote adres wacht gewoon op pakketten, en vigil toont die als luisterend.</p></article>
+      <article class="play"><h3>TIME_WAIT storm</h3><p class="sym">Outgoing connections sometimes fail with <code>EADDRNOTAVAIL</code>.</p>
+        <ol><li><kbd>4</kbd> and check the <span class="mono" style="color:var(--warn)">TIME_WAIT</span> chip at the top. Past the threshold it also shows as a header badge.</li><li>Press <kbd>s</kbd> until you sort by <b>remote</b> to see which upstream it is.</li><li>Tens of thousands to one backend means there's no keep-alive or connection pooling.</li></ol>
+        <p class="why">Every short-lived connection holds an ephemeral port for 60 s after closing. Use pooling or keep-alive, or widen <code>ip_local_port_range</code>.</p></article>
+      <article class="play"><h3>CLOSE_WAIT leak</h3><p class="sym">The CLOSE_WAIT count climbs and never comes down.</p>
+        <ol><li><kbd>4</kbd> <kbd>/</kbd> <code>close_wait</code></li><li>Read the PROCESS column. It's usually the same application every time.</li><li><kbd>↵</kbd> shows all its fds. Does that number keep growing?</li></ol>
+        <p class="why">CLOSE_WAIT means the other side closed the connection, but your application never closes the socket. That's always a bug in the app, not in the network.</p></article>
+      <article class="play"><h3>Stuck in SYN_SENT</h3><p class="sym">Connections to one host hang.</p>
+        <ol><li><kbd>4</kbd> <kbd>/</kbd> <code>syn_sent</code></li><li>Read the remote IP and port.</li><li>Stays in SYN_SENT? Then no SYN-ACK is coming back.</li></ol>
+        <p class="why">A firewall silently dropping packets, wrong routing or a security group. A RST fails fast; a DROP leaves the connection hanging.</p></article>
+      <article class="play"><h3>Exposure audit</h3><p class="sym">What can be reached from outside?</p>
+        <ol><li><kbd>4</kbd> <kbd>l</kbd> shows listening sockets only.</li><li><code>*:5432</code> listens on every interface, <code>127.0.0.1:5432</code> only locally.</li><li><kbd>P</kbd> on a row shows everything using that port.</li></ol>
+        <p class="why">A database or Redis listening on <code>*</code> is a common leak. Check after every deploy.</p></article>
+      <article class="play"><h3>Interface errors</h3><p class="sym">Packet loss or a slow link.</p>
+        <ol><li><kbd>3</kbd> and check the ERR column. It turns red as soon as it's above 0.</li><li>Select the interface and look at the graph for spikes or a ceiling.</li><li>A flat ceiling in the graph means the link is saturated.</li></ol>
+        <p class="why">Rising rx errors point at layer 1 or 2: a bad cable, a duplex mismatch or a driver problem. You can't fix that in the application.</p></article>
+      <article class="play"><h3>Who talks to whom?</h3><p class="sym">You want to know which hosts a server talks to.</p>
+        <ol><li><kbd>3</kbd> and check the <b>top peers</b> list on the right.</li><li>An unknown IP? <kbd>4</kbd> <kbd>/</kbd> and paste the IP.</li><li>Now you see which process and user own the connection.</li></ol>
+        <p class="why">This also finds forgotten cron jobs and connections to old endpoints. During a security incident it's often the first step.</p></article>
+      <article class="play"><h3>IPv4 or IPv6?</h3><p class="sym">A service is reachable over IPv4 but not over IPv6.</p>
+        <ol><li><kbd>4</kbd> <kbd>l</kbd> and check the PROTO column: <code>TCP v4</code> or <code>TCP v6</code>.</li><li>No v6 listener means the service doesn't bind to <code>[::]</code>.</li></ol>
+        <p class="why">On Linux a socket on <code>[::]</code> accepts IPv4 too, unless <code>bindv6only</code> is set. A service bound only to <code>0.0.0.0</code> can't be reached over IPv6.</p></article>
+      <article class="play"><h3>UDP services</h3><p class="sym">DNS, syslog or WireGuard isn't working.</p>
+        <ol><li><kbd>:</kbd> <code>udp:53</code> <kbd>↵</kbd> (or <code>udp:514</code>, <code>udp:51820</code>)</li><li>See which process owns the port. For DNS that's often systemd-resolved on <code>127.0.0.53</code>.</li></ol>
+        <p class="why">UDP has no states. A socket without a remote address is simply waiting for packets, and vigil shows it as listening.</p></article>
     </div>
   </section>
 </div>
 
 <main class="col">
-  <h2 id="tcp">TCP-states en hun kleuren</h2>
-  <p style="margin-top:12px">In de Sockets-view heeft elke state de kleur uit dit diagram. Problemen herken je zo aan de kleur: oranje stapelt op in je app, geel in de kernel en paars bij de handshake.</p>
+  <h2 id="tcp">TCP states and their colours</h2>
+  <p style="margin-top:12px">In the Sockets view every state uses the colour from this diagram, so you can spot trouble by colour: orange piles up in your app, yellow in the kernel and purple during the handshake.</p>
 </main>
 <div class="wide">
   <figure class="fig" style="margin-inline:0">
-    <svg viewBox="0 0 1060 330" role="img" aria-label="TCP state-diagram met de kleuren die vigil gebruikt">
+    <svg viewBox="0 0 1060 330" role="img" aria-label="TCP state diagram in the colours vigil uses">
       <defs><marker id="ar2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="var(--muted)"/></marker></defs>
       <g font-size="13" font-weight="700">
         <rect x="20" y="40" width="150" height="40" rx="20" fill="#9ece6a"/><text x="95" y="65" text-anchor="middle" fill="#1a1b26">LISTEN</text>
@@ -376,21 +404,21 @@ footer { margin-top: 72px; color: var(--muted); font-size: 13px; }
       <g font-size="11.5" fill="var(--muted)">
         <text x="182" y="52">SYN</text>
         <text x="236" y="150">SYN → SYN-ACK</text>
-        <text x="618" y="40">jij sluit</text>
-        <text x="612" y="198">peer sluit</text>
+        <text x="618" y="40">you close</text>
+        <text x="612" y="198">peer closes</text>
         <text x="966" y="104">FIN</text>
         <text x="966" y="200">2×MSL (60 s)</text>
-        <text x="440" y="190" fill="var(--fg)" font-weight="600">Waar kijk je naar?</text>
-        <text x="440" y="212">paars blijft hangen → firewall of routing (DROP)</text>
-        <text x="440" y="232">oranje blijft groeien → de app sluit haar sockets niet</text>
-        <text x="440" y="252">geel in grote aantallen → kortlevende verbindingen, geen pooling</text>
-        <text x="440" y="272">groen → luistert; controleer op welk adres (* of 127.0.0.1)</text>
+        <text x="440" y="190" fill="var(--fg)" font-weight="600">What to look for</text>
+        <text x="440" y="212">purple stays → firewall or routing (DROP)</text>
+        <text x="440" y="232">orange keeps growing → the app doesn't close its sockets</text>
+        <text x="440" y="252">lots of yellow → short-lived connections, no pooling</text>
+        <text x="440" y="272">green → listening; check which address (* or 127.0.0.1)</text>
       </g>
     </svg>
-    <figcaption class="cap">Vereenvoudigde TCP-state-machine met de kleuren uit <code>theme::tcp_state</code>. De gele states aan de rechterkant beheert de kernel; de oranje states blijven hangen totdat je applicatie <code>close()</code> aanroept.</figcaption>
+    <figcaption class="cap">Simplified TCP state machine in the colours from <code>theme::tcp_state</code>. The kernel manages the yellow states on the right; the orange states stay until your application calls <code>close()</code>.</figcaption>
   </figure>
 
-  <div class="term-wrap" role="img" aria-label="Voorbeeld van de Sockets-view gefilterd op LISTEN">
+  <div class="term-wrap" role="img" aria-label="Example of the Sockets view filtered to LISTEN">
     <div class="term"><div class="bar"><i></i><i></i><i></i></div><pre><span class="bd">╭</span> <span class="p w">/proc/net</span> <span class="bd">────────────────────────────────────────────────────────────────────────────────────────────</span> <span class="d">updated 0.8s ago · 3ms</span> <span class="bd">╮</span>
 <span class="bd">│</span>  <span class="chip-e"> ESTABLISHED </span> <span class="w">1284</span>   <span class="chip-l"> LISTEN </span> <span class="w">6</span>   <span class="chip-t"> TIME_WAIT </span> <span class="w">611</span>   <span class="chip-c"> CLOSE_WAIT </span> <span class="w">14</span>   <span class="chip-s"> SYN_SENT </span> <span class="w">2</span>                                <span class="bd">│</span>
 <span class="bd">╰───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯</span>
@@ -405,117 +433,142 @@ footer { margin-top: 72px; color: var(--muted); font-size: 13px; }
 <span class="bd">╰───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯</span>
  <span class="b w">l</span> <span class="d">listening  </span><span class="b w">s</span> <span class="d">sort  </span><span class="b w">↵</span> <span class="d">proc files  </span><span class="b w">P</span> <span class="d">who uses port  </span><span class="b w">x</span> <span class="d">signal  </span><span class="b w">/</span> <span class="d">filter</span></pre></div>
   </div>
-  <p class="term-cap col">Blootstellingsaudit op 6 regels: postgres luistert op <code>*:5432</code>, dus op elk adres. Dat wil je waarschijnlijk niet. Redis en node luisteren alleen op 127.0.0.1, zoals het hoort.</p>
+  <p class="term-cap col">An exposure audit in six rows: postgres listens on <code>*:5432</code>, so on every address. You probably don't want that. Redis and node only listen on 127.0.0.1, as they should.</p>
 </div>
 
 <main class="col">
-  <h2 id="query">De lsof-querytaal</h2>
-  <p style="margin-top:12px">Druk in elke view op <kbd>:</kbd>. Wat je intypt wordt herkend en vertaald naar een lsof-commando. De resultaten verschijnen in Open Files, en de interface blijft intussen gewoon werken.</p>
+  <h2 id="query">The lsof query language</h2>
+  <p style="margin-top:12px">Press <kbd>:</kbd> in any view. What you type is recognised and turned into an lsof command. Results appear in Open Files, and the interface keeps working in the meantime.</p>
   <div class="tbl"><table>
-    <thead><tr><th>Je typt</th><th>Wordt</th><th>Gebruik</th></tr></thead>
+    <thead><tr><th>You type</th><th>Runs</th><th>Use</th></tr></thead>
     <tbody>
-      <tr><td class="num">1234</td><td class="num">lsof -nP -p 1234</td><td>Alles wat een proces open heeft</td></tr>
-      <tr><td class="num">:8080</td><td class="num">lsof -nP -i :8080</td><td>Wie gebruikt deze poort</td></tr>
-      <tr><td class="num">tcp:443</td><td class="num">lsof -nP -i tcp:443</td><td>Alleen TCP</td></tr>
-      <tr><td class="num">@10.0.4.12</td><td class="num">lsof -nP -i @10.0.4.12</td><td>Alle verbindingen met een host</td></tr>
-      <tr><td class="num">/var/log/syslog</td><td class="num">lsof -nP /var/log/syslog</td><td>Wie heeft dit bestand open</td></tr>
-      <tr><td class="num">+L1</td><td class="num">lsof -nP +L1</td><td>Verwijderde bestanden die nog ruimte innemen</td></tr>
-      <tr><td class="num">-u www-data</td><td class="num">lsof -nP -u www-data</td><td>Alles van één user</td></tr>
-      <tr><td class="num">-a -u deploy -i</td><td class="num">lsof -nP -a -u deploy -i</td><td>Netwerk van één user (<code>-a</code> combineert de filters met EN)</td></tr>
-      <tr><td class="num">+D /srv/data</td><td class="num">lsof -nP +D /srv/data</td><td>Alles wat onder een map open is. Dit kan traag zijn.</td></tr>
+      <tr><td class="num">1234</td><td class="num">lsof -nP -p 1234</td><td>Everything a process has open</td></tr>
+      <tr><td class="num">:8080</td><td class="num">lsof -nP -i :8080</td><td>Who uses this port</td></tr>
+      <tr><td class="num">tcp:443</td><td class="num">lsof -nP -i tcp:443</td><td>TCP only</td></tr>
+      <tr><td class="num">@10.0.4.12</td><td class="num">lsof -nP -i @10.0.4.12</td><td>All connections with one host</td></tr>
+      <tr><td class="num">/var/log/syslog</td><td class="num">lsof -nP /var/log/syslog</td><td>Who has this file open</td></tr>
+      <tr><td class="num">+L1</td><td class="num">lsof -nP +L1</td><td>Deleted files that still take up space</td></tr>
+      <tr><td class="num">-u www-data</td><td class="num">lsof -nP -u www-data</td><td>Everything for one user</td></tr>
+      <tr><td class="num">-a -u deploy -i</td><td class="num">lsof -nP -a -u deploy -i</td><td>Network for one user (<code>-a</code> combines filters with AND)</td></tr>
+      <tr><td class="num">+D /srv/data</td><td class="num">lsof -nP +D /srv/data</td><td>Everything open below a directory. Can be slow.</td></tr>
     </tbody>
   </table></div>
 
-  <h2 id="prestaties">Prestaties</h2>
-  <p style="margin-top:12px">Een monitor die je de hele dag open hebt staan, moet zelf zo min mogelijk kosten. Hieronder de metingen van versie 0.1 vóór en na optimalisatie, op een Apple M4 Pro met ongeveer 860 processen en een refresh van 1000 ms.</p>
-  <div class="perf">
-    <div class="legend"><span><i style="background:var(--muted);opacity:.55"></i>vóór</span><span><i style="background:var(--accent)"></i>na</span></div>
-    <div class="metric"><div class="lbl">CPU van vigil zelf<small>% van één core, gemiddeld over 18 s</small></div>
-      <div class="bars"><div class="barrow"><div class="track"><div class="fill before" style="width:100%"></div></div><span>5,3 %</span></div><div class="barrow"><div class="track"><div class="fill after" style="width:45%"></div></div><span>2,4 %</span></div></div></div>
-    <div class="metric"><div class="lbl">Sampler per tick<small>cpu, mem, procs, net, disks, sensoren</small></div>
-      <div class="bars"><div class="barrow"><div class="track"><div class="fill before" style="width:100%"></div></div><span>26,2 ms</span></div><div class="barrow"><div class="track"><div class="fill after" style="width:16%"></div></div><span>4,2 ms</span></div></div></div>
-    <div class="metric"><div class="lbl">Sensoren verversen<small>alle 17 temperatuursensoren</small></div>
-      <div class="bars"><div class="barrow"><div class="track"><div class="fill before" style="width:100%"></div></div><span>108 ms</span></div><div class="barrow"><div class="track"><div class="fill after" style="width:14%"></div></div><span>≈15 ms</span></div></div></div>
-    <div class="metric"><div class="lbl">Geheugen (RSS)</div>
-      <div class="bars"><div class="barrow"><div class="track"><div class="fill before" style="width:100%"></div></div><span>17,8 MB</span></div><div class="barrow"><div class="track"><div class="fill after" style="width:87%"></div></div><span>15,5 MB</span></div></div></div>
-  </div>
+  <h2 id="themes">Themes</h2>
+  <p style="margin-top:12px">Press <kbd>T</kbd> for the theme picker. <kbd>↑</kbd> <kbd>↓</kbd> previews live, <kbd>↵</kbd> keeps it, <kbd>Esc</kbd> goes back, and <kbd>b</kbd> switches between the theme's background and your terminal's own. Your choice is saved to the config file when you quit.</p>
+</main>
+<div class="wide">
+  <div class="swatches" id="swatches" aria-label="Theme previews"></div>
+</div>
+<main class="col">
+  <div class="note"><b>ansi</b> uses your terminal's 16 colours instead of fixed RGB values. Use it over plain SSH, in tmux without truecolor or on a serial console. With <code>theme = "auto"</code>, vigil picks it by itself when the terminal doesn't support truecolor.</div>
+
+  <h2 id="config">Configuration</h2>
+  <p style="margin-top:12px">Settings live in <code>~/.config/vigil/config.toml</code>, on macOS too. Command-line flags win over the file, and the file wins over the defaults. A broken file never stops vigil: it starts with defaults and shows a warning in the footer.</p>
   <div class="tbl"><table>
-    <thead><tr><th>Ingreep</th><th>Waarom</th></tr></thead>
+    <thead><tr><th>Key</th><th>Default</th><th>Meaning</th></tr></thead>
     <tbody>
-      <tr><td>Sensoren per stuk verversen, en de lijst maar eens per 5 min opnieuw ophalen</td><td><code>refresh(true)</code> haalt de lijst met sensoren elke keer opnieuw op via IOKit. Dat kostte 108 ms, terwijl één bestaande sensor verversen 0,9 ms kost.</td></tr>
-      <tr><td>sysinfo zonder rayon (single-threaded)</td><td>Elke tick werden 14 threads gewekt voor ongeveer 2 ms werk. Dat synchroniseren kostte meer CPU dan de parallelle verwerking opleverde.</td></tr>
-      <tr><td>Disks en sensoren op een eigen thread</td><td>De trage calls (statfs, CacheDelete, SMC) houden de tick niet meer op.</td></tr>
-      <tr><td>Alleen hertekenen bij wijziging</td><td>Als er niets gebeurt, wordt er ook niets getekend of naar de terminal geschreven.</td></tr>
-      <tr><td>Socket- en file-lijsten cachen</td><td>Filteren en sorteren gebeurt alleen als de data, het filter of de sortering verandert, niet bij elk frame of elke toetsaanslag.</td></tr>
-      <tr><td>Alleen zichtbare rijen bouwen</td><td>Een lsof-resultaat van 50.000 regels tekent net zo snel als een van 50 regels.</td></tr>
-      <tr><td><code>Arc&lt;str&gt;</code> per pid</td><td>Naam, cmd, exe en user worden één keer per proces opgebouwd. Daarna is een tick bijna zonder allocaties.</td></tr>
-      <tr><td>Native <code>/proc/net</code> op Linux</td><td>lsof doet een stat op elke fd van elk proces. vigil leest de socket-tabellen direct en houdt de koppeling van inode naar pid in een cache.</td></tr>
+      <tr><td class="num">theme</td><td class="num">"auto"</td><td>Theme name, or auto</td></tr>
+      <tr><td class="num">background</td><td class="num">true</td><td>Paint the theme background; false keeps the terminal's own</td></tr>
+      <tr><td class="num">interval_ms</td><td class="num">1000</td><td>Sampling interval</td></tr>
+      <tr><td class="num">lsof_interval_s</td><td class="num">3</td><td>Socket scan interval</td></tr>
+      <tr><td class="num">start_tab</td><td class="num">"overview"</td><td>View to open on start</td></tr>
+      <tr><td class="num">proc_sort / proc_desc / proc_tree</td><td class="num">cpu / true / false</td><td>Process view sorting and tree mode, remembered on quit</td></tr>
+      <tr><td class="num">mouse</td><td class="num">true</td><td>Mouse wheel scrolling</td></tr>
+      <tr><td class="num">[alerts]</td><td class="num">see above</td><td>Health badge thresholds</td></tr>
     </tbody>
   </table></div>
-  <p class="note">Wat overblijft is vooral de process-scan van de kernel (≈4 ms per tick op macOS). Op Linux kan die nog omlaag door alleen <code>/proc/[pid]/stat</code> te lezen voor processen die veranderd zijn. Zie de roadmap.</p>
+
+  <h2 id="performance">Performance</h2>
+  <p style="margin-top:12px">A monitor you keep open all day should cost as little as possible itself. These are measurements of v0.1 before and after optimisation, on an Apple M4 Pro with about 860 processes and a 1000 ms refresh. Themes and health badges in v0.2 didn't change the numbers.</p>
+  <div class="perf">
+    <div class="legend"><span><i style="background:var(--muted);opacity:.55"></i>before</span><span><i style="background:var(--accent)"></i>after</span></div>
+    <div class="metric"><div class="lbl">vigil's own CPU<small>% of one core, averaged over 18 s</small></div>
+      <div class="bars"><div class="barrow"><div class="track"><div class="fill before" style="width:100%"></div></div><span>5.3 %</span></div><div class="barrow"><div class="track"><div class="fill after" style="width:45%"></div></div><span>2.4 %</span></div></div></div>
+    <div class="metric"><div class="lbl">Sampler per tick<small>cpu, mem, procs, net, disks, sensors</small></div>
+      <div class="bars"><div class="barrow"><div class="track"><div class="fill before" style="width:100%"></div></div><span>26.2 ms</span></div><div class="barrow"><div class="track"><div class="fill after" style="width:16%"></div></div><span>4.2 ms</span></div></div></div>
+    <div class="metric"><div class="lbl">Sensor refresh<small>all 17 temperature sensors</small></div>
+      <div class="bars"><div class="barrow"><div class="track"><div class="fill before" style="width:100%"></div></div><span>108 ms</span></div><div class="barrow"><div class="track"><div class="fill after" style="width:14%"></div></div><span>≈15 ms</span></div></div></div>
+    <div class="metric"><div class="lbl">Memory (RSS)</div>
+      <div class="bars"><div class="barrow"><div class="track"><div class="fill before" style="width:100%"></div></div><span>17.8 MB</span></div><div class="barrow"><div class="track"><div class="fill after" style="width:87%"></div></div><span>15.5 MB</span></div></div></div>
+  </div>
+  <div class="tbl"><table>
+    <thead><tr><th>Change</th><th>Why</th></tr></thead>
+    <tbody>
+      <tr><td>Refresh sensors one by one; re-enumerate only every 5 min</td><td><code>refresh(true)</code> re-enumerated every sensor through IOKit each time. That cost 108 ms, while refreshing one existing sensor costs 0.9 ms.</td></tr>
+      <tr><td>sysinfo without rayon (single-threaded)</td><td>Every tick woke 14 threads for about 2 ms of work. The synchronisation cost more CPU than the parallelism saved.</td></tr>
+      <tr><td>Disks and sensors on their own thread</td><td>The slow calls (statfs, CacheDelete, SMC) no longer hold up the tick.</td></tr>
+      <tr><td>Redraw only on change</td><td>When nothing happens, nothing is drawn or written to the terminal.</td></tr>
+      <tr><td>Cache socket and file lists</td><td>Filtering and sorting only happen when the data, filter or sort order changes, not on every frame or keypress.</td></tr>
+      <tr><td>Build only visible rows</td><td>A 50,000-line lsof result draws as fast as a 50-line one.</td></tr>
+      <tr><td><code>Arc&lt;str&gt;</code> per pid</td><td>Name, cmd, exe and user are built once per process. After that a tick allocates almost nothing.</td></tr>
+      <tr><td>Native <code>/proc/net</code> on Linux</td><td>lsof stats every fd of every process. vigil reads the socket tables directly and caches the inode-to-pid map.</td></tr>
+      <tr><td>Themes behind one atomic index</td><td>A colour lookup is one relaxed atomic load and an array index: no locks, no allocation.</td></tr>
+    </tbody>
+  </table></div>
 
   <h2 id="roadmap">Roadmap</h2>
-  <p style="margin-top:12px">Wat ik zou toevoegen om vigil jarenlang bruikbaar te houden, op volgorde van prioriteit.</p>
+  <p style="margin-top:12px">What I'd add next to keep vigil useful for years, in order of priority. Themes, the config file and health badges shipped in v0.2.</p>
   <div class="road">
-    <div class="item"><span class="pri p1">Eerst</span><div><h3>Configbestand (<code>~/.config/vigil/config.toml</code>)</h3><p>Om je standaard-view, interval, sortering, kolommen en kleurthema te bewaren. Een tool die je jarenlang gebruikt, moet onthouden hoe jij hem wilt hebben.</p></div></div>
-    <div class="item"><span class="pri p1">Eerst</span><div><h3>Containers: Docker, Podman en cgroups</h3><p>Een view met CPU, geheugen en netwerk per container, gelezen uit cgroup v2 (<code>/sys/fs/cgroup</code>), dus zonder de Docker-daemon. Op moderne servers draait bijna alles in een container.</p></div></div>
-    <div class="item"><span class="pri p1">Eerst</span><div><h3>Linux: netlink <code>sock_diag</code> in plaats van /proc/net</h3><p>Dit levert ook RTT, retransmits, cwnd en de send/recv-queue per socket, wat <code>ss -ti</code> ook laat zien. Voor een network engineer is dat goud: je ziet een trage verbinding voordat de gebruiker erover klaagt.</p></div></div>
-    <div class="item"><span class="pri p2">Daarna</span><div><h3>Bandbreedte per proces</h3><p>Via eBPF op Linux of <code>nettop</code> op macOS. Dan weet je niet alleen dat er 40 MB/s over de lijn gaat, maar ook welk proces dat verstuurt.</p></div></div>
-    <div class="item"><span class="pri p2">Daarna</span><div><h3>systemd-units en journal</h3><p>Status, restarts en de laatste logregels per unit. Een unit selecteren en meteen <code>journalctl -u</code> zien scheelt je een terminalvenster.</p></div></div>
-    <div class="item"><span class="pri p2">Daarna</span><div><h3>Drempels en alerts</h3><p>Bijvoorbeeld <code>disk &gt; 90 %</code>, <code>CLOSE_WAIT &gt; 100</code> of <code>load &gt; cores</code>. Rood in de header, met optioneel een webhook. Zo zie je problemen ook als je naar een andere view kijkt.</p></div></div>
-    <div class="item"><span class="pri p2">Daarna</span><div><h3>PSI (pressure stall information)</h3><p>Uit <code>/proc/pressure/{cpu,memory,io}</code>. Load average zegt niet waarom het systeem traag is, PSI wel: je ziet of er gewacht wordt op CPU, geheugen of I/O.</p></div></div>
-    <div class="item"><span class="pri p3">Later</span><div><h3>Opnemen en terugspelen</h3><p>Een snapshot naar JSON schrijven en die later of op een andere machine terugspelen. Handig voor een post-mortem: wat was er om 03:12 aan de hand?</p></div></div>
-    <div class="item"><span class="pri p3">Later</span><div><h3>Reverse DNS (async, gecached) en latency-targets</h3><p>IP's als hostnaam tonen, zonder dat de interface vastloopt. Plus een kleine ping- en TCP-connect-monitor naar targets die je zelf instelt.</p></div></div>
-    <div class="item"><span class="pri p3">Onderhoud</span><div><h3>CI, clippy en releases</h3><p>Bij elke commit <code>cargo clippy</code> en tests draaien, op Linux en macOS. Daarnaast statische musl-builds die je naar elke server kunt kopiëren en dependency-updates via Renovate. Zo blijft de tool jarenlang onderhoudbaar.</p></div></div>
+    <div class="item"><span class="pri p1">Next</span><div><h3>Containers: Docker, Podman and cgroups</h3><p>A view with CPU, memory and network per container, read from cgroup v2 (<code>/sys/fs/cgroup</code>), so without the Docker daemon. On modern servers almost everything runs in a container.</p></div></div>
+    <div class="item"><span class="pri p1">Next</span><div><h3>Linux: netlink <code>sock_diag</code> instead of /proc/net</h3><p>This adds RTT, retransmits, cwnd and the send/receive queue per socket, like <code>ss -ti</code>. For a network engineer that's gold: you see a slow connection before users complain.</p></div></div>
+    <div class="item"><span class="pri p2">Then</span><div><h3>Bandwidth per process</h3><p>Through eBPF on Linux or <code>nettop</code> on macOS. Then you don't just know that 40 MB/s is crossing the link, but also which process is sending it.</p></div></div>
+    <div class="item"><span class="pri p2">Then</span><div><h3>systemd units and the journal</h3><p>Status, restarts and the last log lines per unit. Selecting a unit and seeing <code>journalctl -u</code> right away saves you a terminal window.</p></div></div>
+    <div class="item"><span class="pri p2">Then</span><div><h3>Alert hooks</h3><p>A webhook or command that runs when a health badge appears, so vigil can page you while you look at something else.</p></div></div>
+    <div class="item"><span class="pri p3">Later</span><div><h3>Record and replay</h3><p>Write snapshots to JSON and replay them later or on another machine. Handy for a post-mortem: what was going on at 03:12?</p></div></div>
+    <div class="item"><span class="pri p3">Later</span><div><h3>Async reverse DNS and latency targets</h3><p>Show IPs as host names without freezing the interface. Plus a small ping and TCP-connect monitor for targets you configure yourself.</p></div></div>
+    <div class="item"><span class="pri p3">Later</span><div><h3>Custom themes in the config file</h3><p>Define your own palette in <code>config.toml</code> instead of picking one of the built-in themes.</p></div></div>
   </div>
 
-  <h2 id="toetsen">Sneltoetsen</h2>
+  <h2 id="keys">Keyboard shortcuts</h2>
 </main>
 <div class="wide">
   <div class="cheat">
-    <div><h3>Overal</h3><dl>
-      <dt><kbd>1</kbd>–<kbd>6</kbd> <kbd>Tab</kbd></dt><dd>view wisselen</dd>
-      <dt><kbd>↑</kbd><kbd>↓</kbd> <kbd>j</kbd><kbd>k</kbd></dt><dd>navigeren (ook met muiswiel)</dd>
-      <dt><kbd>g</kbd> <kbd>G</kbd></dt><dd>begin / einde</dd>
-      <dt><kbd>/</kbd></dt><dd>filter, <kbd>Esc</kbd> wist</dd>
-      <dt><kbd>:</kbd></dt><dd>lsof-query</dd>
-      <dt><kbd>space</kbd></dt><dd>pauzeren</dd>
+    <div><h3>Everywhere</h3><dl>
+      <dt><kbd>1</kbd>–<kbd>6</kbd> <kbd>Tab</kbd></dt><dd>switch view</dd>
+      <dt><kbd>↑</kbd><kbd>↓</kbd> <kbd>j</kbd><kbd>k</kbd></dt><dd>navigate (mouse wheel too)</dd>
+      <dt><kbd>g</kbd> <kbd>G</kbd></dt><dd>top / bottom</dd>
+      <dt><kbd>/</kbd></dt><dd>filter, <kbd>Esc</kbd> clears</dd>
+      <dt><kbd>:</kbd></dt><dd>lsof query</dd>
+      <dt><kbd>T</kbd></dt><dd>theme picker</dd>
+      <dt><kbd>space</kbd></dt><dd>pause</dd>
       <dt><kbd>+</kbd> <kbd>-</kbd></dt><dd>interval ±250 ms</dd>
-      <dt><kbd>?</kbd> <kbd>q</kbd></dt><dd>help / afsluiten</dd></dl></div>
+      <dt><kbd>?</kbd> <kbd>q</kbd></dt><dd>help / quit</dd></dl></div>
     <div><h3>Processes</h3><dl>
-      <dt><kbd>c</kbd> <kbd>m</kbd> <kbd>p</kbd></dt><dd>sorteer cpu / mem / pid</dd>
-      <dt><kbd>n</kbd> <kbd>u</kbd></dt><dd>sorteer naam / user</dd>
-      <dt><kbd>i</kbd> <kbd>o</kbd></dt><dd>sorteer disk-io / sockets</dd>
-      <dt><kbd>r</kbd> <kbd>t</kbd></dt><dd>omkeren / procesboom</dd>
+      <dt><kbd>c</kbd> <kbd>m</kbd> <kbd>p</kbd></dt><dd>sort cpu / mem / pid</dd>
+      <dt><kbd>n</kbd> <kbd>u</kbd></dt><dd>sort name / user</dd>
+      <dt><kbd>i</kbd> <kbd>o</kbd></dt><dd>sort disk io / sockets</dd>
+      <dt><kbd>r</kbd> <kbd>t</kbd></dt><dd>reverse / process tree</dd>
       <dt><kbd>↵</kbd> <kbd>f</kbd></dt><dd>open files (lsof -p)</dd>
-      <dt><kbd>x</kbd> <kbd>K</kbd></dt><dd>signaal sturen</dd></dl></div>
+      <dt><kbd>x</kbd> <kbd>K</kbd></dt><dd>send signal</dd></dl></div>
     <div><h3>Sockets</h3><dl>
-      <dt><kbd>l</kbd></dt><dd>alleen LISTEN</dd>
-      <dt><kbd>s</kbd></dt><dd>sortering: process → port → state → proto → remote</dd>
-      <dt><kbd>↵</kbd></dt><dd>open files van eigenaar</dd>
-      <dt><kbd>P</kbd></dt><dd>alles op deze poort</dd>
-      <dt><kbd>x</kbd></dt><dd>signaal naar eigenaar</dd></dl></div>
+      <dt><kbd>l</kbd></dt><dd>LISTEN only</dd>
+      <dt><kbd>s</kbd></dt><dd>sort: process → port → state → proto → remote</dd>
+      <dt><kbd>↵</kbd></dt><dd>open files of owner</dd>
+      <dt><kbd>P</kbd></dt><dd>everything on this port</dd>
+      <dt><kbd>x</kbd></dt><dd>signal the owner</dd></dl></div>
     <div><h3>Open Files</h3><dl>
-      <dt><kbd>↵</kbd></dt><dd>wie heeft dit bestand / deze poort nog open</dd>
-      <dt><kbd>p</kbd></dt><dd>alle files van deze pid</dd>
-      <dt><kbd>r</kbd></dt><dd>query opnieuw draaien</dd>
-      <dt><kbd>x</kbd></dt><dd>signaal</dd></dl></div>
-    <div><h3>Signaalvenster</h3><dl>
-      <dt><kbd>1</kbd>–<kbd>9</kbd></dt><dd>direct kiezen</dd>
-      <dt><code>TERM</code></dt><dd>netjes stoppen (eerste keus)</dd>
-      <dt><code>HUP</code></dt><dd>config herladen</dd>
-      <dt><code>STOP</code>/<code>CONT</code></dt><dd>pauzeren / hervatten</dd>
-      <dt><code>KILL</code></dt><dd>laatste redmiddel</dd></dl></div>
-    <div><h3>Opstartopties</h3><dl>
-      <dt><code>-t sockets</code></dt><dd>start in een view</dd>
-      <dt><code>-q :443</code></dt><dd>query bij start</dd>
+      <dt><kbd>↵</kbd></dt><dd>who else has this file / port open</dd>
+      <dt><kbd>p</kbd></dt><dd>all files of this pid</dd>
+      <dt><kbd>r</kbd></dt><dd>rerun query</dd>
+      <dt><kbd>x</kbd></dt><dd>signal</dd></dl></div>
+    <div><h3>Signal dialog</h3><dl>
+      <dt><kbd>1</kbd>–<kbd>9</kbd></dt><dd>pick directly</dd>
+      <dt><code>TERM</code></dt><dd>clean stop (first choice)</dd>
+      <dt><code>HUP</code></dt><dd>reload config</dd>
+      <dt><code>STOP</code>/<code>CONT</code></dt><dd>pause / resume</dd>
+      <dt><code>KILL</code></dt><dd>last resort</dd></dl></div>
+    <div><h3>Startup flags</h3><dl>
+      <dt><code>-t sockets</code></dt><dd>start in a view</dd>
+      <dt><code>-q :443</code></dt><dd>query on start</dd>
       <dt><code>-i 500</code></dt><dd>interval in ms</dd>
-      <dt><code>--lsof-sockets</code></dt><dd>lsof i.p.v. /proc/net</dd>
-      <dt><code>--no-mouse</code></dt><dd>muis uit</dd></dl></div>
+      <dt><code>--theme nord</code></dt><dd>pick a theme</dd>
+      <dt><code>--no-save</code></dt><dd>don't write the config</dd>
+      <dt><code>--lsof-sockets</code></dt><dd>lsof instead of /proc/net</dd></dl></div>
   </div>
 </div>
 
-<footer class="col">vigil · Rust, ratatui, sysinfo en lsof. De voorbeeldschermen tonen fictieve serverdata.</footer>
+<footer class="col">vigil · Rust, ratatui, sysinfo and lsof · <a href="https://github.com/suleymenb/vigil">github.com/suleymenb/vigil</a>. Example screens show fictional server data.</footer>
 
 <script>
 (function () {
@@ -538,5 +591,28 @@ footer { margin-top: 72px; color: var(--muted); font-size: 13px; }
     });
   });
   try { var s = localStorage.getItem('vigil-play-tab'); if (s && document.getElementById(s)) show(s); } catch (e) {}
+
+  // Theme previews: same values as src/theme.rs.
+  var T = [
+    ['tokyo-night', '#1a1b26', '#c0caf5', ['#7aa2f7','#bb9af7','#7dcfff','#9ece6a','#e0af68','#ff9e64','#f7768e']],
+    ['catppuccin-mocha', '#1e1e2e', '#cdd6f4', ['#89b4fa','#cba6f7','#89dceb','#a6e3a1','#f9e2af','#fab387','#f38ba8']],
+    ['gruvbox', '#282828', '#ebdbb2', ['#83a598','#d3869b','#8ec07c','#b8bb26','#fabd2f','#fe8019','#fb4934']],
+    ['nord', '#2e3440', '#d8dee9', ['#81a1c1','#b48ead','#88c0d0','#a3be8c','#ebcb8b','#d08770','#bf616a']],
+    ['dracula', '#282a36', '#f8f8f2', ['#bd93f9','#ff79c6','#8be9fd','#50fa7b','#f1fa8c','#ffb86c','#ff5555']],
+    ['rose-pine', '#191724', '#e0def4', ['#9ccfd8','#c4a7e7','#9ccfd8','#8fbf9f','#f6c177','#ea9a97','#eb6f92']],
+    ['solarized-light', '#fdf6e3', '#073642', ['#268bd2','#6c71c4','#2aa198','#859900','#b58900','#cb4b16','#dc322f']],
+    ['ansi', '#000000', '#e5e5e5', ['#0000ee','#cd00cd','#00cdcd','#00cd00','#cdcd00','#ff5f5f','#cd0000']]
+  ];
+  var box = document.getElementById('swatches');
+  T.forEach(function (t) {
+    var d = document.createElement('div');
+    d.className = 'sw';
+    d.style.background = t[1];
+    d.style.color = t[2];
+    var dots = t[3].map(function (c) { return '<i style="background:' + c + '"></i>'; }).join('');
+    d.innerHTML = '<span class="nm">' + t[0] + '</span><span class="dots">' + dots + '</span>' +
+      '<span style="opacity:.75">' + (t[0] === 'ansi' ? 'your terminal’s 16 colours' : 'cpu ■■■■■■□□□□ 58%') + '</span>';
+    box.appendChild(d);
+  });
 })();
 </script>

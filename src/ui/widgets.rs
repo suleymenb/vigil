@@ -85,7 +85,7 @@ pub fn meter(pct: f64, width: usize) -> Vec<Span<'static>> {
         if i < full {
             spans.push(Span::styled("■", Style::new().fg(theme::heat(cell_pct))));
         } else {
-            spans.push(Span::styled("■", Style::new().fg(theme::BORDER)));
+            spans.push(Span::styled("■", Style::new().fg(theme::border())));
         }
     }
     spans
@@ -96,14 +96,14 @@ pub fn meter_solid(pct: f64, width: usize, color: Color) -> Vec<Span<'static>> {
     let full = (pct.clamp(0.0, 100.0) / 100.0 * width as f64).round() as usize;
     vec![
         Span::styled("■".repeat(full), Style::new().fg(color)),
-        Span::styled("■".repeat(width.saturating_sub(full)), Style::new().fg(theme::BORDER)),
+        Span::styled("■".repeat(width.saturating_sub(full)), Style::new().fg(theme::border())),
     ]
 }
 
 pub fn panel(title: impl Into<String>, accent: Color) -> Block<'static> {
     Block::bordered()
         .border_type(BorderType::Rounded)
-        .border_style(Style::new().fg(theme::BORDER))
+        .border_style(Style::new().fg(theme::border()))
         .title(Line::from(vec![
             Span::raw(" "),
             Span::styled(title.into(), Style::new().fg(accent).bold()),
@@ -115,12 +115,12 @@ pub fn panel(title: impl Into<String>, accent: Color) -> Block<'static> {
 pub fn frame() -> Block<'static> {
     Block::bordered()
         .border_type(BorderType::Rounded)
-        .border_style(Style::new().fg(theme::BORDER))
+        .border_style(Style::new().fg(theme::border()))
 }
 
 pub fn kv(key: &str, val: impl Into<String>, color: Color) -> Vec<Span<'static>> {
     vec![
-        Span::styled(format!("{key} "), Style::new().fg(theme::DIM)),
+        Span::styled(format!("{key} "), Style::new().fg(theme::dim())),
         Span::styled(val.into(), Style::new().fg(color)),
         Span::raw("  "),
     ]

@@ -343,7 +343,7 @@ mod tests {
 mod raw_query_tests {
     use super::*;
 
-    /// The example queries from docs/handleiding.html must actually run.
+    /// The example queries from docs/handbook.html must actually run.
     #[test]
     fn manual_queries_run() {
         for q in ["+L1", "-u root", "@127.0.0.1", "tcp:443", ":22"] {

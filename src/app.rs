@@ -12,6 +12,7 @@ use sysinfo::Signal;
 
 use crate::collect::lsof::{self, FilesStore, OpenFile, Query, SocketStore};
 use crate::collect::system::{ProcInfo, Sampler};
+use crate::config::Config;
 use crate::theme;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -68,6 +69,32 @@ pub enum ProcSort {
     Conn,
 }
 
+impl ProcSort {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            ProcSort::Cpu => "cpu",
+            ProcSort::Mem => "mem",
+            ProcSort::Pid => "pid",
+            ProcSort::Name => "name",
+            ProcSort::User => "user",
+            ProcSort::Io => "io",
+            ProcSort::Conn => "conn",
+        }
+    }
+    pub fn parse(s: &str) -> Option<Self> {
+        Some(match s.to_ascii_lowercase().as_str() {
+            "cpu" => ProcSort::Cpu,
+            "mem" | "memory" => ProcSort::Mem,
+            "pid" => ProcSort::Pid,
+            "name" => ProcSort::Name,
+            "user" => ProcSort::User,
+            "io" => ProcSort::Io,
+            "conn" | "connections" => ProcSort::Conn,
+            _ => return None,
+        })
+    }
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum SockSort {
     Process,
@@ -104,6 +131,7 @@ pub enum Mode {
     Filter,
     Query,
     Signal,
+    Theme,
 }
 
 pub const SIGNALS: [(&str, &str, Signal); 9] = [
@@ -160,6 +188,11 @@ pub struct App {
     pub status: Option<(String, Color, Instant)>,
 
     // Derived-data caches: rebuilt only when their inputs change.
+    pub cfg: Config,
+    /// Theme index before the picker opened (Esc restores it).
+    theme_before: usize,
+    pub close_wait: usize,
+    pub time_wait: usize,
     sock_cache: Vec<OpenFile>,
     sock_key: Option<(u64, String, bool, SockSort)>,
     files_cache: Vec<OpenFile>,
@@ -174,6 +207,7 @@ impl App {
         files: Arc<Mutex<FilesStore>>,
         interval: Duration,
         tab: Tab,
+        cfg: Config,
     ) -> Self {
         let mut app = Self {
             tab,
@@ -187,9 +221,9 @@ impl App {
             mode: Mode::Normal,
             input: String::new(),
             is_root: crate::util::is_root(),
-            proc_sort: ProcSort::Cpu,
-            proc_desc: true,
-            proc_tree: false,
+            proc_sort: ProcSort::parse(&cfg.proc_sort).unwrap_or(ProcSort::Cpu),
+            proc_desc: cfg.proc_desc,
+            proc_tree: cfg.proc_tree,
             proc_filter: String::new(),
             proc_rows: Vec::new(),
             proc_state: TableState::default().with_selected(0),
@@ -205,6 +239,10 @@ impl App {
             signal_target: None,
             signal_idx: 0,
             status: None,
+            cfg,
+            theme_before: 0,
+            close_wait: 0,
+            time_wait: 0,
             sock_cache: Vec::new(),
             sock_key: None,
             files_cache: Vec::new(),
@@ -227,8 +265,17 @@ impl App {
             if s.version != self.conn_version {
                 self.conn_version = s.version;
                 self.conn_counts.clear();
-                for e in s.entries.iter().filter(|e| e.pid != 0) {
-                    *self.conn_counts.entry(e.pid).or_default() += 1;
+                self.close_wait = 0;
+                self.time_wait = 0;
+                for e in &s.entries {
+                    match e.state.as_str() {
+                        "CLOSE_WAIT" => self.close_wait += 1,
+                        "TIME_WAIT" => self.time_wait += 1,
+                        _ => {}
+                    }
+                    if e.pid != 0 {
+                        *self.conn_counts.entry(e.pid).or_default() += 1;
+                    }
                 }
             }
         }
@@ -237,6 +284,66 @@ impl App {
             .store(self.tab == Tab::Storage, std::sync::atomic::Ordering::Relaxed);
         self.rebuild_procs();
         self.update_caches();
+    }
+
+    /// Health badges for the header: every threshold from `[alerts]` that is exceeded.
+    pub fn alerts(&self) -> Vec<(String, Color)> {
+        let a = &self.cfg.alerts;
+        let s = &self.sampler;
+        let mut out = Vec::new();
+        let pct = |u: u64, t: u64| if t == 0 { 0.0 } else { u as f64 / t as f64 * 100.0 };
+        let mem = pct(s.mem_used, s.mem_total);
+        if a.mem_pct > 0.0 && mem >= a.mem_pct {
+            out.push((format!("MEM {mem:.0}%"), theme::red()));
+        }
+        let swap = pct(s.swap_used, s.swap_total);
+        if a.swap_pct > 0.0 && s.swap_total > 0 && swap >= a.swap_pct {
+            out.push((format!("SWAP {swap:.0}%"), theme::orange()));
+        }
+        if a.disk_pct > 0.0 {
+            if let Some(d) = s
+                .disks_info
+                .iter()
+                .filter(|d| d.total > 0 && d.pct() >= a.disk_pct)
+                .max_by(|x, y| x.pct().total_cmp(&y.pct()))
+            {
+                out.push((format!("DISK {} {:.0}%", d.mount, d.pct()), theme::red()));
+            }
+        }
+        let lpc = s.load.0 / s.ncores().max(1) as f64;
+        if a.load_per_core > 0.0 && lpc >= a.load_per_core {
+            out.push((format!("LOAD {:.1}/core", lpc), theme::orange()));
+        }
+        if a.close_wait > 0 && self.close_wait >= a.close_wait {
+            out.push((format!("CLOSE_WAIT {}", self.close_wait), theme::orange()));
+        }
+        if a.time_wait > 0 && self.time_wait >= a.time_wait {
+            out.push((format!("TIME_WAIT {}", self.time_wait), theme::yellow()));
+        }
+        if a.temp_c > 0.0 {
+            if let Some(t) = s.temps.first().filter(|t| t.temp >= a.temp_c) {
+                out.push((format!("TEMP {:.0}°C", t.temp), theme::red()));
+            }
+        }
+        if let (Some(p), true) = (s.psi, a.psi_pct > 0.0) {
+            for (name, v) in ["cpu", "mem", "io"].iter().zip(p) {
+                if v >= a.psi_pct {
+                    out.push((format!("PSI {name} {v:.0}%"), theme::purple()));
+                }
+            }
+        }
+        out
+    }
+
+    /// Copy the current UI state back into the config (saved on quit).
+    pub fn snapshot_config(&mut self) -> Config {
+        let mut c = self.cfg.clone();
+        c.theme = theme::pal().name.to_string();
+        c.interval_ms = self.interval.as_millis() as u64;
+        c.proc_sort = self.proc_sort.as_str().to_string();
+        c.proc_desc = self.proc_desc;
+        c.proc_tree = self.proc_tree;
+        c
     }
 
     /// Everything that can change the screen without user input.
@@ -249,6 +356,10 @@ impl App {
             .as_ref()
             .is_some_and(|(_, _, at)| at.elapsed() < Duration::from_secs(4));
         (sv, fv, self.sampler.slow_version(), status_live)
+    }
+
+    pub fn warn(&mut self, msg: impl Into<String>) {
+        self.set_status(msg, theme::yellow());
     }
 
     fn set_status(&mut self, msg: impl Into<String>, color: Color) {
@@ -521,6 +632,7 @@ impl App {
             Mode::Filter => self.key_filter(k),
             Mode::Query => self.key_query(k),
             Mode::Signal => self.key_signal(k),
+            Mode::Theme => self.key_theme(k),
             Mode::Normal => self.key_normal(k),
         }
         self.update_caches();
@@ -595,8 +707,8 @@ impl App {
                 if let Some((pid, name)) = self.signal_target.take() {
                     let (sname, _, sig) = SIGNALS[self.signal_idx];
                     match self.sampler.send_signal(pid, sig) {
-                        Ok(()) => self.set_status(format!("sent {sname} to {name} ({pid})"), theme::GREEN),
-                        Err(e) => self.set_status(e, theme::RED),
+                        Ok(()) => self.set_status(format!("sent {sname} to {name} ({pid})"), theme::green()),
+                        Err(e) => self.set_status(e, theme::red()),
                     }
                 }
                 self.mode = Mode::Normal;
@@ -605,9 +717,29 @@ impl App {
         }
     }
 
+    fn key_theme(&mut self, k: KeyEvent) {
+        let n = theme::THEMES.len();
+        match k.code {
+            KeyCode::Esc | KeyCode::Char('q') => {
+                theme::set(self.theme_before);
+                self.mode = Mode::Normal;
+            }
+            KeyCode::Up | KeyCode::Char('k') => theme::set((theme::index() + n - 1) % n),
+            KeyCode::Down | KeyCode::Char('j') | KeyCode::Char('T') => {
+                theme::set((theme::index() + 1) % n)
+            }
+            KeyCode::Char('b') => self.cfg.background = !self.cfg.background,
+            KeyCode::Enter => {
+                self.mode = Mode::Normal;
+                self.set_status(format!("theme {} (saved on quit)", theme::pal().name), theme::green());
+            }
+            _ => {}
+        }
+    }
+
     fn open_signal_dialog(&mut self, pid: u32, name: String) {
         if pid == 0 {
-            self.set_status("socket has no owning process (kernel-held, e.g. TIME_WAIT)", theme::YELLOW);
+            self.set_status("socket has no owning process (kernel-held, e.g. TIME_WAIT)", theme::yellow());
             return;
         }
         self.signal_target = Some((pid, name));
@@ -624,6 +756,10 @@ impl App {
         match k.code {
             KeyCode::Char('q') => self.quit = true,
             KeyCode::Char('?') | KeyCode::F(1) => self.show_help = true,
+            KeyCode::Char('T') => {
+                self.theme_before = theme::index();
+                self.mode = Mode::Theme;
+            }
             KeyCode::Tab | KeyCode::Right | KeyCode::Char('L') => {
                 self.tab = Tab::ALL[(self.tab.index() + 1) % Tab::ALL.len()]
             }
@@ -634,18 +770,18 @@ impl App {
             KeyCode::Char(' ') => {
                 self.paused = !self.paused;
                 let msg = if self.paused { "paused" } else { "resumed" };
-                self.set_status(msg, theme::YELLOW);
+                self.set_status(msg, theme::yellow());
             }
             KeyCode::Char('+') | KeyCode::Char('=') => {
                 self.interval = (self.interval + Duration::from_millis(250)).min(Duration::from_secs(10));
-                self.set_status(format!("refresh interval {}ms", self.interval.as_millis()), theme::CYAN);
+                self.set_status(format!("refresh interval {}ms", self.interval.as_millis()), theme::cyan());
             }
             KeyCode::Char('-') => {
                 self.interval = self
                     .interval
                     .saturating_sub(Duration::from_millis(250))
                     .max(Duration::from_millis(250));
-                self.set_status(format!("refresh interval {}ms", self.interval.as_millis()), theme::CYAN);
+                self.set_status(format!("refresh interval {}ms", self.interval.as_millis()), theme::cyan());
             }
             KeyCode::Char('/') => {
                 if self.filter_mut().is_none() {

@@ -1,0 +1,61 @@
+name: release
+
+# Triggered by pushing a v* tag (or by `gh release create vX.Y.Z`).
+# Builds static Linux binaries (musl) and macOS binaries, runs the test suite
+# on every native target, and attaches tarballs + SHA-256 sums to the release.
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { target: x86_64-unknown-linux-musl, os: ubuntu-latest, test: true }
+          - { target: aarch64-unknown-linux-musl, os: ubuntu-24.04-arm, test: true }
+          - { target: aarch64-apple-darwin, os: macos-latest, test: true }
+          - { target: x86_64-apple-darwin, os: macos-latest, test: false }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        run: |
+          rustup toolchain install stable --profile minimal --target ${{ matrix.target }}
+          rustup default stable
+
+      - name: Install musl tools and lsof
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y musl-tools lsof
+
+      - name: Test
+        if: matrix.test
+        run: cargo test --release --locked --target ${{ matrix.target }}
+
+      - name: Build
+        run: cargo build --release --locked --target ${{ matrix.target }}
+
+      - name: Package
+        shell: bash
+        run: |
+          name="vigil-${GITHUB_REF_NAME}-${{ matrix.target }}"
+          mkdir "$name"
+          cp "target/${{ matrix.target }}/release/vigil" README.md LICENSE "$name/"
+          tar czf "$name.tar.gz" "$name"
+          shasum -a 256 "$name.tar.gz" > "$name.tar.gz.sha256"
+
+      - name: Ensure release exists
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || gh release create "$GITHUB_REF_NAME" --title "vigil $GITHUB_REF_NAME" --generate-notes || true
+
+      - name: Upload
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$GITHUB_REF_NAME" vigil-*.tar.gz vigil-*.tar.gz.sha256 --clobber

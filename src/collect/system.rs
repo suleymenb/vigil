@@ -229,6 +229,34 @@ pub struct Sampler {
     pub io_write_rate: f64,
     pub load: (f64, f64, f64),
     pub uptime: u64,
+    /// Linux pressure stall info, `some avg10` % for [cpu, memory, io].
+    pub psi: Option<[f64; 3]>,
+}
+
+/// Parse `some avg10=1.23 avg60=… total=…` from /proc/pressure/*.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+pub fn parse_psi_some_avg10(text: &str) -> Option<f64> {
+    text.lines()
+        .find(|l| l.starts_with("some"))?
+        .split_whitespace()
+        .find_map(|f| f.strip_prefix("avg10="))?
+        .parse()
+        .ok()
+}
+
+#[cfg(target_os = "linux")]
+fn read_psi() -> Option<[f64; 3]> {
+    let r = |n: &str| {
+        std::fs::read_to_string(format!("/proc/pressure/{n}"))
+            .ok()
+            .and_then(|t| parse_psi_some_avg10(&t))
+    };
+    Some([r("cpu")?, r("memory").unwrap_or(0.0), r("io").unwrap_or(0.0)])
+}
+
+#[cfg(not(target_os = "linux"))]
+fn read_psi() -> Option<[f64; 3]> {
+    None
 }
 
 fn proc_kind() -> ProcessRefreshKind {
@@ -321,6 +349,7 @@ impl Sampler {
             io_write_rate: 0.0,
             load: (0.0, 0.0, 0.0),
             uptime: 0,
+            psi: None,
         };
         // CPU usage needs two samples with a gap between them.
         std::thread::sleep(sysinfo::MINIMUM_CPU_UPDATE_INTERVAL);
@@ -339,7 +368,7 @@ impl Sampler {
         self.sys
             .refresh_processes_specifics(ProcessesToUpdate::All, true, proc_kind());
         self.networks.refresh(true);
-        if self.tick % 120 == 0 {
+        if self.tick.is_multiple_of(120) {
             self.users.refresh();
             self.user_names.clear();
         }
@@ -386,6 +415,7 @@ impl Sampler {
         let l = System::load_average();
         self.load = (l.one, l.five, l.fifteen);
         self.uptime = System::uptime();
+        self.psi = read_psi();
     }
 
     fn sample_procs(&mut self) {
@@ -542,5 +572,17 @@ impl Sampler {
             Some(false) => Err(format!("failed to send {sig:?} to {pid} (permission denied?)")),
             None => Err(format!("signal {sig:?} not supported on this platform")),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn psi_parse() {
+        let t = "some avg10=12.50 avg60=3.00 avg300=1.00 total=123\nfull avg10=2.00 avg60=0.00 avg300=0.00 total=1\n";
+        assert_eq!(parse_psi_some_avg10(t), Some(12.5));
+        assert_eq!(parse_psi_some_avg10("garbage"), None);
     }
 }

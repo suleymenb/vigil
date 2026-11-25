@@ -1,6 +1,6 @@
 [package]
 name = "vigil"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 description = "A modern terminal system monitor for DevOps, networking and Linux administration"
 license = "MIT"
@@ -11,6 +11,8 @@ crossterm = "0.28"
 sysinfo = { version = "=0.33.1", default-features = false, features = ["system", "disk", "network", "component", "user"] }
 anyhow = "1"
 clap = { version = "4", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+toml = "0.8"
 
 [profile.release]
 lto = true

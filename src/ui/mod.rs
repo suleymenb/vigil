@@ -17,6 +17,12 @@ use widgets::panel;
 
 pub fn draw(f: &mut Frame, app: &mut App) {
     let area = f.area();
+    if app.cfg.background && theme::bg() != ratatui::style::Color::Reset {
+        f.render_widget(
+            Block::new().style(Style::new().bg(theme::bg()).fg(theme::fg())),
+            area,
+        );
+    }
     let [header, body, footer] = Layout::vertical([
         Constraint::Length(2),
         Constraint::Min(0),
@@ -38,6 +44,9 @@ pub fn draw(f: &mut Frame, app: &mut App) {
     if app.mode == Mode::Signal {
         draw_signal_dialog(f, app, area);
     }
+    if app.mode == Mode::Theme {
+        draw_theme_picker(f, app, area);
+    }
     if app.show_help {
         draw_help(f, area);
     }
@@ -46,17 +55,17 @@ pub fn draw(f: &mut Frame, app: &mut App) {
 fn draw_header(f: &mut Frame, app: &App, area: Rect) {
     let s = &app.sampler;
     let [top, tabs_area] = Layout::vertical([Constraint::Length(1), Constraint::Length(1)]).areas(area);
-    f.render_widget(Block::new().style(Style::new().bg(theme::HEADER_BG)), top);
+    f.render_widget(Block::new().style(Style::new().bg(theme::header_bg())), top);
 
     let mut spans = vec![
-        Span::styled(" ◆ vigil ", Style::new().fg(theme::HEADER_BG).bg(theme::BLUE).bold()),
+        Span::styled(" ◆ vigil ", Style::new().fg(theme::header_bg()).bg(theme::blue()).bold()),
         Span::raw(" "),
-        Span::styled(s.host.hostname.clone(), Style::new().fg(theme::CYAN).bold()),
-        Span::styled(format!("  {}", s.host.os), Style::new().fg(theme::MUTED)),
-        Span::styled(format!("  {} {}", s.host.kernel, s.host.arch), Style::new().fg(theme::DIM)),
-        Span::styled("  up ", Style::new().fg(theme::DIM)),
-        Span::styled(fmt_duration(s.uptime), Style::new().fg(theme::GREEN)),
-        Span::styled("  load ", Style::new().fg(theme::DIM)),
+        Span::styled(s.host.hostname.clone(), Style::new().fg(theme::cyan()).bold()),
+        Span::styled(format!("  {}", s.host.os), Style::new().fg(theme::muted())),
+        Span::styled(format!("  {} {}", s.host.kernel, s.host.arch), Style::new().fg(theme::dim())),
+        Span::styled("  up ", Style::new().fg(theme::dim())),
+        Span::styled(fmt_duration(s.uptime), Style::new().fg(theme::green())),
+        Span::styled("  load ", Style::new().fg(theme::dim())),
     ];
     let ncores = s.ncores().max(1) as f64;
     for (i, l) in [s.load.0, s.load.1, s.load.2].into_iter().enumerate() {
@@ -65,21 +74,21 @@ fn draw_header(f: &mut Frame, app: &App, area: Rect) {
         }
         spans.push(Span::styled(format!("{l:.2}"), Style::new().fg(theme::heat(l / ncores * 100.0))));
     }
-    spans.push(Span::styled("  procs ", Style::new().fg(theme::DIM)));
-    spans.push(Span::styled(s.proc_count().to_string(), Style::new().fg(theme::PURPLE)));
+    spans.push(Span::styled("  procs ", Style::new().fg(theme::dim())));
+    spans.push(Span::styled(s.proc_count().to_string(), Style::new().fg(theme::purple())));
     f.render_widget(Paragraph::new(Line::from(spans)), top);
 
     let right = Line::from(vec![
         if app.paused {
-            Span::styled(" ⏸ PAUSED ", Style::new().fg(theme::HEADER_BG).bg(theme::YELLOW).bold())
+            Span::styled(" ⏸ PAUSED ", Style::new().fg(theme::header_bg()).bg(theme::yellow()).bold())
         } else {
-            Span::styled("● live", Style::new().fg(theme::GREEN))
+            Span::styled("● live", Style::new().fg(theme::green()))
         },
-        Span::styled(format!("  {}ms ", app.interval.as_millis()), Style::new().fg(theme::DIM)),
+        Span::styled(format!("  {}ms ", app.interval.as_millis()), Style::new().fg(theme::dim())),
         if app.is_root {
-            Span::styled(" root ", Style::new().fg(theme::HEADER_BG).bg(theme::RED).bold())
+            Span::styled(" root ", Style::new().fg(theme::header_bg()).bg(theme::red()).bold())
         } else {
-            Span::styled(" user ", Style::new().fg(theme::DIM))
+            Span::styled(" user ", Style::new().fg(theme::dim()))
         },
     ])
     .alignment(Alignment::Right);
@@ -90,7 +99,7 @@ fn draw_header(f: &mut Frame, app: &App, area: Rect) {
         .enumerate()
         .map(|(i, t)| {
             Line::from(vec![
-                Span::styled(format!("{}", i + 1), Style::new().fg(theme::DIM)),
+                Span::styled(format!("{}", i + 1), Style::new().fg(theme::dim())),
                 Span::raw(" "),
                 Span::raw(t.title()),
             ])
@@ -98,11 +107,27 @@ fn draw_header(f: &mut Frame, app: &App, area: Rect) {
         .collect();
     let tabs = Tabs::new(titles)
         .select(app.tab.index())
-        .style(Style::new().fg(theme::MUTED))
-        .highlight_style(Style::new().fg(theme::BLUE).bold().underlined())
-        .divider(Span::styled("│", Style::new().fg(theme::BORDER)))
+        .style(Style::new().fg(theme::muted()))
+        .highlight_style(Style::new().fg(theme::blue()).bold().underlined())
+        .divider(Span::styled("│", Style::new().fg(theme::border())))
         .padding(" ", " ");
-    f.render_widget(tabs, tabs_area);
+    // Health badges, right-aligned on the tab row, visible from every view.
+    let alerts = app.alerts();
+    let mut badges: Vec<Span> = Vec::new();
+    if alerts.is_empty() {
+        badges.push(Span::styled("✓ healthy ", Style::new().fg(theme::green())));
+    } else {
+        for (text, color) in alerts {
+            badges.push(Span::styled(format!(" {text} "), Style::new().fg(theme::header_bg()).bg(color).bold()));
+            badges.push(Span::raw(" "));
+        }
+    }
+    let bw: u16 = badges.iter().map(|s| s.width() as u16).sum();
+    let bw = bw.min(tabs_area.width / 2);
+    let [tabs_left, badge_area] =
+        Layout::horizontal([Constraint::Min(0), Constraint::Length(bw)]).areas(tabs_area);
+    f.render_widget(tabs, tabs_left);
+    f.render_widget(Paragraph::new(Line::from(badges)).alignment(Alignment::Right), badge_area);
 }
 
 fn hints(app: &App) -> Vec<(&'static str, &'static str)> {
@@ -129,7 +154,7 @@ fn hints(app: &App) -> Vec<(&'static str, &'static str)> {
     if matches!(app.tab, Tab::Processes | Tab::Sockets | Tab::Files) {
         h.push(("/", "filter"));
     }
-    h.extend([(":", "lsof query"), ("space", "pause"), ("?", "help"), ("q", "quit")]);
+    h.extend([(":", "lsof query"), ("T", "theme"), ("space", "pause"), ("?", "help"), ("q", "quit")]);
     h
 }
 
@@ -142,21 +167,21 @@ fn draw_footer(f: &mut Frame, app: &App, area: Rect) {
                 _ => &app.files_filter,
             };
             Line::from(vec![
-                Span::styled(" FILTER ", Style::new().fg(theme::HEADER_BG).bg(theme::YELLOW).bold()),
+                Span::styled(" FILTER ", Style::new().fg(theme::header_bg()).bg(theme::yellow()).bold()),
                 Span::raw(" "),
-                Span::styled(val.clone(), Style::new().fg(theme::FG)),
-                Span::styled("█", Style::new().fg(theme::YELLOW)),
-                Span::styled("   ↵ apply · esc clear", Style::new().fg(theme::DIM)),
+                Span::styled(val.clone(), Style::new().fg(theme::fg())),
+                Span::styled("█", Style::new().fg(theme::yellow())),
+                Span::styled("   ↵ apply · esc clear", Style::new().fg(theme::dim())),
             ])
         }
         Mode::Query => Line::from(vec![
-            Span::styled(" LSOF ", Style::new().fg(theme::HEADER_BG).bg(theme::PURPLE).bold()),
+            Span::styled(" LSOF ", Style::new().fg(theme::header_bg()).bg(theme::purple()).bold()),
             Span::raw(" "),
-            Span::styled(app.input.clone(), Style::new().fg(theme::FG)),
-            Span::styled("█", Style::new().fg(theme::PURPLE)),
+            Span::styled(app.input.clone(), Style::new().fg(theme::fg())),
+            Span::styled("█", Style::new().fg(theme::purple())),
             Span::styled(
                 "   1234=pid  :443=port  tcp:22  /path=who has it open  -u root -i=raw args",
-                Style::new().fg(theme::DIM),
+                Style::new().fg(theme::dim()),
             ),
         ]),
         _ => {
@@ -169,13 +194,49 @@ fn draw_footer(f: &mut Frame, app: &App, area: Rect) {
             }
             let mut spans = vec![Span::raw(" ")];
             for (k, d) in hints(app) {
-                spans.push(Span::styled(k, Style::new().fg(theme::BLUE).bold()));
-                spans.push(Span::styled(format!(" {d}  "), Style::new().fg(theme::DIM)));
+                spans.push(Span::styled(k, Style::new().fg(theme::blue()).bold()));
+                spans.push(Span::styled(format!(" {d}  "), Style::new().fg(theme::dim())));
             }
             Line::from(spans)
         }
     };
     f.render_widget(Paragraph::new(line), area);
+}
+
+fn draw_theme_picker(f: &mut Frame, app: &App, area: Rect) {
+    let n = theme::THEMES.len() as u16;
+    let r = centered(area, 58, n + 6);
+    f.render_widget(Clear, r);
+    let cur = theme::index();
+    let mut lines = vec![Line::raw("")];
+    for (i, t) in theme::THEMES.iter().enumerate() {
+        let sel = i == cur;
+        let mut spans = vec![
+            Span::styled(if sel { " ▶ " } else { "   " }, Style::new().fg(theme::blue())),
+            Span::styled(
+                format!("{:<18}", t.name),
+                if sel { Style::new().fg(theme::fg()).bold() } else { Style::new().fg(theme::muted()) },
+            ),
+        ];
+        // Swatches drawn in *that* theme's colours, whatever is active.
+        for c in [t.blue, t.purple, t.cyan, t.green, t.yellow, t.orange, t.red] {
+            spans.push(Span::styled("██", Style::new().fg(c)));
+        }
+        spans.push(Span::styled(" ▕", Style::new().fg(t.border)));
+        spans.push(Span::styled(" Aa ", Style::new().fg(t.fg).bg(t.bg)));
+        lines.push(Line::from(spans));
+    }
+    lines.push(Line::raw(""));
+    lines.push(Line::from(vec![
+        Span::styled("  ↑↓ preview · ↵ keep · esc cancel · b background ", Style::new().fg(theme::dim())),
+        Span::styled(if app.cfg.background { "on" } else { "off" }, Style::new().fg(theme::teal())),
+    ]));
+    f.render_widget(
+        Paragraph::new(lines)
+            .style(Style::new().bg(theme::bg()))
+            .block(panel("theme", theme::purple())),
+        r,
+    );
 }
 
 pub fn centered(area: Rect, w: u16, h: u16) -> Rect {
@@ -192,34 +253,34 @@ fn draw_signal_dialog(f: &mut Frame, app: &App, area: Rect) {
     let Some((pid, name)) = &app.signal_target else { return };
     let r = centered(area, 52, SIGNALS.len() as u16 + 5);
     f.render_widget(Clear, r);
-    let block = panel(format!("send signal → {name} ({pid})"), theme::RED);
+    let block = panel(format!("send signal → {name} ({pid})"), theme::red());
     let mut lines = vec![Line::raw("")];
     for (i, (sname, desc, _)) in SIGNALS.iter().enumerate() {
         let sel = i == app.signal_idx;
         let style = if sel {
-            Style::new().fg(theme::HEADER_BG).bg(theme::RED).bold()
+            Style::new().fg(theme::header_bg()).bg(theme::red()).bold()
         } else {
-            Style::new().fg(theme::FG)
+            Style::new().fg(theme::fg())
         };
         lines.push(Line::from(vec![
-            Span::styled(format!(" {} ", i + 1), Style::new().fg(theme::DIM)),
+            Span::styled(format!(" {} ", i + 1), Style::new().fg(theme::dim())),
             Span::styled(format!(" {sname:<8}"), style),
-            Span::styled(format!(" {desc}"), if sel { style } else { Style::new().fg(theme::MUTED) }),
+            Span::styled(format!(" {desc}"), if sel { style } else { Style::new().fg(theme::muted()) }),
         ]));
     }
     lines.push(Line::raw(""));
-    lines.push(Line::styled("  ↑↓ choose · ↵ send · esc cancel", Style::new().fg(theme::DIM)));
+    lines.push(Line::styled("  ↑↓ choose · ↵ send · esc cancel", Style::new().fg(theme::dim())));
     f.render_widget(Paragraph::new(lines).block(block), r);
 }
 
 fn draw_help(f: &mut Frame, area: Rect) {
-    let r = centered(area, 78, 34);
+    let r = centered(area, 78, 35);
     f.render_widget(Clear, r);
-    let sec = |t: &str| Line::styled(format!(" {t}"), Style::new().fg(theme::PURPLE).bold());
+    let sec = |t: &str| Line::styled(format!(" {t}"), Style::new().fg(theme::purple()).bold());
     let row = |k: &str, d: &str| {
         Line::from(vec![
-            Span::styled(format!("   {k:<16}"), Style::new().fg(theme::BLUE).bold()),
-            Span::styled(d.to_string(), Style::new().fg(theme::FG)),
+            Span::styled(format!("   {k:<16}"), Style::new().fg(theme::blue()).bold()),
+            Span::styled(d.to_string(), Style::new().fg(theme::fg())),
         ])
     };
     let lines = vec![
@@ -230,6 +291,7 @@ fn draw_help(f: &mut Frame, area: Rect) {
         row(":", "lsof query: 1234 · :443 · tcp:22 · /var/log/x · -u root -i"),
         row("space", "pause / resume sampling"),
         row("+ / -", "refresh interval ±250ms"),
+        row("T", "theme picker (live preview, b = background on/off)"),
         row("? / q", "help / quit"),
         sec("Processes"),
         row("c m p n u i o", "sort cpu · mem · pid · name · user · io · conns"),
@@ -247,14 +309,14 @@ fn draw_help(f: &mut Frame, area: Rect) {
         sec("Notes"),
         Line::styled(
             "   Run with sudo to see sockets & files of all users.",
-            Style::new().fg(theme::MUTED),
+            Style::new().fg(theme::muted()),
         ),
         Line::raw(""),
-        Line::styled("   press any key to close", Style::new().fg(theme::DIM)),
+        Line::styled("   press any key to close", Style::new().fg(theme::dim())),
     ];
     f.render_widget(
         Paragraph::new(lines)
-            .block(panel("help", theme::BLUE))
+            .block(panel("help", theme::blue()))
             .wrap(Wrap { trim: false }),
         r,
     );
@@ -294,7 +356,7 @@ mod tests {
             s.took = took;
             s.updated = Some(std::time::Instant::now());
         }
-        let mut app = App::new(Sampler::new(), sockets, files.clone(), Duration::from_secs(1), Tab::Overview);
+        let mut app = App::new(Sampler::new(), sockets, files.clone(), Duration::from_secs(1), Tab::Overview, Default::default());
         app.run_query(Query::Pid(std::process::id()));
         std::thread::sleep(Duration::from_millis(1500));
         app.tick();
@@ -313,6 +375,16 @@ mod tests {
             app.show_help = true;
             term.draw(|f| super::draw(f, &mut app)).unwrap();
             app.show_help = false;
+            app.mode = crate::app::Mode::Theme;
+            for i in 0..crate::theme::THEMES.len() {
+                crate::theme::set(i);
+                term.draw(|f| super::draw(f, &mut app)).unwrap();
+                if let (Some(d), 180, 0) = (&dir, w, i) {
+                    std::fs::write(format!("{d}/ThemePicker.txt"), dump(&term)).unwrap();
+                }
+            }
+            crate::theme::set(0);
+            app.mode = crate::app::Mode::Normal;
         }
     }
 }
@@ -344,7 +416,7 @@ mod bench {
         let (e, _) = lsof::run(&["-nP".into(), "-i".into()]).unwrap();
         sockets.lock().unwrap().entries = e;
 
-        let mut app = App::new(Sampler::new(), sockets, files, Duration::from_secs(1), Tab::Overview);
+        let mut app = App::new(Sampler::new(), sockets, files, Duration::from_secs(1), Tab::Overview, Default::default());
         std::thread::sleep(Duration::from_millis(300));
         let t = Instant::now();
         for _ in 0..n {

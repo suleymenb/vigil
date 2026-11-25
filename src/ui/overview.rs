@@ -46,12 +46,12 @@ fn draw_cpu(f: &mut Frame, app: &App, area: Rect) {
     }) {
         title.push_str(&format!("  {:.0}°C", t.temp));
     }
-    let mut block = panel(title, theme::BLUE);
+    let mut block = panel(title, theme::blue());
     if s.cpu_freq > 0 {
         block = block.title_bottom(
             Line::from(vec![
-                Span::styled(" freq ", Style::new().fg(theme::DIM)),
-                Span::styled(format!("{:.2} GHz ", s.cpu_freq as f64 / 1000.0), Style::new().fg(theme::CYAN)),
+                Span::styled(" freq ", Style::new().fg(theme::dim())),
+                Span::styled(format!("{:.2} GHz ", s.cpu_freq as f64 / 1000.0), Style::new().fg(theme::cyan())),
             ])
             .right_aligned(),
         );
@@ -72,7 +72,7 @@ fn draw_cpu(f: &mut Frame, app: &App, area: Rect) {
     let [label, graph] =
         Layout::vertical([Constraint::Length(1), Constraint::Min(1)]).areas(graph_area);
     let l = Line::from(vec![
-        Span::styled(" total ", Style::new().fg(theme::DIM)),
+        Span::styled(" total ", Style::new().fg(theme::dim())),
         Span::styled(format!("{total:5.1}%"), Style::new().fg(theme::heat(total)).bold()),
         Span::raw("  "),
     ]);
@@ -95,7 +95,7 @@ fn draw_cpu(f: &mut Frame, app: &App, area: Rect) {
             let v = h.last();
             let spark_w = col_w.saturating_sub(20).min(10);
             let bar_w = col_w.saturating_sub(13 + spark_w).max(3);
-            let mut spans = vec![Span::styled(format!(" C{i:<3}"), Style::new().fg(theme::MUTED))];
+            let mut spans = vec![Span::styled(format!(" C{i:<3}"), Style::new().fg(theme::muted()))];
             spans.extend(meter(v, bar_w));
             spans.push(Span::styled(format!("{v:4.0}% "), Style::new().fg(theme::heat(v))));
             spans.push(Span::styled(spark(&h.tail(spark_w), 100.0), Style::new().fg(theme::heat(v))));
@@ -107,7 +107,7 @@ fn draw_cpu(f: &mut Frame, app: &App, area: Rect) {
 
 fn draw_mem(f: &mut Frame, app: &App, area: Rect) {
     let s = &app.sampler;
-    let block = panel("memory", theme::PURPLE);
+    let block = panel("memory", theme::purple());
     let inner = block.inner(area);
     f.render_widget(block, area);
     let mem_pct = s.mem_hist.last();
@@ -115,12 +115,12 @@ fn draw_mem(f: &mut Frame, app: &App, area: Rect) {
     let bw = (inner.width as usize).saturating_sub(26).max(5);
 
     let line = |name: &str, used: u64, total: u64, pct: f64| {
-        let mut sp = vec![Span::styled(format!(" {name:<5}"), Style::new().fg(theme::MUTED))];
+        let mut sp = vec![Span::styled(format!(" {name:<5}"), Style::new().fg(theme::muted()))];
         sp.extend(meter(pct, bw));
         sp.push(Span::styled(format!(" {pct:3.0}% "), Style::new().fg(theme::heat(pct)).bold()));
         sp.push(Span::styled(
             format!("{}/{}", fmt_bytes(used), fmt_bytes(total)),
-            Style::new().fg(theme::FG),
+            Style::new().fg(theme::fg()),
         ));
         Line::from(sp)
     };
@@ -129,7 +129,7 @@ fn draw_mem(f: &mut Frame, app: &App, area: Rect) {
         line("ram", s.mem_used, s.mem_total, mem_pct),
         line("swap", s.swap_used, s.swap_total, swap_pct),
         Line::from(
-            [vec![Span::raw(" ")], kv("available", fmt_bytes(s.mem_avail), theme::GREEN)].concat(),
+            [vec![Span::raw(" ")], kv("available", fmt_bytes(s.mem_avail), theme::green())].concat(),
         ),
     ];
     f.render_widget(Paragraph::new(lines), text);
@@ -138,7 +138,7 @@ fn draw_mem(f: &mut Frame, app: &App, area: Rect) {
         AreaGraph {
             data: &data,
             max: 100.0,
-            color: GraphColor::Gradient(theme::PURPLE, theme::PINK),
+            color: GraphColor::Gradient(theme::purple(), theme::pink()),
             inverted: false,
         },
         graph,
@@ -151,10 +151,10 @@ fn draw_net(f: &mut Frame, app: &App, area: Rect) {
     let rx = s.rx_hist.tail(w);
     let tx = s.tx_hist.tail(w);
     let max = rx.iter().chain(tx.iter()).copied().fold(1024.0, f64::max) * 1.1;
-    let block = panel("network", theme::CYAN).title(
+    let block = panel("network", theme::cyan()).title(
         Line::from(vec![
-            Span::styled("scale ", Style::new().fg(theme::DIM)),
-            Span::styled(format!("{} ", fmt_rate(max)), Style::new().fg(theme::MUTED)),
+            Span::styled("scale ", Style::new().fg(theme::dim())),
+            Span::styled(format!("{} ", fmt_rate(max)), Style::new().fg(theme::muted())),
         ])
         .right_aligned(),
     );
@@ -167,23 +167,23 @@ fn draw_net(f: &mut Frame, app: &App, area: Rect) {
     ])
     .areas(inner);
     let l = Line::from(vec![
-        Span::styled(" ▼ rx ", Style::new().fg(theme::GREEN).bold()),
-        Span::styled(format!("{:<12}", fmt_rate(s.rx_rate)), Style::new().fg(theme::FG)),
-        Span::styled(" ▲ tx ", Style::new().fg(theme::ORANGE).bold()),
-        Span::styled(format!("{:<12}", fmt_rate(s.tx_rate)), Style::new().fg(theme::FG)),
-        Span::styled(" peak ", Style::new().fg(theme::DIM)),
+        Span::styled(" ▼ rx ", Style::new().fg(theme::green()).bold()),
+        Span::styled(format!("{:<12}", fmt_rate(s.rx_rate)), Style::new().fg(theme::fg())),
+        Span::styled(" ▲ tx ", Style::new().fg(theme::orange()).bold()),
+        Span::styled(format!("{:<12}", fmt_rate(s.tx_rate)), Style::new().fg(theme::fg())),
+        Span::styled(" peak ", Style::new().fg(theme::dim())),
         Span::styled(
             format!("{} / {}", fmt_rate(s.rx_hist.max()), fmt_rate(s.tx_hist.max())),
-            Style::new().fg(theme::MUTED),
+            Style::new().fg(theme::muted()),
         ),
     ]);
     f.render_widget(Paragraph::new(l), lbl);
     f.render_widget(
-        AreaGraph { data: &rx, max, color: GraphColor::Gradient(theme::TEAL, theme::GREEN), inverted: false },
+        AreaGraph { data: &rx, max, color: GraphColor::Gradient(theme::teal(), theme::green()), inverted: false },
         down,
     );
     f.render_widget(
-        AreaGraph { data: &tx, max, color: GraphColor::Gradient(theme::YELLOW, theme::ORANGE), inverted: true },
+        AreaGraph { data: &tx, max, color: GraphColor::Gradient(theme::yellow(), theme::orange()), inverted: true },
         up,
     );
 }
@@ -206,12 +206,12 @@ fn draw_top_procs(f: &mut Frame, app: &App, area: Rect) {
         .map(|p| {
             let norm = p.cpu as f64 / ncores;
             Row::new(vec![
-                Cell::from(p.pid.to_string()).style(Style::new().fg(theme::DIM)),
-                Cell::from(truncate(&p.name, 32)).style(Style::new().fg(theme::FG)),
-                Cell::from(truncate(&p.user, 10)).style(Style::new().fg(theme::MUTED)),
+                Cell::from(p.pid.to_string()).style(Style::new().fg(theme::dim())),
+                Cell::from(truncate(&p.name, 32)).style(Style::new().fg(theme::fg())),
+                Cell::from(truncate(&p.user, 10)).style(Style::new().fg(theme::muted())),
                 Cell::from(Line::from(meter(norm.max(p.cpu as f64 / 4.0), 5))),
                 Cell::from(format!("{:5.1}", p.cpu)).style(Style::new().fg(theme::heat(p.cpu as f64))),
-                Cell::from(fmt_bytes(p.mem)).style(Style::new().fg(theme::PURPLE)),
+                Cell::from(fmt_bytes(p.mem)).style(Style::new().fg(theme::purple())),
             ])
         })
         .collect();
@@ -228,9 +228,9 @@ fn draw_top_procs(f: &mut Frame, app: &App, area: Rect) {
     )
     .header(
         Row::new(["PID", "NAME", "USER", "", "CPU%", "MEM"])
-            .style(Style::new().fg(theme::BLUE).bold()),
+            .style(Style::new().fg(theme::blue()).bold()),
     )
-    .block(panel("top processes", theme::GREEN));
+    .block(panel("top processes", theme::green()));
     f.render_widget(t, area);
 }
 
@@ -248,21 +248,21 @@ fn draw_listening(f: &mut Frame, app: &App, area: Rect) {
     }
     drop(store);
     let title = format!("listening ports ({})", ports.len());
-    let block = panel(title, theme::GREEN).title_bottom(
-        Line::styled(" lsof -i ", Style::new().fg(theme::DIM)).right_aligned(),
+    let block = panel(title, theme::green()).title_bottom(
+        Line::styled(" lsof -i ", Style::new().fg(theme::dim())).right_aligned(),
     );
     if let Some(e) = err {
-        f.render_widget(Paragraph::new(Line::styled(format!(" {e}"), Style::new().fg(theme::RED))).block(block), area);
+        f.render_widget(Paragraph::new(Line::styled(format!(" {e}"), Style::new().fg(theme::red()))).block(block), area);
         return;
     }
     let rows: Vec<Row> = ports
         .iter()
         .map(|((port, proto), (cmd, pid))| {
             Row::new(vec![
-                Cell::from(port.to_string()).style(Style::new().fg(theme::GREEN).bold()),
-                Cell::from(proto.clone()).style(Style::new().fg(theme::CYAN)),
-                Cell::from(truncate(cmd, 18)).style(Style::new().fg(theme::FG)),
-                Cell::from(pid.to_string()).style(Style::new().fg(theme::DIM)),
+                Cell::from(port.to_string()).style(Style::new().fg(theme::green()).bold()),
+                Cell::from(proto.clone()).style(Style::new().fg(theme::cyan())),
+                Cell::from(truncate(cmd, 18)).style(Style::new().fg(theme::fg())),
+                Cell::from(pid.to_string()).style(Style::new().fg(theme::dim())),
             ])
         })
         .collect();
@@ -270,7 +270,7 @@ fn draw_listening(f: &mut Frame, app: &App, area: Rect) {
         rows,
         [Constraint::Length(6), Constraint::Length(5), Constraint::Min(8), Constraint::Length(7)],
     )
-    .header(Row::new(["PORT", "PROTO", "PROCESS", "PID"]).style(Style::new().fg(theme::BLUE).bold()))
+    .header(Row::new(["PORT", "PROTO", "PROCESS", "PID"]).style(Style::new().fg(theme::blue()).bold()))
     .block(block);
     f.render_widget(t, area);
 }
@@ -288,29 +288,29 @@ fn draw_side(f: &mut Frame, app: &App, area: Rect) {
         }
     }
     let mut v: Vec<_> = states.into_iter().collect();
-    v.sort_by(|a, b| b.1.cmp(&a.1));
+    v.sort_by_key(|e| std::cmp::Reverse(e.1));
     let lines: Vec<Line> = v
         .iter()
         .take(6)
         .map(|(k, n)| {
             Line::from(vec![
                 Span::styled(format!(" {k:<12}"), Style::new().fg(theme::tcp_state(k))),
-                Span::styled(format!("{n:>5}"), Style::new().fg(theme::FG).bold()),
+                Span::styled(format!("{n:>5}"), Style::new().fg(theme::fg()).bold()),
             ])
         })
         .collect();
-    f.render_widget(Paragraph::new(lines).block(panel("connections", theme::CYAN)), conns);
+    f.render_widget(Paragraph::new(lines).block(panel("connections", theme::cyan())), conns);
 
     // Disks.
-    let block = panel("disks", theme::YELLOW);
+    let block = panel("disks", theme::yellow());
     let inner = block.inner(disks);
     f.render_widget(block, disks);
     let bw = (inner.width as usize).saturating_sub(14).max(3);
     let mut lines = Vec::new();
     for d in s.disks_info.iter().filter(|d| d.total > 0) {
         lines.push(Line::from(vec![
-            Span::styled(format!(" {}", truncate(&d.mount, (inner.width as usize).saturating_sub(8))), Style::new().fg(theme::FG)),
-            Span::styled(format!(" {}", fmt_bytes(d.total)), Style::new().fg(theme::DIM)),
+            Span::styled(format!(" {}", truncate(&d.mount, (inner.width as usize).saturating_sub(8))), Style::new().fg(theme::fg())),
+            Span::styled(format!(" {}", fmt_bytes(d.total)), Style::new().fg(theme::dim())),
         ]));
         let mut sp = vec![Span::raw(" ")];
         sp.extend(meter_solid(d.pct(), bw, theme::heat(d.pct())));

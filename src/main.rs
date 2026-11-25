@@ -3,6 +3,7 @@
 
 mod app;
 mod collect;
+mod config;
 mod theme;
 mod ui;
 mod util;
@@ -23,21 +24,37 @@ use collect::system::Sampler;
 #[derive(Parser, Debug)]
 #[command(name = "vigil", version, about = "Modern terminal system monitor with lsof integration")]
 struct Args {
-    /// Sampling interval in milliseconds
-    #[arg(short, long, default_value_t = 1000)]
-    interval: u64,
+    /// Sampling interval in milliseconds [config: interval_ms, default 1000]
+    #[arg(short, long)]
+    interval: Option<u64>,
 
-    /// How often the background `lsof -i` socket scan runs, in seconds
-    #[arg(long, default_value_t = 3)]
-    lsof_interval: u64,
+    /// Seconds between background socket scans [config: lsof_interval_s, default 3]
+    #[arg(long)]
+    lsof_interval: Option<u64>,
 
-    /// Start on a view: overview, processes, network, sockets, files, storage
+    /// Start view: overview, processes, network, sockets, files, storage
     #[arg(short, long)]
     tab: Option<String>,
 
     /// Run an lsof query at startup (same syntax as the `:` prompt, e.g. ":443" or "1234")
     #[arg(short, long)]
     query: Option<String>,
+
+    /// Colour theme (see --list-themes), or "auto"
+    #[arg(long)]
+    theme: Option<String>,
+
+    /// List available themes and exit
+    #[arg(long)]
+    list_themes: bool,
+
+    /// Use a specific config file instead of ~/.config/vigil/config.toml
+    #[arg(long, value_name = "PATH")]
+    config: Option<std::path::PathBuf>,
+
+    /// Don't write settings back to the config file on quit
+    #[arg(long)]
+    no_save: bool,
 
     /// Disable mouse support
     #[arg(long)]
@@ -50,37 +67,61 @@ struct Args {
 
 fn main() -> Result<()> {
     let args = Args::parse();
-    let tab = args.tab.as_deref().and_then(Tab::from_name).unwrap_or(Tab::Overview);
+    if args.list_themes {
+        for t in theme::THEMES {
+            println!("{}", t.name);
+        }
+        return Ok(());
+    }
+
+    let (cfg, cfg_warning) = config::load(args.config.as_ref());
+
+    let theme_name = args.theme.clone().unwrap_or_else(|| cfg.theme.clone());
+    let theme_idx = if theme_name.eq_ignore_ascii_case("auto") {
+        theme::auto_default()
+    } else {
+        theme::by_name(&theme_name).unwrap_or_else(theme::auto_default)
+    };
+    theme::set(theme_idx);
+
+    let tab = args
+        .tab
+        .as_deref()
+        .or(Some(cfg.start_tab.as_str()))
+        .and_then(Tab::from_name)
+        .unwrap_or(Tab::Overview);
+    let interval = args.interval.unwrap_or(cfg.interval_ms).clamp(250, 10_000);
+    let lsof_interval = args.lsof_interval.unwrap_or(cfg.lsof_interval_s).max(1);
+    let mouse = cfg.mouse && !args.no_mouse;
 
     let sockets = Arc::new(Mutex::new(SocketStore::default()));
     let files = Arc::new(Mutex::new(FilesStore::default()));
-    lsof::spawn_socket_worker(
-        sockets.clone(),
-        Duration::from_secs(args.lsof_interval.max(1)),
-        args.lsof_sockets,
-    );
+    lsof::spawn_socket_worker(sockets.clone(), Duration::from_secs(lsof_interval), args.lsof_sockets);
 
     let sampler = Sampler::new();
-    let mut app = App::new(
-        sampler,
-        sockets,
-        files,
-        Duration::from_millis(args.interval.clamp(250, 10_000)),
-        tab,
-    );
+    let mut app = App::new(sampler, sockets, files, Duration::from_millis(interval), tab, cfg);
     if let Some(q) = args.query.as_deref().and_then(Query::parse) {
         app.run_query(q);
     }
+    if let Some(w) = cfg_warning {
+        app.warn(w);
+    }
 
     let mut terminal = ratatui::init();
-    if !args.no_mouse {
+    if mouse {
         let _ = execute!(stdout(), EnableMouseCapture);
     }
     let res = run(&mut terminal, &mut app);
-    if !args.no_mouse {
+    if mouse {
         let _ = execute!(stdout(), DisableMouseCapture);
     }
     ratatui::restore();
+
+    if !args.no_save {
+        if let Err(e) = config::save(&app.snapshot_config(), args.config.as_ref()) {
+            eprintln!("vigil: could not save config: {e}");
+        }
+    }
     res
 }
 
