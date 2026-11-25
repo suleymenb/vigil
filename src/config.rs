@@ -96,6 +96,10 @@ pub struct Alerts {
     pub throttle_pct: f64,
     /// Badge for failed systemd units / launchd jobs.
     pub failed_units: bool,
+    /// Badge for processes still running replaced binaries or libraries.
+    pub needs_restart: bool,
+    /// Failed SSH logins in the last hour (Linux).
+    pub ssh_failures_per_hour: u32,
 }
 
 impl Default for Config {
@@ -142,6 +146,8 @@ impl Default for Alerts {
             cert_days: 21.0,
             throttle_pct: 25.0,
             failed_units: true,
+            needs_restart: true,
+            ssh_failures_per_hour: 100,
         }
     }
 }

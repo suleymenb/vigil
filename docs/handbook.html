@@ -147,7 +147,7 @@ footer { margin-top: 72px; color: var(--muted); font-size: 13px; }
 </style>
 
 <header class="hero col">
-  <span class="eyebrow">Field handbook · v0.4</span>
+  <span class="eyebrow">Field handbook · v0.5</span>
   <h1><span class="mark">◆</span> vigil</h1>
   <p class="lead">A Rust terminal monitor for people who run servers and debug networks. Processes, sockets and open files live in one screen, with <code>lsof</code> built in. This handbook shows how it works and how to solve the usual incidents with it.</p>
   <div class="cmds">
@@ -160,7 +160,7 @@ footer { margin-top: 72px; color: var(--muted); font-size: 13px; }
 <div class="wide">
   <div class="term-wrap" role="img" aria-label="Example of vigil's Overview screen on a web server">
     <div class="term"><div class="bar"><i></i><i></i><i></i></div><pre><span class="badge"> ◆ vigil </span> <span class="c w">prod-web-01</span>  <span class="m">Ubuntu 24.04.1 LTS</span>  <span class="d">6.8.0-45-generic x86_64</span>  <span class="d">up</span> <span class="g">41d 06:12</span>  <span class="d">load</span> <span class="g">1.84</span> <span class="g">1.62</span> <span class="g">1.40</span>  <span class="d">procs</span> <span class="p">214</span>        <span class="g">● live</span>  <span class="d">1000ms</span> <span class="sig"> root </span>
- <span class="d">1</span> <span class="b"><u>Overview</u></span> <span class="bd">│</span> <span class="d">2</span> <span class="m">Procs</span> <span class="bd">│</span> <span class="d">3</span> <span class="m">Network</span> <span class="bd">│</span> <span class="d">4</span> <span class="m">Sockets</span> <span class="bd">│</span> <span class="d">5</span> <span class="m">Files</span> <span class="bd">│</span> <span class="d">6</span> <span class="m">Storage</span> <span class="bd">│</span> <span class="d">7</span> <span class="m">Routes</span> <span class="bd">│</span> <span class="d">8</span> <span class="m">Probes</span> <span class="bd">│</span> <span class="d">9</span> <span class="m">Firewall</span> <span class="bd">│</span> <span class="d">0</span> <span class="m">Containers</span> <span class="bd">│</span> <span class="d">S</span> <span class="m">System</span>   <span class="g">✓ healthy</span>
+ <span class="d">1</span> <span class="b"><u>Overview</u></span><span class="bd">│</span><span class="d">2</span> <span class="m">Procs</span><span class="bd">│</span><span class="d">3</span> <span class="m">Network</span><span class="bd">│</span><span class="d">4</span> <span class="m">Sockets</span><span class="bd">│</span><span class="d">5</span> <span class="m">Files</span><span class="bd">│</span><span class="d">6</span> <span class="m">Storage</span><span class="bd">│</span><span class="d">7</span> <span class="m">Routes</span><span class="bd">│</span><span class="d">8</span> <span class="m">Probes</span><span class="bd">│</span><span class="d">9</span> <span class="m">Firewall</span><span class="bd">│</span><span class="d">0</span> <span class="m">Containers</span><span class="bd">│</span><span class="d">S</span> <span class="m">System</span><span class="bd">│</span><span class="d">U</span> <span class="m">Users</span>  <span class="g">✓ healthy</span>
 <span class="bd">╭</span> <span class="b w">cpu  AMD EPYC 7763  8c/16t  54°C</span> <span class="bd">──────────────────────────────────────────────────────────────────────────────────────╮</span>
 <span class="bd">│</span> <span class="d">total</span> <span class="y w"> 38.2%</span>  <span class="g">■■■■■■■■■■</span><span class="y">■■■■</span><span class="bd">■■■■■■■■■■■■■■■■■■■■■■■■■■</span>         <span class="m">C0 </span><span class="g">■■■</span><span class="y">■</span><span class="bd">■■■■</span><span class="y">  44% </span><span class="y">▃▄▅▅▆▄▄▅</span>   <span class="m">C8 </span><span class="g">■■</span><span class="bd">■■■■■■</span><span class="g">  21% </span><span class="g">▂▂▃▂▂▃▂▂</span> <span class="bd">│</span>
 <span class="bd">│</span>                                                       <span class="y">▄▅</span>         <span class="m">C1 </span><span class="g">■■■</span><span class="bd">■■■■■</span><span class="g">  33% </span><span class="g">▂▃▃▄▃▃▃▄</span>   <span class="m">C9 </span><span class="g">■■■</span><span class="bd">■■■■■</span><span class="g">  29% </span><span class="g">▂▃▂▃▃▃▂▃</span> <span class="bd">│</span>
@@ -277,6 +277,8 @@ footer { margin-top: 72px; color: var(--muted); font-size: 13px; }
     <div class="view"><span class="num">9 · Firewall</span><h3>Rule hit counters</h3><p>nftables, iptables or pf rules with packets, bytes and live packets per second, so you see which rule is dropping traffic right now.</p><span class="keys"><kbd>z</kbd> hits only · <kbd>s</kbd> sort by rate</span></div>
     <div class="view"><span class="num">0 · Containers</span><h3>cgroup v2, no daemon needed</h3><p>CPU against its limit, <b>throttling</b>, memory against its limit, <b>OOM kills</b>, I/O and network per container. Docker, containerd/Kubernetes, CRI-O and Podman.</p><span class="keys">Linux, root for every container.</span></div>
     <div class="view"><span class="num">S · System</span><h3>Services, journal, kernel events</h3><p>systemd units with failed and restarting ones on top, the journal of the selected unit, and kernel events: OOM kills, link flaps, NIC resets, segfaults, I/O errors.</p><span class="keys"><kbd>e</kbd> switch pane · <kbd>↵</kbd> reload journal</span></div>
+    <div class="view"><span class="num">U · Users</span><h3>Who is on this machine</h3><p>Logged-in sessions with source address, idle time and what they run; failed SSH logins in the last hour per source with the usernames tried; accepted logins.</p><span class="keys">Failed logins need the journal (Linux, root).</span></div>
+    <div class="view"><span class="num">↵ · Inspector</span><h3>Everything about one process</h3><p>Command, working directory, parents and children, unit, container, cgroup; two-minute graphs of CPU, memory and open fds with a trend; sockets with RTT, open files, the unit's journal and the environment with secrets hidden.</p><span class="keys"><kbd>↵</kbd> on a process · <kbd>i</kbd> on a socket · <kbd>v</kbd> journal ⇄ env</span></div>
     <div class="view"><span class="num">6 · Storage</span><h3>Disks, I/O and temperatures</h3><p>Space <b>and inodes</b> per filesystem, latency and utilisation per disk device (iostat), which processes are reading or writing right now, and sensors.</p><span class="keys">Sensors refresh every 2 s on this view.</span></div>
   </div>
 </div>
@@ -307,7 +309,7 @@ footer { margin-top: 72px; color: var(--muted); font-size: 13px; }
   </table></div>
 
   <h2 id="playbooks">Playbooks</h2>
-  <p class="lead" style="margin-top:12px">Common incidents, each with the symptom, the keys you press and why it works.</p>
+  <p class="lead" style="margin-top:12px">Common incidents, each with the symptom, the keys you press and why it works. Everywhere: <kbd>y</kbd> copies the selected value, <kbd>E</kbd> exports the table to CSV, and you can click tabs, rows and column headers.</p>
   <div class="tabs" role="tablist" aria-label="Playbook category">
     <button role="tab" id="tab-devops" aria-selected="true" aria-controls="pane-devops">DevOps &amp; sysadmin</button>
     <button role="tab" id="tab-net" aria-selected="false" aria-controls="pane-net">Network engineering</button>
@@ -317,6 +319,15 @@ footer { margin-top: 72px; color: var(--muted); font-size: 13px; }
 <div class="wide">
   <section id="pane-devops" role="tabpanel" aria-labelledby="tab-devops">
     <div class="plays">
+      <article class="play"><h3>After a security update</h3><p class="sym">You ran <code>apt upgrade</code>; the <span class="mono" style="color:var(--warn)">NEEDS RESTART</span> badge is on.</p>
+        <ol><li>The badge counts processes still running a replaced binary or library (for example the old <code>libssl.so.3</code>).</li><li><kbd>2</kbd>, select one, <kbd>↵</kbd>: the inspector says what was replaced and which unit owns it.</li><li><code>systemctl restart</code> that unit; the badge drops within two minutes.</li></ol>
+        <p class="why">A patched library on disk does nothing for a process that loaded the old one. Until it restarts, it is still vulnerable.</p></article>
+      <article class="play"><h3>A slow leak</h3><p class="sym">A service gets slower over the day.</p>
+        <ol><li><kbd>2</kbd>, select it, <kbd>↵</kbd> for the inspector.</li><li>Watch the memory and open-fd graphs: a trend like <code>+38 % in 2 min</code> under steady load is a leak.</li><li><kbd>v</kbd> shows its environment; the journal shows what it was doing.</li></ol>
+        <p class="why">A single number never shows a leak. A line that only goes up does.</p></article>
+      <article class="play"><h3>What did my deploy change?</h3><p class="sym">Something feels different after a release.</p>
+        <ol><li>Before: <code>vigil report -f json -o before.json</code></li><li>Deploy.</li><li>After: <code>vigil report --diff before.json</code></li></ol>
+        <p class="why">The diff lists new findings, ports that opened or closed, services that failed or recovered, containers that came or went, and memory, disk and connection shifts. Paste it into the change ticket.</p></article>
       <article class="play"><h3>"Too many open files"</h3><p class="sym">A service starts refusing connections; the <span class="mono" style="color:var(--bad)">FDS</span> badge is on.</p>
         <ol><li><kbd>2</kbd> <kbd>e</kbd> sorts processes by open file descriptors.</li><li>The detail pane shows <code>open/limit (%)</code> for the selected process.</li><li><kbd>↵</kbd> lists its descriptors: thousands of the same socket or file means a leak.</li></ol>
         <p class="why">Fix the leak, or raise <code>LimitNOFILE</code> in the unit. A count that only grows over time is a leak; raising the limit just delays the outage.</p></article>
@@ -358,6 +369,9 @@ footer { margin-top: 72px; color: var(--muted); font-size: 13px; }
 
   <section id="pane-net" role="tabpanel" aria-labelledby="tab-net" hidden>
     <div class="plays">
+      <article class="play"><h3>Who is on the box?</h3><p class="sym">Unexpected load, or a security question.</p>
+        <ol><li><kbd>U</kbd>: logged-in sessions with source address and what they run. Public addresses are highlighted.</li><li>Below: failed SSH logins in the last hour per source and the usernames tried.</li><li><kbd>y</kbd> copies an address for your firewall or fail2ban.</li></ol>
+        <p class="why">Hundreds of attempts from one address with users like root, admin and test is a password-guessing bot. Make sure password login is off.</p></article>
       <article class="play"><h3>Where on the path is the loss?</h3><p class="sym">A probe shows loss or jitter to an external target.</p>
         <ol><li><kbd>8</kbd>, select the probe, press <kbd>t</kbd>.</li><li>The path appears hop by hop with loss and latency (mtr, or traceroute).</li><li>Loss that starts at one hop and continues to the end is real; loss at a single middle hop is usually ICMP rate limiting.</li></ol>
         <p class="why">This separates your network, your provider and the far end in one look.</p></article>
@@ -592,7 +606,7 @@ footer { margin-top: 72px; color: var(--muted); font-size: 13px; }
   </table></div>
 
   <h2 id="roadmap">Roadmap</h2>
-  <p style="margin-top:12px">What comes next. v0.4 shipped containers, services and the journal, kernel events, fd/port/inode exhaustion, disk latency, HTTPS probes with certificate expiry and path tracing.</p>
+  <p style="margin-top:12px">What comes next. v0.5 shipped the process inspector with history graphs, needs-restart detection, users and SSH logins, copy/export/mouse and report diffs. v0.4 shipped containers, services and the journal, kernel events, fd/port/inode exhaustion, disk latency, HTTPS probes with certificate expiry and path tracing.</p>
   <div class="road">
     <div class="item"><span class="pri p2">Then</span><div><h3>UDP and QUIC bandwidth</h3><p>Per-flow byte counters for UDP need eBPF; TCP is covered by sock_diag today.</p></div></div>
     <div class="item"><span class="pri p3">Later</span><div><h3>Custom themes in the config file</h3><p>Define your own palette in <code>config.toml</code>.</p></div></div>
@@ -613,7 +627,9 @@ footer { margin-top: 72px; color: var(--muted); font-size: 13px; }
       <dt><kbd>R</kbd></dt><dd>write a report</dd>
       <dt><kbd>N</kbd></dt><dd>reverse DNS on/off</dd>
       <dt><kbd>7</kbd> <kbd>8</kbd> <kbd>9</kbd></dt><dd>routes · probes · firewall</dd>
-      <dt><kbd>0</kbd> <kbd>S</kbd></dt><dd>containers · system</dd>
+      <dt><kbd>0</kbd> <kbd>S</kbd> <kbd>U</kbd></dt><dd>containers · system · users</dd>
+      <dt><kbd>y</kbd></dt><dd>copy selected value</dd>
+      <dt><kbd>E</kbd></dt><dd>export table to CSV</dd>
       <dt><kbd>space</kbd></dt><dd>pause</dd>
       <dt><kbd>+</kbd> <kbd>-</kbd></dt><dd>interval ±250 ms</dd>
       <dt><kbd>?</kbd> <kbd>q</kbd></dt><dd>help / quit</dd></dl></div>
@@ -622,7 +638,8 @@ footer { margin-top: 72px; color: var(--muted); font-size: 13px; }
       <dt><kbd>n</kbd> <kbd>u</kbd></dt><dd>sort name / user</dd>
       <dt><kbd>i</kbd> <kbd>o</kbd> <kbd>w</kbd> <kbd>e</kbd></dt><dd>sort disk io / sockets / net / fds</dd>
       <dt><kbd>r</kbd> <kbd>t</kbd></dt><dd>reverse / process tree</dd>
-      <dt><kbd>↵</kbd> <kbd>f</kbd></dt><dd>open files (lsof -p)</dd>
+      <dt><kbd>↵</kbd></dt><dd>inspector</dd>
+      <dt><kbd>f</kbd></dt><dd>open files (lsof -p)</dd>
       <dt><kbd>x</kbd> <kbd>K</kbd></dt><dd>send signal</dd></dl></div>
     <div><h3>Sockets</h3><dl>
       <dt><kbd>l</kbd></dt><dd>LISTEN only</dd>

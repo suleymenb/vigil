@@ -17,7 +17,7 @@ use sysinfo::{
     UpdateKind, Users,
 };
 
-use crate::util::History;
+use crate::util::{History, MiniHist};
 
 pub const HISTORY: usize = 600;
 
@@ -168,6 +168,27 @@ pub struct TempInfo {
     pub critical: Option<f32>,
 }
 
+/// Per-process detail for the inspector, collected on demand.
+#[derive(Clone, Debug, Default)]
+pub struct DeepInfo {
+    pub cwd: String,
+    pub root: String,
+    pub environ: Vec<(String, String)>,
+    pub threads: Option<u64>,
+    pub cgroup: String,
+    pub unit: Option<String>,
+    pub container: Option<String>,
+}
+
+/// Environment variable names whose values are hidden in the inspector.
+pub fn is_secret_env(name: &str) -> bool {
+    let n = name.to_ascii_uppercase();
+    ["KEY", "SECRET", "TOKEN", "PASS", "AUTH", "CREDENTIAL", "PRIVATE", "COOKIE", "SESSION", "DSN"]
+        .iter()
+        .any(|w| n.contains(w))
+        || n.ends_with("_URL") && n.contains("DATABASE")
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct HostInfo {
     pub hostname: String,
@@ -300,6 +321,8 @@ pub struct Sampler {
     pub rx_hist: History,
     pub tx_hist: History,
     pub iface_hist: HashMap<String, (History, History)>,
+    /// pid → (cpu %, memory bytes) over the last two minutes.
+    pub proc_hist: HashMap<u32, (MiniHist, MiniHist)>,
     prev_drops: HashMap<String, u64>,
     pub knet: super::kernelnet::KernelNet,
     pub diskio: super::diskio::DiskIo,
@@ -425,6 +448,7 @@ impl Sampler {
             rx_hist: History::new(HISTORY),
             tx_hist: History::new(HISTORY),
             iface_hist: HashMap::new(),
+            proc_hist: HashMap::new(),
             prev_drops: HashMap::new(),
             knet: super::kernelnet::KernelNet::new(),
             diskio: super::diskio::DiskIo::default(),
@@ -594,6 +618,13 @@ impl Sampler {
             });
         }
         self.meta.retain(|_, m| m.seen == tick);
+        for p in &procs {
+            let h = self.proc_hist.entry(p.pid).or_default();
+            h.0.push(p.cpu);
+            h.1.push(p.mem as f32);
+        }
+        let meta = &self.meta;
+        self.proc_hist.retain(|pid, _| meta.contains_key(pid));
         self.io_read_rate = rd;
         self.io_write_rate = wr;
         self.procs = procs;
@@ -668,6 +699,50 @@ impl Sampler {
         self.procs.len()
     }
 
+    /// Everything the inspector shows that isn't sampled every tick:
+    /// working directory, root, environment, threads, cgroup, unit, container.
+    /// Refreshes just this one process.
+    pub fn deep_info(&mut self, pid: u32) -> Option<DeepInfo> {
+        let kind = ProcessRefreshKind::nothing()
+            .with_cwd(UpdateKind::Always)
+            .with_environ(UpdateKind::Always)
+            .with_root(UpdateKind::Always);
+        let id = Pid::from_u32(pid);
+        self.sys.refresh_processes_specifics(ProcessesToUpdate::Some(&[id]), false, kind);
+        let p = self.sys.process(id)?;
+        let path = |o: Option<&std::path::Path>| o.map(|x| x.display().to_string()).unwrap_or_default();
+        let mut environ: Vec<(String, String)> = p
+            .environ()
+            .iter()
+            .filter_map(|e| {
+                let e = e.to_string_lossy();
+                let (k, v) = e.split_once('=')?;
+                Some((k.to_string(), v.to_string()))
+            })
+            .collect();
+        environ.sort();
+        let cgroup = std::fs::read_to_string(format!("/proc/{pid}/cgroup")).unwrap_or_default();
+        let cgroup_path = cgroup.lines().find_map(|l| l.strip_prefix("0::")).unwrap_or("").to_string();
+        let unit = cgroup_path
+            .split('/')
+            .rev()
+            .find(|seg| seg.ends_with(".service"))
+            .map(str::to_string);
+        let threads = std::fs::read_to_string(format!("/proc/{pid}/status"))
+            .ok()
+            .and_then(|t| t.lines().find_map(|l| l.strip_prefix("Threads:").and_then(|v| v.trim().parse().ok())))
+            .or_else(|| p.tasks().map(|t| t.len() as u64));
+        Some(DeepInfo {
+            cwd: path(p.cwd()),
+            root: path(p.root()),
+            environ,
+            threads,
+            container: super::procnet::container_label(&cgroup),
+            unit,
+            cgroup: cgroup_path,
+        })
+    }
+
     pub fn send_signal(&self, pid: u32, sig: Signal) -> Result<(), String> {
         let proc = self
             .sys
@@ -690,5 +765,28 @@ mod tests {
         let t = "some avg10=12.50 avg60=3.00 avg300=1.00 total=123\nfull avg10=2.00 avg60=0.00 avg300=0.00 total=1\n";
         assert_eq!(parse_psi_some_avg10(t), Some(12.5));
         assert_eq!(parse_psi_some_avg10("garbage"), None);
+    }
+}
+
+#[cfg(test)]
+mod deep_tests {
+    use super::*;
+
+    #[test]
+    fn secrets_are_masked() {
+        for k in ["AWS_SECRET_ACCESS_KEY", "GITHUB_TOKEN", "DB_PASSWORD", "api_key", "DATABASE_URL"] {
+            assert!(is_secret_env(k), "{k}");
+        }
+        for k in ["PATH", "HOME", "LANG", "TERM"] {
+            assert!(!is_secret_env(k), "{k}");
+        }
+    }
+
+    #[test]
+    fn deep_info_of_self() {
+        let mut s = Sampler::new();
+        let d = s.deep_info(std::process::id()).expect("own process");
+        assert!(!d.cwd.is_empty());
+        assert!(d.environ.iter().any(|(k, _)| k == "PATH"));
     }
 }

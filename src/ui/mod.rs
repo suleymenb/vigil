@@ -1,3 +1,4 @@
+mod inspect;
 mod netviews;
 mod overview;
 mod sysviews;
@@ -33,6 +34,11 @@ pub fn draw(f: &mut Frame, app: &mut App) {
     .areas(area);
 
     draw_header(f, app, header);
+    app.hits.table = None;
+    app.hits.proc_headers.clear();
+    if app.inspect.is_some() {
+        inspect::draw(f, app, body);
+    } else {
     match app.tab {
         Tab::Overview => overview::draw(f, app, body),
         Tab::Processes => views::processes(f, app, body),
@@ -45,6 +51,8 @@ pub fn draw(f: &mut Frame, app: &mut App) {
         Tab::Firewall => netviews::firewall(f, app, body),
         Tab::Containers => sysviews::containers(f, app, body),
         Tab::System => sysviews::system(f, app, body),
+        Tab::Users => sysviews::users(f, app, body),
+    }
     }
     draw_footer(f, app, footer);
 
@@ -62,7 +70,7 @@ pub fn draw(f: &mut Frame, app: &mut App) {
     }
 }
 
-fn draw_header(f: &mut Frame, app: &App, area: Rect) {
+fn draw_header(f: &mut Frame, app: &mut App, area: Rect) {
     let s = &app.sampler;
     let [top, tabs_area] = Layout::vertical([Constraint::Length(1), Constraint::Length(1)]).areas(area);
     f.render_widget(Block::new().style(Style::new().bg(theme::header_bg())), top);
@@ -114,6 +122,14 @@ fn draw_header(f: &mut Frame, app: &App, area: Rect) {
             ])
         })
         .collect();
+    // Record where each tab is drawn, for mouse clicks (Tabs: " title " + divider).
+    app.hits.tabs.clear();
+    let mut x = tabs_area.x;
+    for t in Tab::ALL {
+        let w = (t.key().len_utf8() + 1 + t.title().len()) as u16 + 2;
+        app.hits.tabs.push((x, x + w, tabs_area.y, t));
+        x += w + 1;
+    }
     let tabs = Tabs::new(titles)
         .select(app.tab.index())
         .style(Style::new().fg(theme::muted()))
@@ -143,7 +159,8 @@ fn hints(app: &App) -> Vec<(&'static str, &'static str)> {
     let mut h = match app.tab {
         Tab::Overview => vec![],
         Tab::Processes => vec![
-            ("↵", "open files"),
+            ("↵", "inspect"),
+            ("f", "open files"),
             ("x", "signal"),
             ("t", "tree"),
             ("c/m/p/n/u/i/o/w/e", "sort"),
@@ -155,6 +172,7 @@ fn hints(app: &App) -> Vec<(&'static str, &'static str)> {
             ("s", "sort"),
             ("↵", "proc files"),
             ("P", "port"),
+            ("i", "inspect owner"),
             ("C", "capture"),
             ("D", "close conn"),
             ("N", "names"),
@@ -164,6 +182,7 @@ fn hints(app: &App) -> Vec<(&'static str, &'static str)> {
         Tab::Probes => vec![("a", "add probe"), ("d", "delete"), ("t", "trace path"), ("↑↓", "select")],
         Tab::Containers => vec![("↑↓", "select")],
         Tab::System => vec![("e", "units ⇄ kernel events"), ("↵", "reload journal")],
+        Tab::Users => vec![("↑↓", "select")],
         Tab::Firewall => vec![("z", "hide zero"), ("s", "sort by rate")],
         Tab::Files => vec![("↵", "who uses this"), ("p", "proc files"), ("r", "rerun"), ("x", "signal")],
         Tab::Storage => vec![],
@@ -171,7 +190,10 @@ fn hints(app: &App) -> Vec<(&'static str, &'static str)> {
     if matches!(app.tab, Tab::Processes | Tab::Sockets | Tab::Files | Tab::Firewall) {
         h.push(("/", "filter"));
     }
-    h.extend([(":", "lsof query"), ("R", "report"), ("T", "theme"), ("space", "pause"), ("?", "help"), ("q", "quit")]);
+    if app.inspect.is_some() {
+        return vec![("esc", "close"), ("v", "journal ⇄ env"), ("f", "all files"), ("x", "signal"), ("r", "refresh"), ("y", "copy cmd")];
+    }
+    h.extend([("y", "copy"), ("E", "export"), (":", "lsof query"), ("R", "report"), ("T", "theme"), ("space", "pause"), ("?", "help"), ("q", "quit")]);
     h
 }
 
@@ -325,7 +347,7 @@ fn draw_signal_dialog(f: &mut Frame, app: &App, area: Rect) {
 }
 
 fn draw_help(f: &mut Frame, area: Rect) {
-    let r = centered(area, 96, 43);
+    let r = centered(area, 104, 46);
     f.render_widget(Clear, r);
     let sec = |t: &str| Line::styled(format!(" {t}"), Style::new().fg(theme::purple()).bold());
     let row = |k: &str, d: &str| {
@@ -336,7 +358,9 @@ fn draw_help(f: &mut Frame, area: Rect) {
     };
     let lines = vec![
         sec("Global"),
-        row("1-9 0 S / tab / ←→", "switch view (0 containers, S system)"),
+        row("1-9 0 S U / ←→", "switch view (0 containers, S system, U users) · mouse: click tabs, rows, headers"),
+        row("↵ on a process", "inspector: identity, history graphs, sockets, files, journal, environment"),
+        row("y / E", "copy the selected value (clipboard, works over SSH) / export the view as CSV"),
         row("↑↓ j k pgup pgdn", "move selection (g / G = top / bottom)"),
         row("/", "filter current list (esc clears)"),
         row(":", "lsof query: 1234 · :443 · tcp:22 · /var/log/x · -u root -i"),
@@ -442,6 +466,16 @@ mod tests {
             app.show_help = true;
             term.draw(|f| super::draw(f, &mut app)).unwrap();
             app.show_help = false;
+            // The inspector, on our own process, at every size.
+            app.open_inspector(std::process::id());
+            std::thread::sleep(Duration::from_millis(300));
+            term.draw(|f| super::draw(f, &mut app)).unwrap();
+            if let (Some(d), 180) = (&dir, w) {
+                std::fs::write(format!("{d}/Inspector.txt"), dump(&term)).unwrap();
+            }
+            app.inspect_env = true;
+            term.draw(|f| super::draw(f, &mut app)).unwrap();
+            app.inspect = None;
             app.mode = crate::app::Mode::Theme;
             for i in 0..crate::theme::THEMES.len() {
                 crate::theme::set(i);
@@ -453,6 +487,58 @@ mod tests {
             crate::theme::set(0);
             app.mode = crate::app::Mode::Normal;
         }
+    }
+}
+
+#[cfg(test)]
+mod mouse_tests {
+    use std::sync::{Arc, Mutex};
+    use std::time::Duration;
+
+    use crossterm::event::{KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
+    use ratatui::backend::TestBackend;
+    use ratatui::Terminal;
+
+    use crate::app::{App, NetHandles, Tab};
+    use crate::collect::lsof::{FilesStore, SocketStore};
+    use crate::collect::system::Sampler;
+
+    fn click(app: &mut App, x: u16, y: u16) {
+        app.on_mouse(MouseEvent { kind: MouseEventKind::Down(MouseButton::Left), column: x, row: y, modifiers: KeyModifiers::NONE });
+    }
+
+    /// Clicks land where the frame was drawn: tab bar, table rows, headers.
+    #[test]
+    fn clicks_switch_tabs_select_rows_and_sort() {
+        let mut app = App::new(
+            Sampler::new(),
+            Arc::new(Mutex::new(SocketStore::default())),
+            Arc::new(Mutex::new(FilesStore::default())),
+            Duration::from_secs(1),
+            Tab::Overview,
+            Default::default(),
+            NetHandles::idle(),
+        );
+        let mut term = Terminal::new(TestBackend::new(180, 50)).unwrap();
+        term.draw(|f| super::draw(f, &mut app)).unwrap();
+
+        // Find "Procs" in the rendered tab row and click it.
+        let buf = term.backend().buffer().clone();
+        let row: String = (0..180).map(|x| buf[(x, 1)].symbol().to_string()).collect();
+        let col = row.find("Procs").expect("tab bar shows Procs") as u16;
+        click(&mut app, col + 1, 1);
+        assert_eq!(app.tab, Tab::Processes);
+
+        // Click the third process row.
+        term.draw(|f| super::draw(f, &mut app)).unwrap();
+        let (area, off) = app.hits.table.expect("process table registered");
+        click(&mut app, area.x + 10, area.y + 2 + 2);
+        assert_eq!(app.proc_state.selected(), Some(off + 2));
+
+        // Click the MEM header to sort by memory.
+        let (x0, _, _) = *app.hits.proc_headers.iter().find(|(_, _, s)| *s == crate::app::ProcSort::Mem).unwrap();
+        click(&mut app, x0 + 1, area.y + 1);
+        assert_eq!(app.proc_sort, crate::app::ProcSort::Mem);
     }
 }
 

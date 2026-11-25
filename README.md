@@ -4,7 +4,7 @@
 
 **The terminal monitor for people who run servers and debug networks.**
 
-Processes, containers, services, sockets, open files, routes, latency and firewall counters on one screen.<br>
+Processes, containers, services, users, sockets, open files, routes, latency and firewall counters on one screen.<br>
 One static binary. `lsof` built in. Linux and macOS.
 
 [![CI](https://github.com/suleymenb/vigil/actions/workflows/ci.yml/badge.svg)](https://github.com/suleymenb/vigil/actions/workflows/ci.yml)
@@ -27,7 +27,8 @@ One static binary. `lsof` built in. Linux and macOS.
 - **Network internals without five other tools.** RTT, retransmits and bandwidth per connection (`ss -ti`), kernel counters (`nstat`), routes and neighbours (`ip`), latency and path probes (`ping`, `mtr`), HTTP and TLS checks (`curl`), firewall hits (`nft`) and one-key packet capture (`tcpdump`).
 - **Containers and services without their daemons.** CPU, throttling, memory and OOM kills per container straight from cgroup v2; systemd units, restart loops, the journal and kernel events (`dmesg`) side by side.
 - **Light.** About 2.5 % of one core and 16 MB of RAM at a 1 s refresh. Nothing is drawn when nothing changes.
-- **Readable reports.** `vigil report` writes a Markdown or JSON snapshot with findings and recommended actions, ready for a ticket.
+- **One process, everything about it.** `Enter` opens the inspector: command, working directory, parents, unit, container, CPU/memory/fd history, sockets, open files, journal and environment (secrets hidden).
+- **Readable reports.** `vigil report` writes a Markdown or JSON snapshot with findings and recommended actions; `--diff` shows what changed since an earlier report.
 
 ## Install
 
@@ -79,6 +80,13 @@ Every common question, as one command.
 | I want to… | Run |
 |---|---|
 | See everything at a glance | `sudo vigil` |
+| See everything about one process | Procs view, select it, press `Enter` |
+| Spot a memory or fd leak | `Enter` on the process: the inspector shows the trend, e.g. `+38 % in 2 min` |
+| Find services still running old libraries after `apt upgrade` | `sudo vigil`: the `NEEDS RESTART` badge, details in the inspector |
+| See who is logged in and who is guessing SSH passwords | `sudo vigil -t users` |
+| See what my deploy changed | `vigil report -f json -o before.json`, deploy, then `vigil report --diff before.json` |
+| Copy an IP, PID or command line | select it and press `y` (works over SSH) |
+| Export the current table to CSV | press `E` |
 | Find who is using port 8080 | `sudo vigil -q :8080` |
 | Find who has a file open | `sudo vigil -q /var/log/syslog` |
 | Find deleted files that still fill the disk | `sudo vigil -q +L1` |
@@ -108,7 +116,7 @@ Every common question, as one command.
 
 ## Views
 
-Switch with `1`–`9`, `0`, `S`, `Tab` or `←` `→`.
+Switch with `1`–`9`, `0`, `S`, `U`, `Tab`, `←` `→`, or click a tab.
 
 | Key | View | What you see |
 |:---:|---|---|
@@ -122,7 +130,10 @@ Switch with `1`–`9`, `0`, `S`, `Tab` or `←` `→`.
 | `8` | **Probes** | ICMP, TCP, DNS and **HTTPS** probes with jitter, loss, status code, **certificate expiry**, and an **mtr-style path trace** |
 | `9` | **Firewall** | nftables, iptables or pf rules with packets, bytes and live packets per second |
 | `0` | **Containers** | Docker, containerd/Kubernetes, CRI-O, Podman: CPU, **throttling**, memory vs limit, **OOM kills**, I/O, network |
+| `U` | **Users** | Logged-in sessions (who, from where, idle, running what), failed SSH logins in the last hour by source and the usernames tried, accepted logins |
 | `S` | **System** | systemd units (failed and restarting first), the **journal** of the selected unit, and **kernel events**: OOM kills, link flaps, NIC resets, segfaults, I/O errors |
+
+Press `Enter` on any process (or `i` on a socket) for the **inspector**: identity, parent chain, children, systemd unit, container, cgroup, two-minute graphs of CPU, memory and open fds with a trend (`+38 % in 2 min` flags a leak), its sockets with RTT, open files, the unit's journal, and its environment with keys like `*_TOKEN` and `*_PASSWORD` hidden.
 
 <img src="docs/img/probes.svg" alt="Probes view: gateway, DNS and database under a millisecond, 12 percent loss to 1.1.1.1" width="100%">
 
@@ -151,6 +162,8 @@ The right side of the tab row shows a badge for every threshold that is crossed,
 | `CERT <probe>` / `HTTP <probe>` | 21 days / 5xx | Certificate expiring / endpoint returning server errors |
 | `THROTTLED <ctr>` / `OOM` | 25 % / any | Container hitting its CPU quota / a process was OOM-killed |
 | `FAILED UNITS` | any | systemd units in the failed state |
+| `NEEDS RESTART` | any | Processes still running a replaced binary or library after an update |
+| `SSH FAILS` | 100 / hour | Failed SSH logins in the last hour |
 
 ## Keys
 
@@ -171,7 +184,9 @@ The right side of the tab row shows a badge for every threshold that is crossed,
 | `T` | theme picker |
 | `space` | pause |
 | `+` / `-` | refresh ±250 ms |
-| `0` / `S` | containers / system |
+| `0` `S` `U` | containers / system / users |
+| `y` | copy selected value |
+| `E` | export view to CSV |
 | `?` / `q` | help / quit |
 
 </td><td valign="top">
@@ -185,7 +200,8 @@ The right side of the tab row shows a badge for every threshold that is crossed,
 | `e` | sort by open fds |
 | `r` | reverse sort |
 | `t` | process tree |
-| `↵` | open files |
+| `↵` | inspector |
+| `f` | open files |
 | `x` | send signal |
 
 **Probes**
@@ -212,6 +228,7 @@ The right side of the tab row shows a badge for every threshold that is crossed,
 | `s` | sort (… rtt, traffic) |
 | `↵` | owner's open files |
 | `P` | everything on this port |
+| `i` | inspect the owner |
 | `C` | capture (tcpdump) |
 | `D` | close connection |
 | `x` | signal owner |
@@ -249,7 +266,10 @@ sudo vigil report > incident.md                 # Markdown for a ticket
 vigil report -f json -o snapshot.json           # JSON for scripts and dashboards
 vigil report --fail-on-alert                    # exit code 2 when a threshold is crossed
 vigil report --top 25 --sample-ms 3000          # longer tables, longer sampling window
+vigil report --diff before.json                 # what changed since an earlier JSON report
 ```
+
+`--diff` lists new and resolved findings, ports that started or stopped listening, services that failed or recovered, containers that appeared or disappeared, noticeable shifts in memory, disks and connections, and new kernel events.
 
 <details>
 <summary><b>Example report (excerpt)</b></summary>
@@ -336,6 +356,8 @@ disk_util_pct = 95.0
 cert_days = 21.0
 throttle_pct = 25.0
 failed_units = true
+needs_restart = true
+ssh_failures_per_hour = 100
 ```
 
 </details>
@@ -345,7 +367,7 @@ failed_units = true
 
 ```
 vigil [OPTIONS]
-  -t, --tab <name>            start view: overview procs network sockets files storage routes probes firewall containers system
+  -t, --tab <name>            start view: overview procs network sockets files storage routes probes firewall containers system users
   -q, --query <query>         run an lsof query at start, e.g. ":443" or "1234"
   -i, --interval <ms>         sampling interval (default 1000)
       --theme <name>          colour theme, or "auto"
@@ -356,7 +378,7 @@ vigil [OPTIONS]
       --lsof-sockets          use lsof -i instead of /proc/net (Linux)
       --no-mouse              disable the mouse
 
-vigil report [-f md|json] [-o FILE] [--top N] [--sample-ms MS] [--fail-on-alert]
+vigil report [-f md|json] [-o FILE] [--top N] [--sample-ms MS] [--fail-on-alert] [--diff FILE]
 ```
 
 </details>
@@ -385,6 +407,11 @@ vigil report [-f md|json] [-o FILE] [--top N] [--sample-ms MS] [--fail-on-alert]
 | Containers (cgroup v2) | ✅ | – (Docker Desktop runs in a VM) |
 | Services | ✅ systemd + journal | ✅ launchd |
 | Kernel events (OOM, link, NIC, segfault) | ✅ root | – |
+| Process inspector | ✅ | ✅ (no threads/cgroup) |
+| Needs restart after updates | ✅ | – |
+| Logged-in users | ✅ | ✅ |
+| Failed / accepted SSH logins | ✅ journal | – |
+| Copy (OSC 52), CSV export, mouse | ✅ | ✅ |
 
 ## FAQ
 
@@ -428,6 +455,12 @@ Reading `/dev/kmsg` needs root on most distributions (`kernel.dmesg_restrict = 1
 <summary><b>HTTPS probes or the path trace don't work</b></summary>
 
 HTTPS probes use `curl`; the path trace uses `mtr` if installed, otherwise `traceroute`. Install them with your package manager.
+</details>
+
+<details>
+<summary><b><code>y</code> doesn't copy</b></summary>
+
+Copying uses the terminal's OSC 52 clipboard escape, so it also works over SSH. Most terminals support it (iTerm2, WezTerm, kitty, Alacritty, Windows Terminal, recent GNOME Terminal). In tmux add `set -g set-clipboard on`; in iTerm2 allow "Applications in terminal may access clipboard".
 </details>
 
 <details>

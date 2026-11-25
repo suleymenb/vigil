@@ -11,6 +11,7 @@ pub mod netinfo;
 pub mod probes;
 pub mod procnet;
 pub mod services;
+pub mod sessions;
 pub mod sockdiag;
 pub mod system;
 pub mod trace;

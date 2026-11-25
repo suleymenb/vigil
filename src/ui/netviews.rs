@@ -48,6 +48,7 @@ pub fn routes(f: &mut Frame, app: &mut App, area: Rect) {
 
     let gws = ni.default_gateways();
     let (off, h) = window(&mut app.route_state, ni.routes.len(), rt);
+    app.hits.table = Some((rt, off));
     let rows: Vec<Row> = ni.routes[off.min(ni.routes.len())..(off + h).min(ni.routes.len())]
         .iter()
         .map(|r| {
@@ -204,6 +205,7 @@ pub fn probes(f: &mut Frame, app: &mut App, area: Rect) {
     }
 
     let (off, h) = window(&mut app.probe_state, n, top);
+    app.hits.table = Some((top, off));
     let w = 24usize;
     let rows: Vec<Row> = st.probes[off..(off + h).min(n)]
         .iter()
@@ -387,6 +389,7 @@ pub fn firewall(f: &mut Frame, app: &mut App, area: Rect) {
     }
     let n = rows_data.len();
     let (off, h) = window(&mut app.fw_state, n, area);
+    app.hits.table = Some((area, off));
     let rows: Vec<Row> = rows_data[off.min(n)..(off + h).min(n)]
         .iter()
         .map(|r| {

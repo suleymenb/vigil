@@ -34,6 +34,44 @@ impl History {
     }
 }
 
+/// Compact per-process history (f32 to keep ~1000 processes × 2 series small).
+#[derive(Clone, Debug, Default)]
+pub struct MiniHist {
+    buf: VecDeque<f32>,
+}
+
+impl MiniHist {
+    pub const CAP: usize = 120;
+
+    pub fn push(&mut self, v: f32) {
+        if self.buf.len() == Self::CAP {
+            self.buf.pop_front();
+        }
+        self.buf.push_back(v);
+    }
+
+    pub fn tail(&self, n: usize) -> Vec<f64> {
+        let skip = self.buf.len().saturating_sub(n);
+        self.buf.iter().skip(skip).map(|v| *v as f64).collect()
+    }
+
+    pub fn len(&self) -> usize {
+        self.buf.len()
+    }
+
+    pub fn first(&self) -> f32 {
+        self.buf.front().copied().unwrap_or(0.0)
+    }
+
+    pub fn last(&self) -> f32 {
+        self.buf.back().copied().unwrap_or(0.0)
+    }
+
+    pub fn max(&self) -> f32 {
+        self.buf.iter().copied().fold(0.0, f32::max)
+    }
+}
+
 pub fn fmt_bytes(b: u64) -> String {
     const UNITS: [&str; 6] = ["B", "K", "M", "G", "T", "P"];
     let mut v = b as f64;
@@ -96,6 +134,16 @@ pub fn truncate(s: &str, width: usize) -> String {
     }
 }
 
+/// Keep the end of a long path: `…/out/vigil-4e0f`.
+pub fn truncate_left(s: &str, width: usize) -> String {
+    let n = s.chars().count();
+    if n <= width || width == 0 {
+        return s.to_string();
+    }
+    let tail: String = s.chars().skip(n - width.saturating_sub(1)).collect();
+    format!("…{tail}")
+}
+
 pub fn is_root() -> bool {
     std::process::Command::new("id")
         .arg("-u")
@@ -141,5 +189,85 @@ mod date_tests {
         assert_eq!(parse_cert_date("Jan  1 00:00:00 1970 GMT"), Some(0));
         assert_eq!(parse_cert_date("Feb 29 00:00:00 2000 GMT"), Some(951_782_400));
         assert_eq!(parse_cert_date("garbage"), None);
+    }
+}
+
+/// Standard base64 (RFC 4648) for OSC 52.
+pub fn base64(data: &[u8]) -> String {
+    const T: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity(data.len().div_ceil(3) * 4);
+    for c in data.chunks(3) {
+        let b = [c[0], *c.get(1).unwrap_or(&0), *c.get(2).unwrap_or(&0)];
+        let n = (b[0] as u32) << 16 | (b[1] as u32) << 8 | b[2] as u32;
+        out.push(T[(n >> 18) as usize & 63] as char);
+        out.push(T[(n >> 12) as usize & 63] as char);
+        out.push(if c.len() > 1 { T[(n >> 6) as usize & 63] as char } else { '=' });
+        out.push(if c.len() > 2 { T[n as usize & 63] as char } else { '=' });
+    }
+    out
+}
+
+/// Copy text to the system clipboard through the terminal (OSC 52). Works
+/// over SSH; inside tmux it needs `set -g set-clipboard on`.
+pub fn osc52_copy(text: &str) {
+    use std::io::Write;
+    let mut out = std::io::stdout();
+    let _ = write!(out, "\x1b]52;c;{}\x07", base64(text.as_bytes()));
+    let _ = out.flush();
+}
+
+fn csv_field(s: &str) -> String {
+    if s.contains([',', '"', '\n', '\r']) {
+        format!("\"{}\"", s.replace('"', "\"\""))
+    } else {
+        s.to_string()
+    }
+}
+
+pub fn csv(headers: &[&str], rows: &[Vec<String>]) -> String {
+    let mut o = headers.iter().map(|h| csv_field(h)).collect::<Vec<_>>().join(",");
+    o.push('\n');
+    for r in rows {
+        o.push_str(&r.iter().map(|f| csv_field(f)).collect::<Vec<_>>().join(","));
+        o.push('\n');
+    }
+    o
+}
+
+/// Write `vigil-<name>-<unix time>.csv` to the current directory, or $HOME.
+pub fn write_csv(name: &str, headers: &[&str], rows: &[Vec<String>]) -> Result<std::path::PathBuf, String> {
+    let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+    let file = format!("vigil-{name}-{stamp}.csv");
+    let text = csv(headers, rows);
+    let mut dirs = vec![std::path::PathBuf::from(".")];
+    if let Some(h) = std::env::var_os("HOME") {
+        dirs.push(std::path::PathBuf::from(h));
+    }
+    let mut err = String::from("no writable directory");
+    for d in dirs {
+        let p = d.join(&file);
+        match std::fs::write(&p, &text) {
+            Ok(()) => return Ok(std::fs::canonicalize(&p).unwrap_or(p)),
+            Err(e) => err = e.to_string(),
+        }
+    }
+    Err(err)
+}
+
+#[cfg(test)]
+mod io_tests {
+    use super::*;
+
+    #[test]
+    fn base64_rfc4648() {
+        for (i, o) in [("", ""), ("f", "Zg=="), ("fo", "Zm8="), ("foo", "Zm9v"), ("foobar", "Zm9vYmFy")] {
+            assert_eq!(base64(i.as_bytes()), o);
+        }
+    }
+
+    #[test]
+    fn csv_quoting() {
+        let c = csv(&["a", "b"], &[vec!["x,y".into(), "say \"hi\"".into()]]);
+        assert_eq!(c, "a,b\n\"x,y\",\"say \"\"hi\"\"\"\n");
     }
 }

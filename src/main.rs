@@ -88,12 +88,15 @@ enum Command {
         /// Exit with code 2 when any health threshold is exceeded (for cron / CI)
         #[arg(long)]
         fail_on_alert: bool,
+        /// Compare with an earlier `vigil report -f json` and list what changed
+        #[arg(long, value_name = "FILE")]
+        diff: Option<std::path::PathBuf>,
     },
 }
 
 fn main() -> Result<()> {
     let args = Args::parse();
-    if let Some(Command::Report { format, output, top, sample_ms, fail_on_alert }) = &args.command {
+    if let Some(Command::Report { format, output, top, sample_ms, fail_on_alert, diff }) = &args.command {
         let (cfg, warn) = config::load(args.config.as_ref());
         if let Some(w) = warn {
             eprintln!("vigil: {w}");
@@ -106,6 +109,7 @@ fn main() -> Result<()> {
                 sample: Duration::from_millis((*sample_ms).clamp(250, 60_000)),
                 fail_on_alert: *fail_on_alert,
                 force_lsof: args.lsof_sockets,
+                diff: diff.clone(),
             },
             &cfg.alerts,
         )?;

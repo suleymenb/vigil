@@ -3,3 +3,4 @@
 # vigil output files (may contain host data)
 vigil-report-*.md
 vigil-capture-*.pcap
+vigil-*.csv

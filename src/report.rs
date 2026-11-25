@@ -65,6 +65,158 @@ pub struct Report {
     pub services: Vec<ServiceR>,
     pub kernel_events: Vec<EventR>,
     pub temperatures: Vec<Temperature>,
+    /// Set by `vigil report --diff <earlier.json>`.
+    pub changes: Option<Changes>,
+}
+
+/// What changed compared with an earlier JSON report.
+#[derive(Serialize, Default, Debug)]
+pub struct Changes {
+    pub since_utc: String,
+    pub new_findings: Vec<String>,
+    pub resolved_findings: Vec<String>,
+    pub ports_opened: Vec<String>,
+    pub ports_closed: Vec<String>,
+    pub services_failed: Vec<String>,
+    pub services_recovered: Vec<String>,
+    pub containers_started: Vec<String>,
+    pub containers_gone: Vec<String>,
+    /// (metric, before, after) for numbers that moved noticeably.
+    pub metrics: Vec<(String, String, String)>,
+    pub new_kernel_events: Vec<String>,
+}
+
+impl Changes {
+    pub fn is_empty(&self) -> bool {
+        self.new_findings.is_empty()
+            && self.resolved_findings.is_empty()
+            && self.ports_opened.is_empty()
+            && self.ports_closed.is_empty()
+            && self.services_failed.is_empty()
+            && self.services_recovered.is_empty()
+            && self.containers_started.is_empty()
+            && self.containers_gone.is_empty()
+            && self.metrics.is_empty()
+            && self.new_kernel_events.is_empty()
+    }
+}
+
+fn strings(v: &serde_json::Value, path: &str, f: impl Fn(&serde_json::Value) -> Option<String>) -> Vec<String> {
+    v.pointer(path).and_then(|a| a.as_array()).map(|a| a.iter().filter_map(f).collect()).unwrap_or_default()
+}
+
+fn listener_key(l: &serde_json::Value) -> Option<String> {
+    Some(format!(
+        "{} {}:{} ({})",
+        l.get("proto")?.as_str()?,
+        l.get("address")?.as_str()?,
+        l.get("port").and_then(|p| p.as_u64()).map(|p| p.to_string()).unwrap_or_default(),
+        l.get("process").and_then(|p| p.as_str()).unwrap_or("?")
+    ))
+}
+
+/// Compare the current report with an earlier one (as JSON).
+pub fn diff(prev: &serde_json::Value, cur: &Report) -> Changes {
+    let cur_v = serde_json::to_value(cur).unwrap_or_default();
+    let added = |a: &[String], b: &[String]| b.iter().filter(|x| !a.contains(x)).cloned().collect::<Vec<_>>();
+    let mut c = Changes { since_utc: prev.get("generated_utc").and_then(|v| v.as_str()).unwrap_or("?").to_string(), ..Default::default() };
+
+    let title = |f: &serde_json::Value| f.get("title").and_then(|t| t.as_str()).map(str::to_string);
+    let (pf, cf) = (strings(prev, "/findings", title), strings(&cur_v, "/findings", title));
+    c.new_findings = added(&pf, &cf);
+    c.resolved_findings = added(&cf, &pf);
+
+    let (pl, cl) = (strings(prev, "/network/listening", listener_key), strings(&cur_v, "/network/listening", listener_key));
+    c.ports_opened = added(&pl, &cl);
+    c.ports_closed = added(&cl, &pl);
+
+    let failed = |u: &serde_json::Value| {
+        let st = u.get("state")?.as_str()?;
+        st.starts_with("failed").then(|| u.get("name")?.as_str().map(str::to_string))?
+    };
+    let (ps, cs) = (strings(prev, "/services", failed), strings(&cur_v, "/services", failed));
+    c.services_failed = added(&ps, &cs);
+    c.services_recovered = added(&cs, &ps);
+
+    let name = |x: &serde_json::Value| x.get("name").and_then(|n| n.as_str()).map(str::to_string);
+    let (pc, cc) = (strings(prev, "/containers", name), strings(&cur_v, "/containers", name));
+    c.containers_started = added(&pc, &cc);
+    c.containers_gone = added(&cc, &pc);
+
+    let num = |v: &serde_json::Value, p: &str| v.pointer(p).and_then(|x| x.as_f64());
+    let mut metric = |label: &str, p: &str, min_delta: f64, unit: &str| {
+        if let (Some(a), Some(b)) = (num(prev, p), num(&cur_v, p)) {
+            if (b - a).abs() >= min_delta {
+                c.metrics.push((label.to_string(), format!("{a:.1}{unit}"), format!("{b:.1}{unit}")));
+            }
+        }
+    };
+    metric("Memory used", "/memory/used_pct", 5.0, " %");
+    metric("Swap used", "/memory/swap_used_pct", 5.0, " %");
+    metric("Load per core", "/cpu/load_per_core", 0.25, "");
+    metric("Processes", "/processes/total", 25.0, "");
+    metric("Established connections", "/network/states/ESTABLISHED", 50.0, "");
+    metric("TIME_WAIT", "/network/states/TIME_WAIT", 500.0, "");
+    metric("CLOSE_WAIT", "/network/states/CLOSE_WAIT", 10.0, "");
+    // Disks: compare per mount.
+    let mounts = |v: &serde_json::Value| -> Vec<(String, f64)> {
+        v.get("filesystems")
+            .and_then(|a| a.as_array())
+            .map(|a| {
+                a.iter()
+                    .filter_map(|f| Some((f.get("mount")?.as_str()?.to_string(), f.get("used_pct")?.as_f64()?)))
+                    .collect()
+            })
+            .unwrap_or_default()
+    };
+    let before = mounts(prev);
+    for (m, b) in mounts(&cur_v) {
+        if let Some((_, a)) = before.iter().find(|(pm, _)| *pm == m) {
+            if (b - a).abs() >= 2.0 {
+                c.metrics.push((format!("Disk {m}"), format!("{a:.1} %"), format!("{b:.1} %")));
+            }
+        }
+    }
+    c.new_kernel_events = cur
+        .kernel_events
+        .iter()
+        .filter(|e| e.when_utc.as_str() > c.since_utc.as_str())
+        .map(|e| format!("{} {}: {}", e.when_utc, e.kind, e.message))
+        .collect();
+    c
+}
+
+fn changes_markdown(c: &Changes, o: &mut String) {
+    let _ = writeln!(o, "## Changes since {}\n", c.since_utc);
+    if c.is_empty() {
+        let _ = writeln!(o, "No significant changes.\n");
+        return;
+    }
+    let list = |o: &mut String, title: &str, items: &[String], mark: &str| {
+        if !items.is_empty() {
+            let _ = writeln!(o, "**{title}**\n");
+            for i in items {
+                let _ = writeln!(o, "- {mark} {}", md(i));
+            }
+            o.push('\n');
+        }
+    };
+    list(o, "New findings", &c.new_findings, "🔴");
+    list(o, "Resolved findings", &c.resolved_findings, "🟢");
+    list(o, "Ports now listening", &c.ports_opened, "➕");
+    list(o, "Ports no longer listening", &c.ports_closed, "➖");
+    list(o, "Services that failed", &c.services_failed, "🔴");
+    list(o, "Services that recovered", &c.services_recovered, "🟢");
+    list(o, "Containers started", &c.containers_started, "➕");
+    list(o, "Containers gone", &c.containers_gone, "➖");
+    if !c.metrics.is_empty() {
+        let _ = writeln!(o, "| Metric | Before | Now |\n|---|---:|---:|");
+        for (m, a, b) in &c.metrics {
+            let _ = writeln!(o, "| {m} | {a} | {b} |");
+        }
+        o.push('\n');
+    }
+    list(o, "New kernel events", &c.new_kernel_events, "⚠️");
 }
 
 #[derive(Serialize)]
@@ -674,6 +826,7 @@ pub fn build(
             .take(top)
             .map(|t| Temperature { sensor: t.label.clone(), celsius: t.temp, critical: t.critical })
             .collect(),
+        changes: None,
     }
 }
 
@@ -730,6 +883,9 @@ pub fn to_markdown(r: &Report) -> String {
         r.generated_utc,
         r.vigil_version
     );
+    if let Some(c) = &r.changes {
+        changes_markdown(c, &mut o);
+    }
     let _ = writeln!(
         o,
         "**Contents:** [Summary](#summary) · [Findings](#findings) · [Processes](#processes) · [Network](#network) · [Storage](#storage) · [Limits](#limits) · [Containers](#containers) · [Services](#services) · [Kernel events](#kernel-events) · [System](#system)\n"
@@ -1077,6 +1233,8 @@ pub struct Options {
     pub sample: Duration,
     pub fail_on_alert: bool,
     pub force_lsof: bool,
+    /// Compare with an earlier `vigil report -f json` file.
+    pub diff: Option<PathBuf>,
 }
 
 /// `vigil report`: sample, build, print or write. Returns the process exit code.
@@ -1113,7 +1271,13 @@ pub fn run_cli(opts: Options, alerts: &Alerts) -> std::io::Result<i32> {
         .iter()
         .filter(|e| e.kind == "OOM" && SystemTime::now().duration_since(e.at).map(|d| d.as_secs() < 600).unwrap_or(true))
         .count();
-    let report = build(&sampler, &sockets, backend, err, alerts, &inputs, opts.top);
+    let mut report = build(&sampler, &sockets, backend, err, alerts, &inputs, opts.top);
+    if let Some(p) = &opts.diff {
+        let text = std::fs::read_to_string(p).map_err(|e| std::io::Error::new(e.kind(), format!("{}: {e}", p.display())))?;
+        let prev: serde_json::Value = serde_json::from_str(&text)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, format!("{} is not a vigil JSON report: {e}", p.display())))?;
+        report.changes = Some(diff(&prev, &report));
+    }
     let text = if opts.json { to_json(&report) } else { to_markdown(&report) };
     match &opts.output {
         Some(p) => std::fs::write(p, &text)?,
@@ -1183,6 +1347,26 @@ fn file_stamp(t: SystemTime) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn diff_detects_changes() {
+        let mut s = Sampler::new();
+        std::thread::sleep(Duration::from_millis(200));
+        s.refresh();
+        let before = crate::collect::lsof::parse("p1\ncnginx\nLroot\nf6\ntIPv4\nPTCP\nn*:80\nTST=LISTEN\n");
+        let after = crate::collect::lsof::parse("p1\ncnginx\nLroot\nf6\ntIPv4\nPTCP\nn*:80\nTST=LISTEN\np2\ncpostgres\nLpostgres\nf5\ntIPv4\nPTCP\nn*:5432\nTST=LISTEN\n");
+        let a = build(&s, &before, SocketBackend::Lsof, None, &Alerts::default(), &Inputs::default(), 5);
+        let prev = serde_json::to_value(&a).unwrap();
+        let b = build(&s, &after, SocketBackend::Lsof, None, &Alerts::default(), &Inputs::default(), 5);
+        let c = diff(&prev, &b);
+        assert_eq!(c.ports_opened.len(), 1, "{:?}", c.ports_opened);
+        assert!(c.ports_opened[0].contains("5432"));
+        assert!(c.new_findings.iter().any(|f| f.contains("PostgreSQL")));
+        assert!(c.ports_closed.is_empty());
+        let mut out = String::new();
+        changes_markdown(&c, &mut out);
+        assert!(out.contains("Ports now listening"));
+    }
 
     #[test]
     fn civil_dates() {

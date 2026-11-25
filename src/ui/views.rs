@@ -30,7 +30,7 @@ pub(super) fn is_numeric_col(name: &str) -> bool {
         "AVG", "MAX", "JITTER", "LOSS", "PACKETS", "BYTES", "PKT/s", "BYTES/s", "METRIC", "CPU", "THROTTLED",
         "PIDS", "IO R/s", "IO W/s", "NET ↓/s", "NET ↑/s", "OOM", "RESTARTS", "MEMORY", "R IOPS", "W IOPS",
         "AWAIT ms", "QUEUE", "R/s", "W/s", "STATUS", "CERT", "HOP", "SENT", "BEST", "WORST", "CPU%/LIM", "MEM%",
-        "CPU%", "CONN", "LOSS%", "%",
+        "CPU%", "CONN", "LOSS%", "%", "ATTEMPTS", "IDLE",
     ];
     EXACT.contains(&n)
 }
@@ -156,6 +156,34 @@ pub fn processes(f: &mut Frame, app: &mut App, area: Rect) {
     let fds = app.net.limits.try_lock().map(|l| l.fds.clone()).unwrap_or_default();
 
     let (off, h) = window(&mut app.proc_state, app.proc_rows.len(), table_area);
+    let proc_widths = [
+        Constraint::Length(7),
+        Constraint::Length(10),
+        Constraint::Length(6),
+        Constraint::Length(5),
+        Constraint::Length(7),
+        Constraint::Length(5),
+        Constraint::Length(13),
+        Constraint::Length(5),
+        Constraint::Length(7),
+        Constraint::Length(5),
+        Constraint::Length(2),
+        Constraint::Length(10),
+        Constraint::Min(20),
+    ];
+    app.hits.table = Some((table_area, off));
+    {
+        // Same geometry as the Table: inside the border, after the 1-column
+        // selection marker, columns separated by one space.
+        let inner = table_area.inner(ratatui::layout::Margin { vertical: 1, horizontal: 1 });
+        let cols_area = Rect { x: inner.x + 1, width: inner.width.saturating_sub(1), ..inner };
+        let rects = Layout::horizontal(proc_widths).spacing(1).split(cols_area);
+        for (r, (_, sort)) in rects.iter().zip(cols.iter()) {
+            if let Some(sort) = sort {
+                app.hits.proc_headers.push((r.x, r.x + r.width, *sort));
+            }
+        }
+    }
     let procs = &app.sampler.procs;
     let conns = &app.conn_counts;
     let mem_total = app.sampler.mem_total.max(1) as f64;
@@ -222,24 +250,7 @@ pub fn processes(f: &mut Frame, app: &mut App, area: Rect) {
     let block = frame().title(Line::from(title));
 
     let len = app.proc_rows.len();
-    let t = Table::new(
-        rows,
-        [
-            Constraint::Length(7),
-            Constraint::Length(10),
-            Constraint::Length(6),
-            Constraint::Length(5),
-            Constraint::Length(7),
-            Constraint::Length(5),
-            Constraint::Length(13),
-            Constraint::Length(5),
-            Constraint::Length(7),
-            Constraint::Length(5),
-            Constraint::Length(2),
-            Constraint::Length(10),
-            Constraint::Min(20),
-        ],
-    )
+    let t = Table::new(rows, proc_widths)
     .column_spacing(1)
     .header(Row::new(head))
     .block(block)
@@ -389,6 +400,7 @@ pub fn network(f: &mut Frame, app: &mut App, area: Rect) {
     .block(panel(format!("interfaces ({})", ifaces.len()), theme::cyan()))
     .row_highlight_style(sel_style())
     .highlight_symbol(theme::glyphs().select);
+    app.hits.table = Some((table_area, app.net_state.offset()));
     f.render_stateful_widget(t, table_area, &mut app.net_state);
 
     let [graphs, side] = Layout::horizontal([Constraint::Min(30), Constraint::Length(42)]).areas(bottom);
@@ -596,6 +608,7 @@ pub fn sockets(f: &mut Frame, app: &mut App, area: Rect) {
 
     let n_rows = rows_data.len();
     let (off, h) = window(&mut app.sock_state, n_rows, table_area);
+    app.hits.table = Some((table_area, off));
     let rows_data = app.socket_rows();
     // Extra columns only when the data exists (Linux scanner / containers).
     let has_tcp = rows_data.range(off, off + h).any(|e| e.net.as_ref().is_some_and(|n| n.tcp.is_some()));
@@ -786,6 +799,7 @@ pub fn files(f: &mut Frame, app: &mut App, area: Rect) {
 
     let n_rows = rows_data.len();
     let (off, h) = window(&mut app.files_state, n_rows, table_area);
+    app.hits.table = Some((table_area, off));
     let rows_data = app.file_rows();
     let rows: Vec<Row> = rows_data
         .range(off, off + h)

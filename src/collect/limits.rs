@@ -11,6 +11,8 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
+use crate::util::MiniHist;
+
 #[derive(Default, Clone)]
 pub struct Limits {
     /// pid → (open fds, soft limit if known)
@@ -19,6 +21,11 @@ pub struct Limits {
     pub files: Option<(u64, u64)>,
     /// Local ports the kernel hands out for outgoing connections.
     pub ephemeral: Option<(u16, u16)>,
+    /// pid → open fds over the last ~10 minutes (one sample per 5 s).
+    pub fd_hist: HashMap<u32, MiniHist>,
+    /// Processes still running replaced binaries or libraries (Linux):
+    /// pid → what was replaced.
+    pub needs_restart: Vec<(u32, String)>,
     pub version: u64,
 }
 
@@ -41,6 +48,56 @@ pub fn parse_limits(text: &str) -> Option<u64> {
 pub fn parse_file_nr(text: &str) -> Option<(u64, u64)> {
     let f: Vec<u64> = text.split_whitespace().filter_map(|x| x.parse().ok()).collect();
     (f.len() >= 3).then(|| (f[0], f[2]))
+}
+
+/// Replaced libraries in a /proc/<pid>/maps listing: shared objects marked
+/// "(deleted)". Anonymous shared memory, tmpfs and memfd mappings are normal
+/// and ignored.
+pub fn deleted_libs(maps: &str) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for l in maps.lines() {
+        let Some(path) = l.strip_suffix(" (deleted)") else { continue };
+        let Some(path) = path.split_whitespace().nth(5) else { continue };
+        if path.starts_with("/dev/") || path.starts_with("/tmp/") || path.starts_with("/run/") || path.starts_with("/memfd:") || path.starts_with("/SYSV") {
+            continue;
+        }
+        if !(path.contains(".so") || path.starts_with("/usr/") || path.starts_with("/lib") || path.starts_with("/bin") || path.starts_with("/sbin")) {
+            continue;
+        }
+        let name = path.rsplit('/').next().unwrap_or(path).to_string();
+        if !out.contains(&name) {
+            out.push(name);
+        }
+    }
+    out
+}
+
+/// Scan every process for a replaced executable or replaced libraries.
+#[cfg(target_os = "linux")]
+pub fn scan_needs_restart() -> Vec<(u32, String)> {
+    use std::fs;
+    let mut out = Vec::new();
+    let Ok(dir) = fs::read_dir("/proc") else { return out };
+    for e in dir.flatten() {
+        let Some(pid) = e.file_name().to_str().and_then(|s| s.parse::<u32>().ok()) else { continue };
+        let exe = fs::read_link(format!("/proc/{pid}/exe")).map(|p| p.to_string_lossy().into_owned()).unwrap_or_default();
+        if let Some(bin) = exe.strip_suffix(" (deleted)") {
+            out.push((pid, format!("binary replaced: {bin}")));
+            continue;
+        }
+        if let Ok(maps) = fs::read_to_string(format!("/proc/{pid}/maps")) {
+            let libs = deleted_libs(&maps);
+            if !libs.is_empty() {
+                out.push((pid, format!("libraries replaced: {}", libs.join(", "))));
+            }
+        }
+    }
+    out
+}
+
+#[cfg(not(target_os = "linux"))]
+pub fn scan_needs_restart() -> Vec<(u32, String)> {
+    Vec::new()
 }
 
 pub fn parse_port_range(text: &str) -> Option<(u16, u16)> {
@@ -73,7 +130,7 @@ fn collect(limit_cache: &mut HashMap<u32, (Option<u64>, Instant)>) -> Limits {
         fds,
         files: fs::read_to_string("/proc/sys/fs/file-nr").ok().and_then(|t| parse_file_nr(&t)),
         ephemeral: fs::read_to_string("/proc/sys/net/ipv4/ip_local_port_range").ok().and_then(|t| parse_port_range(&t)),
-        version: 0,
+        ..Default::default()
     }
 }
 
@@ -123,7 +180,7 @@ fn collect(_cache: &mut HashMap<u32, (Option<u64>, Instant)>) -> Limits {
         ephemeral: sysctl_u64("net.inet.ip.portrange.first")
             .zip(sysctl_u64("net.inet.ip.portrange.last"))
             .map(|(a, b)| (a as u16, b as u16)),
-        version: 0,
+        ..Default::default()
     }
 }
 
@@ -140,8 +197,23 @@ pub fn collect_once() -> Limits {
 pub fn spawn_worker(store: Arc<Mutex<Limits>>) {
     thread::spawn(move || {
         let mut cache = HashMap::new();
+        let mut hist: HashMap<u32, MiniHist> = HashMap::new();
+        let mut restart: Vec<(u32, String)> = Vec::new();
+        let mut last_restart_scan: Option<Instant> = None;
         loop {
-            let l = collect(&mut cache);
+            let mut l = collect(&mut cache);
+            for (pid, (n, _)) in &l.fds {
+                hist.entry(*pid).or_default().push(*n as f32);
+            }
+            hist.retain(|p, _| l.fds.contains_key(p));
+            // Reading every process's memory map is the expensive part: every 2 minutes.
+            if last_restart_scan.is_none_or(|t| t.elapsed() >= Duration::from_secs(120)) {
+                restart = scan_needs_restart();
+                last_restart_scan = Some(Instant::now());
+            }
+            restart.retain(|(p, _)| l.fds.contains_key(p));
+            l.fd_hist = hist.clone();
+            l.needs_restart = restart.clone();
             if let Ok(mut s) = store.lock() {
                 let v = s.version + 1;
                 *s = l;
@@ -162,6 +234,16 @@ mod tests {
         assert_eq!(parse_limits(limits), Some(1024));
         assert_eq!(parse_file_nr("3264\t0\t9223372036854775807\n"), Some((3264, 9223372036854775807)));
         assert_eq!(parse_port_range("32768\t60999\n"), Some((32768, 60999)));
+    }
+
+    #[test]
+    fn deleted_libraries() {
+        let maps = "7f00-7f01 r-xp 00000000 08:01 1234 /usr/lib/x86_64-linux-gnu/libssl.so.3 (deleted)\n\
+7f02-7f03 r-xp 00000000 08:01 1235 /usr/lib/x86_64-linux-gnu/libc.so.6\n\
+7f04-7f05 rw-s 00000000 00:05 99 /dev/shm/pulse-shm-1 (deleted)\n\
+7f06-7f07 rw-s 00000000 00:01 98 /memfd:wayland (deleted)\n\
+7f08-7f09 r-xp 00000000 08:01 1234 /usr/lib/x86_64-linux-gnu/libssl.so.3 (deleted)\n";
+        assert_eq!(deleted_libs(maps), vec!["libssl.so.3".to_string()]);
     }
 
     #[test]

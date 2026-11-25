@@ -17,6 +17,8 @@ use crate::collect::containers::{self, ContainerStore};
 use crate::collect::kmsg::{self, KmsgStore};
 use crate::collect::limits::{self, Limits};
 use crate::collect::services::{self, ServiceStore};
+use crate::collect::sessions::{self, SessionStore};
+use crate::collect::system::DeepInfo;
 use crate::collect::trace::{self, TraceStore};
 use crate::collect::firewall::{self, FwRule, FwStore};
 use crate::collect::ipinfo::{self, Resolver};
@@ -40,10 +42,11 @@ pub enum Tab {
     Firewall,
     Containers,
     System,
+    Users,
 }
 
 impl Tab {
-    pub const ALL: [Tab; 11] = [
+    pub const ALL: [Tab; 12] = [
         Tab::Overview,
         Tab::Processes,
         Tab::Network,
@@ -55,6 +58,7 @@ impl Tab {
         Tab::Firewall,
         Tab::Containers,
         Tab::System,
+        Tab::Users,
     ];
 
     pub fn title(self) -> &'static str {
@@ -70,6 +74,7 @@ impl Tab {
             Tab::Firewall => "Firewall",
             Tab::Containers => "Containers",
             Tab::System => "System",
+            Tab::Users => "Users",
         }
     }
 
@@ -78,6 +83,7 @@ impl Tab {
         match self {
             Tab::Containers => '0',
             Tab::System => 'S',
+            Tab::Users => 'U',
             t => char::from(b'1' + t.index() as u8),
         }
     }
@@ -216,10 +222,13 @@ pub struct ExtraHealth {
     pub container_ooms: Vec<String>,
     pub kernel_ooms: usize,
     pub failed_units: usize,
+    pub needs_restart: usize,
+    pub ssh_failures: u32,
 }
 
 impl ExtraHealth {
     pub fn fill_limits(&mut self, l: &Limits, s: &Sampler, sockets: Option<Arc<Vec<OpenFile>>>) {
+        self.needs_restart = l.needs_restart.len();
         if let Some((pid, _, _, pct)) = l.worst() {
             let name = s.procs.iter().find(|p| p.pid == pid).map(|p| p.name.to_string()).unwrap_or_else(|| pid.to_string());
             self.fd_worst = Some((name, pct));
@@ -363,6 +372,12 @@ pub fn compute_alerts(
     if x.kernel_ooms > 0 && x.container_ooms.is_empty() {
         out.push((format!("OOM KILLS {}", x.kernel_ooms), theme::red()));
     }
+    if a.needs_restart && x.needs_restart > 0 {
+        out.push((format!("NEEDS RESTART {}", x.needs_restart), theme::orange()));
+    }
+    if a.ssh_failures_per_hour > 0 && x.ssh_failures >= a.ssh_failures_per_hour {
+        out.push((format!("SSH FAILS {}/h", x.ssh_failures), theme::orange()));
+    }
     if a.failed_units && x.failed_units > 0 {
         out.push((format!("FAILED UNITS {}", x.failed_units), theme::red()));
     }
@@ -430,6 +445,8 @@ pub struct NetHandles {
     pub services: Arc<Mutex<ServiceStore>>,
     pub services_active: Arc<AtomicBool>,
     pub trace: Arc<Mutex<TraceStore>>,
+    pub sessions: Arc<Mutex<SessionStore>>,
+    pub sessions_active: Arc<AtomicBool>,
 }
 
 impl NetHandles {
@@ -449,6 +466,8 @@ impl NetHandles {
             services: Arc::default(),
             services_active: Arc::default(),
             trace: Arc::default(),
+            sessions: Arc::default(),
+            sessions_active: Arc::default(),
         }
     }
 
@@ -474,6 +493,7 @@ impl NetHandles {
         kmsg::spawn_worker(h.kmsg.clone());
         containers::spawn_worker(h.containers.clone(), h.containers_active.clone());
         services::spawn_worker(h.services.clone(), h.services_active.clone());
+        sessions::spawn_worker(h.sessions.clone(), h.sessions_active.clone());
         (h, warnings)
     }
 }
@@ -546,6 +566,29 @@ pub struct App {
     /// Which System-view pane has the cursor: false = services, true = kernel events.
     pub sys_events_focus: bool,
     pub ev_state: TableState,
+    pub users_state: TableState,
+    /// Process shown in the inspector (Enter on a process).
+    pub inspect: Option<u32>,
+    pub inspect_info: Option<DeepInfo>,
+    pub inspect_files: Arc<Mutex<FilesStore>>,
+    /// Inspector right-bottom pane: false = journal, true = environment.
+    pub inspect_env: bool,
+    /// Clickable regions recorded while drawing.
+    pub hits: Hits,
+}
+
+/// (file name part, column headers, rows) for CSV export.
+type ExportTable = (&'static str, Vec<&'static str>, Vec<Vec<String>>);
+
+/// Screen regions from the last frame, for mouse clicks.
+#[derive(Default)]
+pub struct Hits {
+    /// (x start, x end, y, tab)
+    pub tabs: Vec<(u16, u16, u16, Tab)>,
+    /// Main table of the current view: (area incl. border, first visible row).
+    pub table: Option<(ratatui::layout::Rect, usize)>,
+    /// Process table column headers: (x start, x end, sort).
+    pub proc_headers: Vec<(u16, u16, ProcSort)>,
 }
 
 impl App {
@@ -614,6 +657,12 @@ impl App {
             svc_state: TableState::default().with_selected(0),
             sys_events_focus: false,
             ev_state: TableState::default().with_selected(0),
+            users_state: TableState::default().with_selected(0),
+            inspect: None,
+            inspect_info: None,
+            inspect_files: Arc::default(),
+            inspect_env: false,
+            hits: Hits::default(),
         };
         app.rebuild();
         app
@@ -666,6 +715,7 @@ impl App {
         self.net.fw_active.store(self.tab == Tab::Firewall, Relaxed);
         self.net.containers_active.store(self.tab == Tab::Containers, Relaxed);
         self.net.services_active.store(self.tab == Tab::System, Relaxed);
+        self.net.sessions_active.store(self.tab == Tab::Users, Relaxed);
     }
 
     /// Health badges for the header: every threshold from `[alerts]` that is exceeded.
@@ -700,6 +750,9 @@ impl App {
         }
         if let Ok(sv) = self.net.services.try_lock() {
             x.failed_units = sv.units.iter().filter(|u| u.failed() && sv.manager == "systemd").count();
+        }
+        if let Ok(ss) = self.net.sessions.try_lock() {
+            x.ssh_failures = ss.failed_total;
         }
         compute_alerts(&self.sampler, &self.cfg.alerts, self.close_wait, self.time_wait, &x)
     }
@@ -819,7 +872,13 @@ impl App {
         } else {
             0
         };
-        let tr = if self.tab == Tab::Probes { v(self.net.trace.try_lock().ok().map(|s| s.version)) } else { 0 };
+        let tr = if self.tab == Tab::Probes { v(self.net.trace.try_lock().ok().map(|s| s.version)) } else { 0 }
+            + if self.tab == Tab::Users { v(self.net.sessions.try_lock().ok().map(|s| s.version)) } else { 0 }
+            + if self.inspect.is_some() {
+                v(self.inspect_files.try_lock().ok().map(|s| s.version)) + v(self.net.services.try_lock().ok().map(|s| s.version))
+            } else {
+                0
+            };
         let status_live = self
             .status
             .as_ref()
@@ -1077,6 +1136,7 @@ impl App {
             Tab::Containers => self.net.containers.try_lock().map(|c| c.containers.len()).unwrap_or(0),
             Tab::System if self.sys_events_focus => self.net.kmsg.try_lock().map(|k| k.events.len()).unwrap_or(0),
             Tab::System => self.net.services.try_lock().map(|s| s.units.len()).unwrap_or(0),
+            Tab::Users => self.net.sessions.try_lock().map(|s| s.sessions.len()).unwrap_or(0),
             _ => 0,
         }
     }
@@ -1093,6 +1153,7 @@ impl App {
             Tab::Containers => Some(&mut self.ctr_state),
             Tab::System if self.sys_events_focus => Some(&mut self.ev_state),
             Tab::System => Some(&mut self.svc_state),
+            Tab::Users => Some(&mut self.users_state),
             _ => None,
         }
     }
@@ -1127,7 +1188,330 @@ impl App {
         match m.kind {
             MouseEventKind::ScrollDown => self.move_sel(3),
             MouseEventKind::ScrollUp => self.move_sel(-3),
+            MouseEventKind::Down(crossterm::event::MouseButton::Left) if self.mode == Mode::Normal => {
+                let (x, y) = (m.column, m.row);
+                if let Some(&(_, _, _, t)) = self.hits.tabs.iter().find(|(x0, x1, ty, _)| y == *ty && x >= *x0 && x < *x1) {
+                    self.inspect = None;
+                    self.tab = t;
+                    self.sync_activity();
+                    return;
+                }
+                if let Some((area, off)) = self.hits.table {
+                    let inside_x = x > area.x && x < area.x + area.width.saturating_sub(1);
+                    if inside_x && y == area.y + 1 && self.tab == Tab::Processes {
+                        if let Some(&(_, _, s)) = self.hits.proc_headers.iter().find(|(x0, x1, _)| x >= *x0 && x < *x1) {
+                            self.set_proc_sort(s);
+                        }
+                        return;
+                    }
+                    let first = area.y + 2;
+                    let last = area.y + area.height.saturating_sub(1);
+                    if inside_x && y >= first && y < last {
+                        let idx = off + (y - first) as usize;
+                        if idx < self.list_len() {
+                            if let Some(st) = self.table_state() {
+                                st.select(Some(idx));
+                            }
+                            if self.tab == Tab::Processes {
+                                self.sync_selected_pid();
+                            }
+                        }
+                    }
+                }
+            }
             _ => {}
+        }
+    }
+
+    // ───────────────────────────── inspector ─────────────────────────────
+
+    pub fn open_inspector(&mut self, pid: u32) {
+        self.inspect_info = self.sampler.deep_info(pid);
+        if self.inspect_info.is_none() {
+            self.set_status(format!("process {pid} no longer exists"), theme::yellow());
+            return;
+        }
+        self.inspect = Some(pid);
+        self.inspect_env = false;
+        lsof::spawn_query(self.inspect_files.clone(), Query::Pid(pid));
+        if let Some(unit) = self.inspect_info.as_ref().and_then(|d| d.unit.clone()) {
+            services::load_journal(self.net.services.clone(), unit);
+        }
+    }
+
+    fn key_inspect(&mut self, k: KeyEvent) -> bool {
+        let Some(pid) = self.inspect else { return false };
+        match k.code {
+            KeyCode::Esc | KeyCode::Backspace | KeyCode::Char('q') => self.inspect = None,
+            KeyCode::Char('v') => self.inspect_env = !self.inspect_env,
+            KeyCode::Char('f') => {
+                self.inspect = None;
+                self.run_query(Query::Pid(pid));
+            }
+            KeyCode::Char('x') | KeyCode::Char('K') => {
+                let name = self.sampler.procs.iter().find(|p| p.pid == pid).map(|p| p.name.to_string()).unwrap_or_default();
+                self.open_signal_dialog(pid, name);
+            }
+            KeyCode::Char('r') => self.open_inspector(pid),
+            KeyCode::Char('y') | KeyCode::Char('E') | KeyCode::Char('?') | KeyCode::Char('T') | KeyCode::Char(' ') => return false,
+            _ => {}
+        }
+        true
+    }
+
+    // ───────────────────────────── copy & export ─────────────────────────────
+
+    /// What `y` copies in the current context.
+    fn copy_target(&self) -> Option<(String, String)> {
+        if let Some(pid) = self.inspect {
+            let p = self.sampler.procs.iter().find(|p| p.pid == pid)?;
+            return Some(("command line".into(), if p.cmd.is_empty() { p.name.to_string() } else { p.cmd.to_string() }));
+        }
+        match self.tab {
+            Tab::Processes => self.selected_proc().map(|p| {
+                ("command line".into(), if p.cmd.is_empty() { p.name.to_string() } else { p.cmd.to_string() })
+            }),
+            Tab::Sockets => self.selected_socket().map(|s| {
+                let (l, r) = s.endpoints();
+                if r.is_empty() { ("address".into(), l.to_string()) } else { ("remote address".into(), r.to_string()) }
+            }),
+            Tab::Files => {
+                let i = self.files_state.selected()?;
+                self.file_rows().get(i).map(|f| ("path".into(), f.name.clone()))
+            }
+            Tab::Containers => {
+                let c = self.net.containers.try_lock().ok()?;
+                c.containers.get(self.ctr_state.selected()?).map(|c| ("container id".into(), c.id.clone()))
+            }
+            Tab::System => {
+                let s = self.net.services.try_lock().ok()?;
+                s.units.get(self.svc_state.selected()?).map(|u| ("unit".into(), u.name.clone()))
+            }
+            Tab::Probes => {
+                let p = self.net.probes.try_lock().ok()?;
+                p.probes.get(self.probe_state.selected()?).map(|p| ("probe target".into(), p.target.spec()))
+            }
+            Tab::Routes => {
+                let n = self.net.netinfo.try_lock().ok()?;
+                n.routes.get(self.route_state.selected()?).map(|r| ("route".into(), format!("{} via {} dev {}", r.dst, r.gateway, r.dev)))
+            }
+            Tab::Firewall => {
+                let rows = self.fw_rows();
+                rows.get(self.fw_state.selected()?).map(|r| ("rule".into(), format!("{} {}", r.rule, r.verdict)))
+            }
+            Tab::Users => {
+                let s = self.net.sessions.try_lock().ok()?;
+                s.sessions.get(self.users_state.selected()?).map(|u| ("address".into(), if u.from.is_empty() { u.user.clone() } else { u.from.clone() }))
+            }
+            Tab::Network => self.net_state.selected().and_then(|i| self.sampler.ifaces.get(i)).map(|i| ("interface".into(), i.name.clone())),
+            _ => None,
+        }
+    }
+
+    fn copy(&mut self) {
+        match self.copy_target() {
+            Some((what, text)) => {
+                crate::util::osc52_copy(&text);
+                self.set_status(format!("copied {what}: {}", crate::util::truncate(&text, 60)), theme::green());
+            }
+            None => self.set_status("nothing to copy here", theme::yellow()),
+        }
+    }
+
+    /// Rows of the current view as (name, headers, rows) for CSV export.
+    fn export_table(&self) -> Option<ExportTable> {
+        let fmt = |v: f64| format!("{v:.2}");
+        Some(match self.tab {
+            Tab::Processes => (
+                "processes",
+                vec!["pid", "ppid", "user", "name", "cpu_pct", "rss_bytes", "read_bps", "write_bps", "sockets", "net_bps", "fds", "status", "runtime_s", "command"],
+                self.proc_rows
+                    .iter()
+                    .map(|r| {
+                        let p = &self.sampler.procs[r.idx];
+                        vec![
+                            p.pid.to_string(),
+                            p.ppid.map(|x| x.to_string()).unwrap_or_default(),
+                            p.user.to_string(),
+                            p.name.to_string(),
+                            fmt(p.cpu as f64),
+                            p.mem.to_string(),
+                            fmt(p.read_rate),
+                            fmt(p.write_rate),
+                            self.conn_counts.get(&p.pid).copied().unwrap_or(0).to_string(),
+                            fmt(self.proc_net.get(&p.pid).map(|(t, r)| t + r).unwrap_or(0.0)),
+                            self.fd_info(p.pid).map(|(n, _)| n.to_string()).unwrap_or_default(),
+                            p.status.to_string(),
+                            p.run_time.to_string(),
+                            p.cmd.to_string(),
+                        ]
+                    })
+                    .collect(),
+            ),
+            Tab::Sockets => (
+                "sockets",
+                vec!["proto", "local", "remote", "state", "pid", "process", "user", "rtt_ms", "retrans", "rx_bps", "tx_bps", "netns"],
+                self.socket_rows()
+                    .iter()
+                    .map(|e| {
+                        let (l, r) = e.endpoints();
+                        let n = e.net.as_deref();
+                        let t = n.and_then(|n| n.tcp);
+                        vec![
+                            format!("{} {}", e.proto, e.ftype),
+                            l.to_string(),
+                            r.to_string(),
+                            e.state.clone(),
+                            e.pid.to_string(),
+                            e.command.clone(),
+                            e.user.clone(),
+                            t.map(|t| fmt(t.rtt_us as f64 / 1000.0)).unwrap_or_default(),
+                            t.map(|t| t.total_retrans.to_string()).unwrap_or_default(),
+                            n.map(|n| fmt(n.rx_rate)).unwrap_or_default(),
+                            n.map(|n| fmt(n.tx_rate)).unwrap_or_default(),
+                            n.and_then(|n| n.netns.as_deref().map(str::to_string)).unwrap_or_default(),
+                        ]
+                    })
+                    .collect(),
+            ),
+            Tab::Files => (
+                "files",
+                vec!["pid", "command", "user", "fd", "type", "size_off", "node", "name"],
+                self.file_rows()
+                    .iter()
+                    .map(|e| vec![e.pid.to_string(), e.command.clone(), e.user.clone(), e.fd_display(), e.ftype.clone(), e.size_off(), e.node.clone(), e.name.clone()])
+                    .collect(),
+            ),
+            Tab::Containers => {
+                let c = self.net.containers.try_lock().ok()?;
+                (
+                    "containers",
+                    vec!["name", "id", "runtime", "cpu_pct", "cpu_limit", "throttled_pct", "mem_bytes", "mem_limit", "oom_kills", "pids"],
+                    c.containers
+                        .iter()
+                        .map(|c| {
+                            vec![
+                                c.name.clone(),
+                                c.id.clone(),
+                                c.runtime.into(),
+                                fmt(c.cpu_pct),
+                                c.cpu_limit.map(fmt).unwrap_or_default(),
+                                fmt(c.throttled_pct),
+                                c.mem.to_string(),
+                                c.mem_max.map(|m| m.to_string()).unwrap_or_default(),
+                                c.oom_kills.to_string(),
+                                c.pids.to_string(),
+                            ]
+                        })
+                        .collect(),
+                )
+            }
+            Tab::System => {
+                let s = self.net.services.try_lock().ok()?;
+                (
+                    "units",
+                    vec!["unit", "active", "sub", "restarts", "pid", "memory", "description"],
+                    s.units
+                        .iter()
+                        .map(|u| {
+                            vec![
+                                u.name.clone(),
+                                u.active.clone(),
+                                u.sub.clone(),
+                                u.restarts.to_string(),
+                                u.main_pid.to_string(),
+                                u.memory.map(|m| m.to_string()).unwrap_or_default(),
+                                u.description.clone(),
+                            ]
+                        })
+                        .collect(),
+                )
+            }
+            Tab::Probes => {
+                let p = self.net.probes.try_lock().ok()?;
+                (
+                    "probes",
+                    vec!["name", "target", "last_ms", "min_ms", "avg_ms", "max_ms", "jitter_ms", "loss_pct", "http_status", "cert_days"],
+                    p.probes
+                        .iter()
+                        .map(|pr| {
+                            let st = pr.stats();
+                            vec![
+                                pr.name.clone(),
+                                pr.target.spec(),
+                                pr.last_ms.map(fmt).unwrap_or_default(),
+                                st.map(|s| fmt(s.0)).unwrap_or_default(),
+                                st.map(|s| fmt(s.1)).unwrap_or_default(),
+                                st.map(|s| fmt(s.2)).unwrap_or_default(),
+                                st.map(|s| fmt(s.3)).unwrap_or_default(),
+                                fmt(pr.loss_pct()),
+                                pr.http_status.map(|s| s.to_string()).unwrap_or_default(),
+                                pr.cert_days.map(|d| d.to_string()).unwrap_or_default(),
+                            ]
+                        })
+                        .collect(),
+                )
+            }
+            Tab::Firewall => (
+                "firewall",
+                vec!["family", "table", "chain", "rule", "verdict", "packets", "bytes", "pps", "bps"],
+                self.fw_rows()
+                    .iter()
+                    .map(|r| vec![r.family.clone(), r.table.clone(), r.chain.clone(), r.rule.clone(), r.verdict.clone(), r.packets.to_string(), r.bytes.to_string(), fmt(r.pps), fmt(r.bps)])
+                    .collect(),
+            ),
+            Tab::Routes => {
+                let n = self.net.netinfo.try_lock().ok()?;
+                (
+                    "routes",
+                    vec!["family", "destination", "gateway", "dev", "proto", "metric", "src"],
+                    n.routes.iter().map(|r| vec![r.family.into(), r.dst.clone(), r.gateway.clone(), r.dev.clone(), r.proto.clone(), r.metric.clone(), r.src.clone()]).collect(),
+                )
+            }
+            Tab::Network => (
+                "interfaces",
+                vec!["name", "state", "speed_mbps", "mtu", "rx_bps", "tx_bps", "rx_total", "tx_total", "rx_errors", "tx_errors", "dropped", "addresses"],
+                self.sampler
+                    .ifaces
+                    .iter()
+                    .map(|i| {
+                        vec![
+                            i.name.clone(),
+                            i.oper.clone().unwrap_or_default(),
+                            i.speed_mbps.map(|s| s.to_string()).unwrap_or_default(),
+                            i.mtu.to_string(),
+                            fmt(i.rx_rate),
+                            fmt(i.tx_rate),
+                            i.rx_total.to_string(),
+                            i.tx_total.to_string(),
+                            i.rx_errors.to_string(),
+                            i.tx_errors.to_string(),
+                            (i.rx_dropped + i.tx_dropped).to_string(),
+                            i.addrs.join(" "),
+                        ]
+                    })
+                    .collect(),
+            ),
+            Tab::Users => {
+                let s = self.net.sessions.try_lock().ok()?;
+                (
+                    "sessions",
+                    vec!["user", "tty", "from", "login", "idle", "what"],
+                    s.sessions.iter().map(|u| vec![u.user.clone(), u.tty.clone(), u.from.clone(), u.login.clone(), u.idle.clone(), u.what.clone()]).collect(),
+                )
+            }
+            _ => return None,
+        })
+    }
+
+    fn export(&mut self) {
+        let Some((name, headers, rows)) = self.export_table() else {
+            self.set_status("this view has no table to export", theme::yellow());
+            return;
+        };
+        match crate::util::write_csv(name, &headers, &rows) {
+            Ok(p) => self.set_status(format!("exported {} rows to {}", rows.len(), p.display()), theme::green()),
+            Err(e) => self.set_status(format!("export failed: {e}"), theme::red()),
         }
     }
 
@@ -1363,6 +1747,9 @@ impl App {
             self.show_help = false;
             return;
         }
+        if self.key_inspect(k) {
+            return;
+        }
         let page = 15;
         match k.code {
             KeyCode::Char('q') => self.quit = true,
@@ -1378,9 +1765,15 @@ impl App {
             KeyCode::BackTab | KeyCode::Left | KeyCode::Char('H') => {
                 self.tab = Tab::ALL[(self.tab.index() + Tab::ALL.len() - 1) % Tab::ALL.len()]
             }
-            KeyCode::Char(c @ '1'..='9') => self.tab = Tab::ALL[c as usize - '1' as usize],
+            KeyCode::Char(c @ '1'..='9') => {
+                self.inspect = None;
+                self.tab = Tab::ALL[c as usize - '1' as usize]
+            }
             KeyCode::Char('0') => self.tab = Tab::Containers,
             KeyCode::Char('S') => self.tab = Tab::System,
+            KeyCode::Char('U') => self.tab = Tab::Users,
+            KeyCode::Char('y') => self.copy(),
+            KeyCode::Char('E') => self.export(),
             KeyCode::Char('N') => {
                 self.show_names = !self.show_names;
                 if self.show_names && self.resolver.is_none() {
@@ -1468,7 +1861,12 @@ impl App {
                 self.proc_tree = !self.proc_tree;
                 self.rebuild_procs();
             }
-            KeyCode::Enter | KeyCode::Char('f') => {
+            KeyCode::Enter | KeyCode::Char('I') => {
+                if let Some(pid) = self.selected_proc().map(|p| p.pid) {
+                    self.open_inspector(pid);
+                }
+            }
+            KeyCode::Char('f') => {
                 if let Some(p) = self.selected_proc() {
                     let pid = p.pid;
                     self.run_query(Query::Pid(pid));
@@ -1491,6 +1889,11 @@ impl App {
 
     fn key_sockets(&mut self, k: KeyEvent) {
         match k.code {
+            KeyCode::Char('i') => {
+                if let Some(pid) = self.selected_socket().map(|s| s.pid).filter(|p| *p != 0) {
+                    self.open_inspector(pid);
+                }
+            }
             KeyCode::Char('l') => {
                 self.sock_listen_only = !self.sock_listen_only;
                 self.sock_state.select(Some(0));

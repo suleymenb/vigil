@@ -46,6 +46,7 @@ pub fn containers(f: &mut Frame, app: &mut App, area: Rect) {
     let n = st.containers.len();
     let [table_area, detail] = Layout::vertical([Constraint::Min(5), Constraint::Length(5)]).areas(area);
     let (off, h) = window(&mut app.ctr_state, n, table_area);
+    app.hits.table = Some((table_area, off));
     let rows: Vec<Row> = st.containers[off..(off + h).min(n)]
         .iter()
         .map(|c| {
@@ -151,6 +152,9 @@ pub fn system(f: &mut Frame, app: &mut App, area: Rect) {
     let n = st.units.len();
     let failed = st.units.iter().filter(|u| u.failed()).count();
     let (off, h) = window(&mut app.svc_state, n, units_area);
+    if !app.sys_events_focus {
+        app.hits.table = Some((units_area, off));
+    }
     let rows: Vec<Row> = st.units[off.min(n)..(off + h).min(n)]
         .iter()
         .map(|u| {
@@ -248,6 +252,9 @@ pub fn system(f: &mut Frame, app: &mut App, area: Rect) {
     let ev: Vec<_> = ks.events.iter().rev().collect();
     let n = ev.len();
     let (off, h) = window(&mut app.ev_state, n, events);
+    if app.sys_events_focus {
+        app.hits.table = Some((events, off));
+    }
     let rows: Vec<Row> = ev[off.min(n)..(off + h).min(n)]
         .iter()
         .map(|e| {
@@ -286,4 +293,97 @@ pub fn system(f: &mut Frame, app: &mut App, area: Rect) {
         .row_highlight_style(sel_style())
         .highlight_symbol(theme::glyphs().select);
     f.render_stateful_widget(t, events, &mut local_state(&app.ev_state, off));
+}
+
+// ─────────────────────────────── users ───────────────────────────────
+
+pub fn users(f: &mut Frame, app: &mut App, area: Rect) {
+    let store = app.net.sessions.clone();
+    let Ok(st) = store.lock() else { return };
+    let sh = (st.sessions.len() as u16 + 3).min((area.height / 2).max(5));
+    let [top, bottom] = Layout::vertical([Constraint::Length(sh), Constraint::Min(6)]).areas(area);
+    let [failed_area, acc_area] = Layout::horizontal([Constraint::Percentage(55), Constraint::Percentage(45)]).areas(bottom);
+
+    let n = st.sessions.len();
+    let (off, h) = window(&mut app.users_state, n, top);
+    app.hits.table = Some((top, off));
+    let rows: Vec<Row> = st.sessions[off.min(n)..(off + h).min(n)]
+        .iter()
+        .map(|s| {
+            let scope = s.from.parse().map(|ip| crate::collect::ipinfo::scope(&ip)).unwrap_or("");
+            Row::new(vec![
+                Cell::from(s.user.clone()).style(Style::new().fg(if s.user == "root" { theme::red() } else { theme::teal() }).bold()),
+                Cell::from(s.tty.clone()).style(Style::new().fg(theme::muted())),
+                Cell::from(if s.from.is_empty() { "local".into() } else { s.from.clone() })
+                    .style(Style::new().fg(if scope == "public" { theme::orange() } else { theme::fg() })),
+                Cell::from(scope).style(Style::new().fg(theme::dim())),
+                Cell::from(s.login.clone()).style(Style::new().fg(theme::muted())),
+                if s.idle.is_empty() { none() } else { num(s.idle.clone(), Style::new().fg(theme::dim())) },
+                Cell::from(s.what.clone()).style(Style::new().fg(theme::fg())),
+            ])
+        })
+        .collect();
+    let t = Table::new(
+        rows,
+        [Constraint::Length(12), Constraint::Length(9), Constraint::Length(18), Constraint::Length(9), Constraint::Length(7), Constraint::Length(7), Constraint::Min(10)],
+    )
+    .column_spacing(2)
+    .header(header(&["USER", "TTY", "FROM", "SCOPE", "LOGIN", "IDLE", "RUNNING"]))
+    .block(panel(format!("logged in ({n})"), theme::teal()))
+    .row_highlight_style(sel_style())
+    .highlight_symbol(theme::glyphs().select);
+    f.render_stateful_widget(t, top, &mut local_state(&app.users_state, off));
+
+    // Failed SSH logins in the last hour, by source address.
+    let rows: Vec<Row> = st
+        .failed
+        .iter()
+        .take(failed_area.height.saturating_sub(3) as usize)
+        .map(|fs| {
+            let scope = fs.ip.parse().map(|ip| crate::collect::ipinfo::scope(&ip)).unwrap_or("");
+            Row::new(vec![
+                Cell::from(fs.ip.clone()).style(Style::new().fg(theme::fg()).bold()),
+                Cell::from(scope).style(Style::new().fg(theme::dim())),
+                num(fs.attempts.to_string(), Style::new().fg(theme::heat((fs.attempts as f64).min(100.0))).bold()),
+                Cell::from(fs.users.join(", ")).style(Style::new().fg(theme::muted())),
+            ])
+        })
+        .collect();
+    let title = format!("failed ssh logins · last hour ({} from {} addresses)", st.failed_total, st.failed.len());
+    let mut block = panel(title, theme::red());
+    if let Some(note) = &st.ssh_note {
+        block = block.title_bottom(Line::styled(format!(" {note} "), Style::new().fg(theme::dim())));
+    }
+    if st.failed.is_empty() {
+        let msg = if st.ssh_note.is_some() { "" } else { " none" };
+        f.render_widget(Paragraph::new(Line::styled(msg, Style::new().fg(theme::green()))).block(block), failed_area);
+    } else {
+        f.render_widget(
+            Table::new(rows, [Constraint::Length(18), Constraint::Length(9), Constraint::Length(8), Constraint::Min(10)])
+                .column_spacing(2)
+                .header(header(&["SOURCE", "SCOPE", "ATTEMPTS", "USERS TRIED"]))
+                .block(block),
+            failed_area,
+        );
+    }
+
+    let rows: Vec<Row> = st
+        .accepted
+        .iter()
+        .take(acc_area.height.saturating_sub(3) as usize)
+        .map(|a| {
+            Row::new(vec![
+                Cell::from(a.user.clone()).style(Style::new().fg(if a.user == "root" { theme::red() } else { theme::teal() })),
+                Cell::from(a.ip.clone()).style(Style::new().fg(theme::fg())),
+                Cell::from(a.method.clone()).style(Style::new().fg(if a.method == "password" { theme::yellow() } else { theme::green() })),
+            ])
+        })
+        .collect();
+    f.render_widget(
+        Table::new(rows, [Constraint::Length(12), Constraint::Min(14), Constraint::Length(10)])
+            .column_spacing(2)
+            .header(header(&["USER", "FROM", "METHOD"]))
+            .block(panel("accepted ssh logins · last hour", theme::green())),
+        acc_area,
+    );
 }
