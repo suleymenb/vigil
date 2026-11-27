@@ -258,7 +258,7 @@ fn collect() -> (Result<Vec<FwRule>, String>, &'static str) {
 }
 
 pub fn spawn_worker(store: Arc<Mutex<FwStore>>, active: Arc<AtomicBool>) {
-    thread::spawn(move || {
+    crate::util::spawn_named("firewall", move || {
         let mut prev: HashMap<String, (u64, u64)> = HashMap::new();
         let mut last = Instant::now();
         loop {

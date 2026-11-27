@@ -319,6 +319,12 @@ mod io_tests {
     }
 }
 
+/// A background thread with a name (15 bytes at most on Linux), so that
+/// `top -H -p $(pidof vigil)` shows which collector is using the CPU.
+pub fn spawn_named<T: Send + 'static>(name: &str, f: impl FnOnce() -> T + Send + 'static) -> std::thread::JoinHandle<T> {
+    std::thread::Builder::new().name(name.to_string()).spawn(f).expect("start a thread")
+}
+
 /// Runs a slow probe (an external command) on its own thread every
 /// `interval` and keeps the latest result, so the UI thread never waits for
 /// it. `latest(seen)` returns the result only when it is newer than `seen`.
@@ -332,7 +338,7 @@ impl<T: Clone + Send + 'static> Poller<T> {
     pub fn spawn(interval: std::time::Duration, mut f: impl FnMut() -> Option<T> + Send + 'static) -> Self {
         let slot = std::sync::Arc::new(std::sync::Mutex::new(None));
         let s2 = slot.clone();
-        std::thread::spawn(move || {
+        crate::util::spawn_named("poller", move || {
             let mut seq = 0u64;
             loop {
                 let t0 = std::time::Instant::now();

@@ -308,7 +308,7 @@ pub fn collect() -> (Vec<Route>, Vec<Neighbor>, Dns, Option<String>) {
 }
 
 pub fn spawn_worker(store: Arc<Mutex<NetInfo>>, active: Arc<AtomicBool>) {
-    thread::spawn(move || {
+    crate::util::spawn_named("netinfo", move || {
         let mut last: Option<Instant> = None;
         loop {
             let due = match last {

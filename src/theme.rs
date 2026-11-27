@@ -4,7 +4,7 @@
 //! (built-in themes plus `[[custom_themes]]`), so a colour lookup is two
 //! relaxed loads + an array index: no locks, no allocation.
 
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU8, AtomicUsize, Ordering};
 use std::sync::OnceLock;
 
 use ratatui::style::Color;
@@ -49,6 +49,25 @@ pub static NEON: Glyphs = Glyphs {
     select: "▶",
     divider: "┃",
     track: "┃",
+    thumb: "█",
+};
+
+/// For consoles whose font is small: the classic Windows console window
+/// (Consolas, Lucida Console) and the Linux text console (`TERM=linux`, a
+/// 256- or 512-glyph font). Every character here is in WGL4 and in the Linux
+/// console fonts: plain box corners, half and full blocks. The finer blocks
+/// of the other sets (▁▂▃▅▆▇ ▔), rounded corners and heavy lines show up
+/// there as empty boxes or question marks.
+pub static SAFE: Glyphs = Glyphs {
+    border: border::PLAIN,
+    meter_on: "■",
+    meter_off: "■",
+    graph: [' ', '_', '▄', '▄', '▄', '▄', '█', '█', '█'],
+    graph_down: ['█', '▀', '¯'],
+    spark: ['_', '_', '▄', '▄', '▄', '▄', '█', '█'],
+    select: "▌",
+    divider: "│",
+    track: "│",
     thumb: "█",
 };
 
@@ -418,14 +437,92 @@ fn build(custom: &[crate::config::CustomTheme]) -> (Vec<Palette>, Vec<String>) {
     (v, warnings)
 }
 
+/// Which characters to draw with: `glyphs = …` in the config, `--glyphs`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum GlyphMode {
+    /// Whatever the theme asks for.
+    Theme,
+    /// `SAFE` for every theme (ASCII themes stay ASCII).
+    Safe,
+    /// `ASCII` for every theme.
+    Ascii,
+}
+
+static GLYPH_MODE: AtomicU8 = AtomicU8::new(0);
+
+pub fn set_glyph_mode(m: GlyphMode) {
+    GLYPH_MODE.store(m as u8, Ordering::Relaxed);
+}
+
+/// `auto`, `theme`, `safe` or `ascii` (None for anything else). `auto` looks
+/// at the console vigil runs in.
+pub fn parse_glyph_mode(s: &str) -> Option<GlyphMode> {
+    match s.trim().to_ascii_lowercase().as_str() {
+        "auto" | "" => Some(auto_glyph_mode(cfg!(windows), |k| std::env::var(k).ok().filter(|v| !v.is_empty()))),
+        "theme" | "modern" | "full" => Some(GlyphMode::Theme),
+        "safe" | "basic" => Some(GlyphMode::Safe),
+        "ascii" => Some(GlyphMode::Ascii),
+        _ => None,
+    }
+}
+
+/// The consoles with a small font announce themselves: on Windows it is the
+/// classic console window unless a modern terminal set its variable (Windows
+/// Terminal, VS Code, WezTerm, Alacritty; over SSH the font is the client's).
+/// On Linux it is the text console of a server or VM, `TERM=linux`.
+pub fn auto_glyph_mode(windows: bool, env: impl Fn(&str) -> Option<String>) -> GlyphMode {
+    let small_font = if windows {
+        !["WT_SESSION", "TERM_PROGRAM", "WEZTERM_EXECUTABLE", "ALACRITTY_WINDOW_ID", "SSH_CONNECTION", "SSH_CLIENT"].iter().any(|k| env(k).is_some())
+    } else {
+        env("TERM").as_deref() == Some("linux")
+    };
+    if small_font {
+        GlyphMode::Safe
+    } else {
+        GlyphMode::Theme
+    }
+}
+
 #[inline]
 pub fn glyphs() -> &'static Glyphs {
-    pal().glyphs
+    let own = pal().glyphs;
+    match GLYPH_MODE.load(Ordering::Relaxed) {
+        2 => &ASCII,
+        1 if !std::ptr::eq(own, &ASCII) => &SAFE,
+        _ => own,
+    }
 }
 
 /// True for themes that must stay within 7-bit ASCII.
 pub fn is_ascii() -> bool {
     std::ptr::eq(glyphs(), &ASCII)
+}
+
+/// True when symbols beyond the basic console fonts must be avoided.
+pub fn plain_symbols() -> bool {
+    is_ascii() || std::ptr::eq(glyphs(), &SAFE)
+}
+
+/// A symbol in three grades: any Unicode font, the basic console fonts
+/// (WGL4), 7-bit ASCII.
+pub fn sym3(full: &'static str, safe: &'static str, ascii: &'static str) -> &'static str {
+    if is_ascii() {
+        ascii
+    } else if plain_symbols() {
+        safe
+    } else {
+        full
+    }
+}
+
+/// `full` where the font has it, `plain` (ASCII) elsewhere.
+pub fn sym(full: &'static str, plain: &'static str) -> &'static str {
+    sym3(full, plain, plain)
+}
+
+/// The Enter key in hints.
+pub fn enter() -> &'static str {
+    sym("↵", "enter")
 }
 
 /// Tree connectors: (middle child, last child, continue below middle, continue below last).
@@ -590,6 +687,42 @@ mod tests {
         for (i, t) in all().iter().enumerate() {
             assert_eq!(by_name(t.name), Some(i));
         }
+    }
+
+    #[test]
+    fn small_console_fonts_get_the_safe_glyphs() {
+        let env = |pairs: &'static [(&'static str, &'static str)]| move |k: &str| pairs.iter().find(|(n, _)| *n == k).map(|(_, v)| v.to_string());
+        // Windows: the classic console window, unless a modern terminal says otherwise.
+        assert_eq!(auto_glyph_mode(true, env(&[])), GlyphMode::Safe);
+        assert_eq!(auto_glyph_mode(true, env(&[("ConEmuPID", "4242")])), GlyphMode::Safe);
+        for var in ["WT_SESSION", "TERM_PROGRAM", "WEZTERM_EXECUTABLE", "ALACRITTY_WINDOW_ID", "SSH_CONNECTION"] {
+            let pairs: &'static [(&'static str, &'static str)] = Box::leak(vec![(var, "x")].into_boxed_slice());
+            assert_eq!(auto_glyph_mode(true, env(pairs)), GlyphMode::Theme, "{var}");
+        }
+        // Linux and macOS: only the text console of a server or VM.
+        assert_eq!(auto_glyph_mode(false, env(&[("TERM", "linux")])), GlyphMode::Safe);
+        assert_eq!(auto_glyph_mode(false, env(&[("TERM", "xterm-256color")])), GlyphMode::Theme);
+        assert_eq!(auto_glyph_mode(false, env(&[])), GlyphMode::Theme);
+        assert_eq!(parse_glyph_mode("Safe"), Some(GlyphMode::Safe));
+        assert_eq!(parse_glyph_mode("ascii"), Some(GlyphMode::Ascii));
+        assert_eq!(parse_glyph_mode("theme"), Some(GlyphMode::Theme));
+        assert_eq!(parse_glyph_mode("sparkles"), None);
+    }
+
+    /// WGL4 block elements and box drawing, plus Latin-1: what Consolas,
+    /// Lucida Console and the Linux console fonts all have.
+    #[test]
+    fn safe_glyphs_stay_within_basic_console_fonts() {
+        let ok = |c: char| c.is_ascii() || matches!(c, '─' | '│' | '┌' | '┐' | '└' | '┘' | '▀' | '▄' | '█' | '▌' | '▐' | '■' | '¯');
+        let g = &SAFE;
+        let b = &g.border;
+        let strs = [b.top_left, b.top_right, b.bottom_left, b.bottom_right, b.vertical_left, b.vertical_right, b.horizontal_top, b.horizontal_bottom, g.meter_on, g.meter_off, g.select, g.divider, g.track, g.thumb];
+        for c in strs.iter().flat_map(|s| s.chars()).chain(g.graph).chain(g.graph_down).chain(g.spark) {
+            assert!(ok(c), "U+{:04X} {c} is not in the basic console fonts", c as u32);
+        }
+        // Graph levels still rise with the value.
+        let rank = |c: char| [' ', '_', '▄', '█'].iter().position(|x| *x == c).unwrap();
+        assert!(g.graph.windows(2).all(|w| rank(w[0]) <= rank(w[1])) && g.spark.windows(2).all(|w| rank(w[0]) <= rank(w[1])));
     }
 
     #[test]

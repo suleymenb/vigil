@@ -330,7 +330,7 @@ fn lldp_once() -> (Vec<Lldp>, Option<String>) {
 }
 
 pub fn spawn_worker(store: Arc<Mutex<L2Store>>, netinfo: Arc<Mutex<super::netinfo::NetInfo>>, active: Arc<AtomicBool>) {
-    thread::spawn(move || {
+    crate::util::spawn_named("link-layer", move || {
         let mut last: Option<Instant> = None;
         let mut last_lldp: Option<Instant> = None;
         let mut prev: HashMap<String, u64> = HashMap::new();

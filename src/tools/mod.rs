@@ -114,18 +114,15 @@ impl From<&crate::config::Troubleshoot> for Settings {
     }
 }
 
-/// Status marks; plain ASCII on legacy consoles and ASCII themes.
+/// Status marks, in the best form the console font has: ✔ ▲ ✖ on a full
+/// Unicode font, √ ▲ × on the basic console fonts, words on ASCII themes.
 pub fn mark(t: Tone) -> &'static str {
-    let ascii = crate::theme::is_ascii();
-    match (t, ascii) {
-        (Tone::Good, false) => "✔",
-        (Tone::Warn, false) => "▲",
-        (Tone::Bad, false) => "✖",
-        (Tone::Good, true) => "ok",
-        (Tone::Warn, true) => "!!",
-        (Tone::Bad, true) => "XX",
-        (_, false) => "·",
-        (_, true) => "--",
+    use crate::theme::sym3;
+    match t {
+        Tone::Good => sym3("✔", "√", "ok"),
+        Tone::Warn => sym3("▲", "▲", "!!"),
+        Tone::Bad => sym3("✖", "×", "XX"),
+        _ => sym3("·", "·", "--"),
     }
 }
 

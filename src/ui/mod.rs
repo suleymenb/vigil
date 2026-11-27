@@ -1,3 +1,4 @@
+mod help;
 mod inspect;
 mod netviews;
 mod overview;
@@ -74,7 +75,7 @@ pub fn draw(f: &mut Frame, app: &mut App) {
         draw_confirm_close(f, app, area);
     }
     if app.show_help {
-        draw_help(f, area);
+        help::draw(f, app, area);
     }
 }
 
@@ -95,7 +96,7 @@ fn draw_header(f: &mut Frame, app: &mut App, area: Rect) {
     let show_os = base_w + os_txt.chars().count() <= room;
     let show_kernel = show_os && base_w + os_txt.chars().count() + kernel_txt.chars().count() <= room;
     let mut spans = vec![
-        Span::styled(if theme::is_ascii() { " VIGIL " } else { " ◆ vigil " }, Style::new().fg(theme::header_bg()).bg(theme::blue()).bold()),
+        Span::styled(theme::sym(" ◆ vigil ", " VIGIL "), Style::new().fg(theme::header_bg()).bg(theme::blue()).bold()),
         Span::raw(" "),
         Span::styled(s.host.hostname.clone(), Style::new().fg(theme::cyan()).bold()),
         Span::styled(if show_os { os_txt } else { String::new() }, Style::new().fg(theme::muted())),
@@ -117,7 +118,7 @@ fn draw_header(f: &mut Frame, app: &mut App, area: Rect) {
 
     let right = Line::from(vec![
         if app.paused {
-            Span::styled(" ⏸ PAUSED ", Style::new().fg(theme::header_bg()).bg(theme::yellow()).bold())
+            Span::styled(theme::sym(" ⏸ PAUSED ", " PAUSED "), Style::new().fg(theme::header_bg()).bg(theme::yellow()).bold())
         } else {
             Span::styled(if theme::is_ascii() { "* live" } else { "● live" }, Style::new().fg(theme::green()))
         },
@@ -210,7 +211,7 @@ fn shorten_badge(text: &str, max: usize) -> String {
 fn fit_badges(alerts: &[(String, ratatui::style::Color)], width: usize) -> Vec<Span<'static>> {
     let mut out = Vec::new();
     if alerts.is_empty() {
-        let ok = if theme::is_ascii() { "[ OK ] " } else { "✓ healthy " };
+        let ok = theme::sym3("✓ healthy ", "√ healthy ", "[ OK ] ");
         if width >= ok.chars().count() {
             out.push(Span::styled(ok, Style::new().fg(theme::green())));
         }
@@ -248,7 +249,7 @@ fn hints(app: &App) -> Vec<(&'static str, &'static str)> {
     let mut h = match app.tab {
         Tab::Overview => vec![],
         Tab::Processes => vec![
-            ("↵", "inspect"),
+            (theme::enter(), "inspect"),
             ("f", "open files"),
             ("x", "signal"),
             ("t", "tree"),
@@ -259,7 +260,7 @@ fn hints(app: &App) -> Vec<(&'static str, &'static str)> {
         Tab::Sockets => vec![
             ("l", "listening"),
             ("s", "sort"),
-            ("↵", "proc files"),
+            (theme::enter(), "proc files"),
             ("P", "port"),
             ("i", "inspect owner"),
             ("C", "capture"),
@@ -270,18 +271,18 @@ fn hints(app: &App) -> Vec<(&'static str, &'static str)> {
         Tab::Routes => vec![("↑↓", "routes"), ("N", "names")],
         Tab::Probes => vec![("a", "add probe"), ("d", "delete"), ("t", "trace path"), ("↑↓", "select")],
         Tab::Containers => vec![("↑↓", "select")],
-        Tab::System => vec![("e", "units ⇄ kernel events"), ("↵", "reload journal")],
+        Tab::System => vec![("e", theme::sym("units ⇄ kernel events", "units / kernel events")), (theme::enter(), "reload journal")],
         Tab::Users => vec![("↑↓", "select")],
         Tab::Troubleshoot => vec![("d", "doctor"), ("c", "calc"), ("m", "mtu"), ("n", "dns"), ("r", "reach"), ("e", "trace"), ("s", "snmp"), ("l", "syslog"), ("o", "dhcp"), ("w", "wifi"), ("p", "perf"), ("t", "capture"), ("x", "stop")],
         Tab::Firewall => vec![("z", "hide zero"), ("s", "sort by rate")],
-        Tab::Files => vec![("↵", "who uses this"), ("p", "proc files"), ("r", "rerun"), ("x", "signal")],
+        Tab::Files => vec![(theme::enter(), "who uses this"), ("p", "proc files"), ("r", "rerun"), ("x", "signal")],
         Tab::Storage => vec![],
     };
     if matches!(app.tab, Tab::Processes | Tab::Sockets | Tab::Files | Tab::Firewall) {
         h.push(("/", "filter"));
     }
     if app.inspect.is_some() {
-        return vec![("esc", "close"), ("v", "journal ⇄ env"), ("f", "all files"), ("x", "signal"), ("r", "refresh"), ("y", "copy cmd")];
+        return vec![("esc", "close"), ("v", theme::sym("journal ⇄ env", "journal / env")), ("f", "all files"), ("x", "signal"), ("r", "refresh"), ("y", "copy cmd")];
     }
     h.extend([("F", "find"), ("h", "explain"), ("y", "copy"), ("E", "export"), (":", "lsof query"), ("R", "report"), ("T", "theme"), ("space", "pause"), ("?", "help"), ("q", "quit")]);
     h
@@ -300,7 +301,7 @@ fn draw_footer(f: &mut Frame, app: &App, area: Rect) {
                 Span::raw(" "),
                 Span::styled(val.clone(), Style::new().fg(theme::fg())),
                 Span::styled("█", Style::new().fg(theme::yellow())),
-                Span::styled("   ↵ apply · esc clear", Style::new().fg(theme::dim())),
+                Span::styled(format!("   {} apply · esc clear", theme::enter()), Style::new().fg(theme::dim())),
             ])
         }
         Mode::AddProbe => Line::from(vec![
@@ -384,7 +385,7 @@ fn draw_confirm_close(f: &mut Frame, app: &App, area: Rect) {
         ]),
         Line::styled(format!("  owned by {} ({}). The process keeps running.", sk.command, sk.pid), Style::new().fg(theme::muted())),
         Line::raw(""),
-        Line::styled("  y / ↵ close it · any other key cancels", Style::new().fg(theme::dim())),
+        Line::styled(format!("  y / {} close it · any other key cancels", theme::enter()), Style::new().fg(theme::dim())),
     ];
     f.render_widget(Paragraph::new(lines).block(panel("close connection", theme::red())), r);
 }
@@ -401,7 +402,7 @@ fn draw_theme_picker(f: &mut Frame, app: &App, area: Rect) {
     for (i, t) in theme::all().iter().enumerate().skip(off).take(rows) {
         let sel = i == cur;
         let mut spans = vec![
-            Span::styled(if sel { " ▶ " } else { "   " }, Style::new().fg(theme::blue())),
+            Span::styled(if sel { theme::sym3(" ▶ ", " ► ", " > ") } else { "   " }, Style::new().fg(theme::blue())),
             Span::styled(
                 format!("{:<18}", t.name),
                 if sel { Style::new().fg(theme::fg()).bold() } else { Style::new().fg(theme::muted()) },
@@ -411,13 +412,13 @@ fn draw_theme_picker(f: &mut Frame, app: &App, area: Rect) {
         for c in [t.blue, t.purple, t.cyan, t.green, t.yellow, t.orange, t.red] {
             spans.push(Span::styled("██", Style::new().fg(c)));
         }
-        spans.push(Span::styled(" ▕", Style::new().fg(t.border)));
+        spans.push(Span::styled(theme::sym3(" ▕", " │", " |"), Style::new().fg(t.border)));
         spans.push(Span::styled(" Aa ", Style::new().fg(t.fg).bg(t.bg)));
         lines.push(Line::from(spans));
     }
     lines.push(Line::raw(""));
     lines.push(Line::from(vec![
-        Span::styled(format!("  {}/{n} · ↑↓ preview · ↵ keep · esc cancel · b background ", cur + 1), Style::new().fg(theme::dim())),
+        Span::styled(format!("  {}/{n} · ↑↓ preview · {} keep · esc cancel · b background ", cur + 1, theme::enter()), Style::new().fg(theme::dim())),
         Span::styled(if app.cfg.background { "on" } else { "off" }, Style::new().fg(theme::teal())),
     ]));
     f.render_widget(
@@ -458,7 +459,7 @@ fn draw_signal_dialog(f: &mut Frame, app: &App, area: Rect) {
         ]));
     }
     lines.push(Line::raw(""));
-    lines.push(Line::styled("  ↑↓ choose · ↵ send · esc cancel", Style::new().fg(theme::dim())));
+    lines.push(Line::styled(format!("  ↑↓ choose · {} send · esc cancel", theme::enter()), Style::new().fg(theme::dim())));
     f.render_widget(Paragraph::new(lines).block(block), r);
 }
 
@@ -493,7 +494,7 @@ fn draw_search(f: &mut Frame, app: &App, body: Rect) {
     f.render_widget(
         Paragraph::new(lines).style(Style::new().bg(theme::bg())).block(
             panel("search", theme::cyan())
-                .title_bottom(Line::styled(format!(" {}{} · ↑↓ choose · ↵ jump · esc close ", total, if total >= 200 { "+" } else { "" }), Style::new().fg(theme::dim())).right_aligned()),
+                .title_bottom(Line::styled(format!(" {}{} · ↑↓ choose · {} jump · esc close ", total, if total >= 200 { "+" } else { "" }, theme::enter()), Style::new().fg(theme::dim())).right_aligned()),
         ),
         r,
     );
@@ -539,68 +540,6 @@ fn draw_explain(f: &mut Frame, app: &App, body: Rect) {
     );
 }
 
-fn draw_help(f: &mut Frame, area: Rect) {
-    let r = centered(area, 104, 49);
-    f.render_widget(Clear, r);
-    let sec = |t: &str| Line::styled(format!(" {t}"), Style::new().fg(theme::purple()).bold());
-    let row = |k: &str, d: &str| {
-        Line::from(vec![
-            Span::styled(format!("   {k:<16}"), Style::new().fg(theme::blue()).bold()),
-            Span::styled(d.to_string(), Style::new().fg(theme::fg())),
-        ])
-    };
-    let lines = vec![
-        sec("Global"),
-        row("1-9 0 S U / ←→", "switch view (0 containers, S system, U users) · mouse: click tabs, rows, headers"),
-        row("↵ on a process", "inspector: identity, history graphs, sockets, files, journal, environment"),
-        row("y / E", "copy the selected value (clipboard, works over SSH) / export the view as CSV"),
-        row("↑↓ j k pgup pgdn", "move selection (g / G = top / bottom)"),
-        row("/", "filter current list (esc clears)"),
-        row(":", "lsof query: 1234 · :443 · tcp:22 · /var/log/x · -u root -i"),
-        row("space", "pause / resume sampling"),
-        row("+ / -", "refresh interval ±250ms"),
-        row("T", "theme picker (live preview, b = background on/off)"),
-        row("R", "write a Markdown report to ./vigil-report-<time>.md"),
-        row("F", "find anything: processes, ports, IPs, MACs, services, containers, routes, users; ↵ jumps there"),
-        row("h", "explain the selected item: what it means and what to run next (Junos / Cisco too)"),
-        row("W", "troubleshoot: doctor, calc, MTU, DNS, reach, trace, SNMP, syslog, DHCP, Wi-Fi, perf, capture"),
-        row("? / q", "help / quit"),
-        sec("Processes"),
-        row("c m p n u i o w e", "sort cpu · mem · pid · name · user · io · conns · net/s · fds"),
-        row("r / t", "reverse sort / toggle process tree"),
-        row("↵ or f", "open files of process (lsof -p)"),
-        row("x / K / del", "send signal (TERM, KILL, HUP, STOP, …)"),
-        sec("Sockets (lsof -i)"),
-        row("l", "listening sockets only"),
-        row("s", "sort: process · port · state · proto · remote · rtt · traffic"),
-        row("C / D", "capture this connection (tcpdump) / close it (sock_diag)"),
-        row("N", "reverse DNS names on/off (any view)"),
-        row("↵ / P", "open files of owner / everything on this port"),
-        row("x", "signal the owning process"),
-        sec("Probes · Firewall"),
-        row("a / d / t", "add a probe (1.1.1.1, tcp:host:port, dns:name, https://url) / delete / trace path"),
-        row("0 / S", "containers / system: services, journal, kernel events (e switches pane)"),
-        row("z / s", "firewall: hide zero-hit rules / sort by packets per second"),
-        sec("Open Files"),
-        row("↵", "who else has this file / port open"),
-        row("p / r", "files of this pid / rerun query"),
-        sec("Notes"),
-        Line::styled(
-            if cfg!(windows) { "   Run as administrator to see the event log and every process." } else { "   Run with sudo to see sockets & files of all users." },
-            Style::new().fg(theme::muted()),
-        ),
-        Line::styled(format!("   {}", crate::platform::get().summary()), Style::new().fg(theme::dim())),
-        Line::raw(""),
-        Line::styled("   press any key to close", Style::new().fg(theme::dim())),
-    ];
-    f.render_widget(
-        Paragraph::new(lines)
-            .block(panel("help", theme::blue()))
-            .wrap(Wrap { trim: false }),
-        r,
-    );
-}
-
 #[cfg(test)]
 mod tests {
     use std::sync::{Arc, Mutex};
@@ -623,6 +562,59 @@ mod tests {
             s.push('\n');
         }
         s
+    }
+
+    /// The help screen opens, scrolls, searches and closes from the keyboard,
+    /// and nothing typed there reaches the view behind it.
+    #[test]
+    fn help_is_driven_from_the_keyboard() {
+        use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+        let sockets = Arc::new(Mutex::new(SocketStore::default()));
+        let files = Arc::new(Mutex::new(FilesStore::default()));
+        let mut app = App::new(Sampler::new(), sockets, files, Duration::from_secs(1), Tab::Troubleshoot, Default::default(), crate::app::NetHandles::idle());
+        let mut term = Terminal::new(TestBackend::new(100, 20)).unwrap();
+        let mut press = |app: &mut App, code: KeyCode| {
+            app.on_key(KeyEvent::new(code, KeyModifiers::NONE));
+            term.draw(|f| super::draw(f, app)).unwrap();
+            dump(&term)
+        };
+        let screen = press(&mut app, KeyCode::Char('?'));
+        assert!(app.show_help && screen.contains("Troubleshoot  this view") && screen.contains("doctor"), "{screen}");
+        press(&mut app, KeyCode::PageDown);
+        let page = app.help_scroll;
+        assert!(page > 5, "PgDn scrolls a page, got {page}");
+        press(&mut app, KeyCode::Down);
+        assert_eq!(app.help_scroll, page + 1);
+        press(&mut app, KeyCode::End);
+        let end = app.help_scroll;
+        assert!(end > page + 1 && end < 300, "End goes to the last page, got {end}");
+        press(&mut app, KeyCode::Char('j'));
+        assert_eq!(app.help_scroll, end, "no scrolling past the end");
+        press(&mut app, KeyCode::Char('g'));
+        assert_eq!(app.help_scroll, 0);
+
+        // Search: letters are text now, also the ones that are keys elsewhere.
+        press(&mut app, KeyCode::Char('/'));
+        for c in "snmpq".chars() {
+            press(&mut app, KeyCode::Char(c));
+        }
+        assert!(app.help_typing && app.help_filter == "snmpq" && app.show_help && !app.quit);
+        press(&mut app, KeyCode::Backspace);
+        let screen = press(&mut app, KeyCode::Enter);
+        assert!(!app.help_typing && app.help_filter == "snmp");
+        assert!(screen.contains("SNMP") && !screen.contains("subnet calculator"), "{screen}");
+        press(&mut app, KeyCode::Esc);
+        assert!(app.show_help && app.help_filter.is_empty(), "the first Esc clears the search");
+        press(&mut app, KeyCode::Esc);
+        assert!(!app.show_help, "the second closes the help");
+
+        // q closes the help, not vigil; other keys do nothing behind it.
+        press(&mut app, KeyCode::F(1));
+        press(&mut app, KeyCode::Char('d'));
+        press(&mut app, KeyCode::Char('2'));
+        assert!(app.show_help && app.tab == Tab::Troubleshoot && app.mode == crate::app::Mode::Normal);
+        press(&mut app, KeyCode::Char('q'));
+        assert!(!app.show_help && !app.quit);
     }
 
     #[test]
@@ -681,8 +673,38 @@ mod tests {
             }
             app.mode = crate::app::Mode::Normal;
             app.input.clear();
+            // Help: every view's version, then scrolled to the end and searched.
             app.show_help = true;
+            for tab in Tab::ALL {
+                app.tab = tab;
+                term.draw(|f| super::draw(f, &mut app)).unwrap();
+            }
+            app.tab = Tab::Sockets;
             term.draw(|f| super::draw(f, &mut app)).unwrap();
+            if let Some(d) = &dir {
+                std::fs::write(format!("{d}/help-{w}.txt"), dump(&term)).unwrap();
+            }
+            if w >= 60 {
+                let text = dump(&term);
+                assert!(text.contains("Sockets") && text.contains("this view"), "{text}");
+            }
+            app.help_scroll = u16::MAX;
+            term.draw(|f| super::draw(f, &mut app)).unwrap();
+            assert!(app.help_scroll < 400, "scroll position is clamped to the content");
+            if let Some(d) = &dir {
+                std::fs::write(format!("{d}/help-{w}-end.txt"), dump(&term)).unwrap();
+            }
+            app.help_filter = "capture".into();
+            term.draw(|f| super::draw(f, &mut app)).unwrap();
+            if w >= 60 {
+                let text = dump(&term);
+                assert!(text.contains("capture") && !text.contains("subnet calculator"), "{text}");
+            }
+            if let Some(d) = &dir {
+                std::fs::write(format!("{d}/help-{w}-search.txt"), dump(&term)).unwrap();
+            }
+            app.help_filter.clear();
+            app.help_scroll = 0;
             app.show_help = false;
             // The inspector, on our own process, at every size.
             app.open_inspector(std::process::id());
@@ -704,6 +726,34 @@ mod tests {
             }
             crate::theme::set(0);
             app.mode = crate::app::Mode::Normal;
+
+            // Small console fonts (classic Windows console, Linux text
+            // console): none of the characters they lack may reach the screen,
+            // in any view, with any theme's own glyphs replaced.
+            const NEEDS_A_FULL_FONT: &str = "▁▂▃▅▆▇▔╭╮╰╯┃↵◆⏸✓✔✖▕⟳⏏⚠▶◀⇄▰▱";
+            for mode in [crate::theme::GlyphMode::Safe, crate::theme::GlyphMode::Ascii] {
+                crate::theme::set_glyph_mode(mode);
+                app.paused = true;
+                app.show_help = false;
+                for tab in Tab::ALL {
+                    app.tab = tab;
+                    for help in [false, true] {
+                        app.show_help = help;
+                        term.draw(|f| super::draw(f, &mut app)).unwrap();
+                        let text = dump(&term);
+                        let bad: String = text.chars().filter(|c| NEEDS_A_FULL_FONT.contains(*c)).collect();
+                        assert!(bad.is_empty(), "{mode:?} glyphs, {tab:?}: {bad:?} would be an empty box\n{text}");
+                    }
+                    if let (Some(d), 180, Tab::Overview, crate::theme::GlyphMode::Safe) = (&dir, w, tab, mode) {
+                        app.show_help = false;
+                        term.draw(|f| super::draw(f, &mut app)).unwrap();
+                        std::fs::write(format!("{d}/safe-Overview.txt"), dump(&term)).unwrap();
+                    }
+                }
+                app.show_help = false;
+                app.paused = false;
+            }
+            crate::theme::set_glyph_mode(crate::theme::GlyphMode::Theme);
         }
     }
 

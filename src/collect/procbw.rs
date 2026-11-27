@@ -40,7 +40,7 @@ pub fn spawn_worker(store: Arc<Mutex<ProcBw>>, active: Arc<AtomicBool>) {
     if !cfg!(target_os = "macos") || !crate::platform::get().tools.nettop {
         return;
     }
-    std::thread::spawn(move || {
+    crate::util::spawn_named("proc-bandwidth", move || {
         let mut prev: Option<(Instant, Totals)> = None;
         loop {
             if !active.load(Ordering::Relaxed) {

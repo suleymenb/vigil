@@ -160,7 +160,7 @@ pub fn sort_units(units: &mut [Unit]) {
 }
 
 pub fn spawn_worker(store: Arc<Mutex<ServiceStore>>, active: Arc<AtomicBool>) {
-    thread::spawn(move || {
+    crate::util::spawn_named("services", move || {
         let mut last: Option<Instant> = None;
         loop {
             let iv = if active.load(Ordering::Relaxed) { 5 } else { 60 };
@@ -196,7 +196,7 @@ pub fn load_journal(store: Arc<Mutex<ServiceStore>>, unit: String) {
         s.journal_loading = true;
         s.version += 1;
     }
-    thread::spawn(move || {
+    crate::util::spawn_named("journal", move || {
         let lines = if cfg!(target_os = "macos") {
             vec!["journal: Linux only (macOS keeps logs in the unified log: `log show`)".to_string()]
         } else if cfg!(windows) {

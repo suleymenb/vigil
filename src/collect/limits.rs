@@ -195,7 +195,7 @@ pub fn collect_once() -> Limits {
 }
 
 pub fn spawn_worker(store: Arc<Mutex<Limits>>) {
-    thread::spawn(move || {
+    crate::util::spawn_named("limits", move || {
         let mut cache = HashMap::new();
         let mut hist: HashMap<u32, MiniHist> = HashMap::new();
         let mut restart: Vec<(u32, String)> = Vec::new();

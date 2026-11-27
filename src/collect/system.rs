@@ -286,7 +286,7 @@ pub struct SlowData {
 /// (≈108 ms on macOS); refreshing the existing sensors one by one costs
 /// ≈1 ms each. So we re-enumerate only every 5 minutes.
 fn spawn_slow_worker(store: Arc<Mutex<SlowData>>, fast: Arc<AtomicBool>) {
-    thread::spawn(move || {
+    crate::util::spawn_named("disks-sensors", move || {
         let mut disks = Disks::new_with_refreshed_list();
         let mut comps = Components::new_with_refreshed_list();
         let mut last_disks = Instant::now();

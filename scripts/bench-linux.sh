@@ -33,8 +33,11 @@ measure() { # BINARY LABEL INTERVAL_MS
     return
   fi
   ticks() { awk '{print $14 + $15}' "/proc/$pid/stat"; }
+  # CPU ticks per thread name (vigil names its collector threads).
+  threads() { for t in /proc/"$pid"/task/*; do echo "$(cat "$t/comm" 2>/dev/null | tr ' ' '_') $(awk '{print $14 + $15}' "$t/stat" 2>/dev/null)"; done; }
   local t0 t1 calls="-"
   t0=$(ticks)
+  threads > "/tmp/threads.0"
   if command -v strace >/dev/null; then
     # System calls in ten seconds, all threads.
     sudo timeout 10 strace -f -c -q -p "$pid" -o "/tmp/strace.$label.$interval" >/dev/null 2>&1
@@ -44,6 +47,7 @@ measure() { # BINARY LABEL INTERVAL_MS
     sleep "$secs"
   fi
   t1=$(ticks)
+  threads > "/tmp/threads.1"
   local fds rss
   fds=$(ls "/proc/$pid/fd" 2>/dev/null | wc -l)
   rss=$(awk '/VmRSS/ {print $2}' "/proc/$pid/status")
@@ -51,6 +55,11 @@ measure() { # BINARY LABEL INTERVAL_MS
   sleep 1
   awk -v a="$t0" -v b="$t1" -v hz="$hz" -v s="$secs" -v l="$label" -v i="$interval" -v f="$fds" -v r="$rss" -v c="${calls:--}" \
     'BEGIN { printf "%-5s every %4d ms: %6.2f %% of a core · %s syscalls in 10 s · %d open files · %.1f MB\n", l, i, (b - a) / hz / s * 100, c, f, r / 1024 }'
+  if [ "$label" = new ]; then
+    # Where it goes: per thread, then the busiest system calls.
+    awk -v hz="$hz" -v s="$secs" 'NR == FNR { a[$1] -= $2; next } { a[$1] += $2 } END { for (k in a) if (a[k] > 0) printf "        %-16s %5.2f %%\n", k, a[k] / hz / s * 100 }' /tmp/threads.0 /tmp/threads.1 | sort -k2 -nr | head -8
+    [ -s "/tmp/strace.$label.$interval" ] && sed -n '3,9p' "/tmp/strace.$label.$interval" | awk '{ printf "        %8s calls  %s\n", $4, $NF }'
+  fi
 }
 
 for interval in 250 1000; do

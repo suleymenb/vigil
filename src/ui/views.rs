@@ -592,7 +592,7 @@ pub fn sockets(f: &mut Frame, app: &mut App, area: Rect) {
         chips.push(Span::styled(format!(" {n}  "), Style::new().fg(theme::fg()).bold()));
     }
     if !app.is_root {
-        chips.push(Span::styled("  ⚠ not root: only your own processes are visible", Style::new().fg(theme::yellow())));
+        chips.push(Span::styled(theme::sym("  ⚠ not root: only your own processes are visible", "  ! not root: only your own processes are visible"), Style::new().fg(theme::yellow())));
     }
     let age = updated.map(|u| format!("{:.1}s ago", u.elapsed().as_secs_f64())).unwrap_or("pending".into());
     let block = panel(backend, theme::purple()).title(
@@ -761,7 +761,7 @@ pub fn files(f: &mut Frame, app: &mut App, area: Rect) {
             Line::raw(""),
             Line::from(vec![
                 Span::styled("  Or press ", Style::new().fg(theme::dim())),
-                Span::styled("↵", Style::new().fg(theme::blue()).bold()),
+                Span::styled(theme::enter(), Style::new().fg(theme::blue()).bold()),
                 Span::styled(" on a process in the Processes or Sockets view.", Style::new().fg(theme::dim())),
             ]),
         ];
@@ -779,7 +779,7 @@ pub fn files(f: &mut Frame, app: &mut App, area: Rect) {
     v.sort_by_key(|e| std::cmp::Reverse(e.1));
     let mut chips = vec![Span::raw(" ")];
     if loading {
-        chips.push(Span::styled(" ⟳ running… ", Style::new().fg(theme::header_bg()).bg(theme::yellow()).bold()));
+        chips.push(Span::styled(theme::sym(" ⟳ running… ", " running… "), Style::new().fg(theme::header_bg()).bg(theme::yellow()).bold()));
         chips.push(Span::raw("  "));
     }
     for (k, n) in v.iter().take(10) {
@@ -874,7 +874,7 @@ pub fn storage(f: &mut Frame, app: &mut App, area: Rect) {
                 Cell::from(d.mount.clone()).style(Style::new().fg(theme::fg()).bold()),
                 Cell::from(truncate(&d.name, 20)).style(Style::new().fg(theme::muted())),
                 Cell::from(d.fs.clone()).style(Style::new().fg(theme::cyan())),
-                Cell::from(format!("{}{}", d.kind, if d.removable { " ⏏" } else { "" })).style(Style::new().fg(theme::dim())),
+                Cell::from(format!("{}{}", d.kind, if d.removable { theme::sym(" ⏏", " (rem)") } else { "" })).style(Style::new().fg(theme::dim())),
                 num(fmt_bytes(d.total), Style::new().fg(theme::fg())),
                 num(fmt_bytes(d.used()), Style::new().fg(theme::yellow())),
                 num(fmt_bytes(d.avail), Style::new().fg(theme::green())),

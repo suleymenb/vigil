@@ -276,7 +276,7 @@ impl Source {
 }
 
 pub fn spawn_worker(store: Arc<Mutex<ContainerStore>>, active: Arc<AtomicBool>) {
-    thread::spawn(move || {
+    crate::util::spawn_named("containers", move || {
         let mut col = Source::pick();
         let docker = matches!(col, Source::Docker(_));
         let mut last: Option<Instant> = None;

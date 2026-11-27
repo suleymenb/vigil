@@ -309,7 +309,7 @@ pub fn spawn_worker(
     interval: Duration,
     auto: bool,
 ) {
-    thread::spawn(move || {
+    crate::util::spawn_named("probes", move || {
         let mut seen_netinfo = u64::MAX;
         loop {
             let round = Instant::now();

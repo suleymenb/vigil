@@ -122,7 +122,7 @@ pub fn read_existing() -> Vec<KEvent> {
 
 pub fn spawn_worker(store: Arc<Mutex<KmsgStore>>) {
     #[cfg(target_os = "linux")]
-    std::thread::spawn(move || {
+    crate::util::spawn_named("kernel-log", move || {
         use std::io::Read;
         let mut f = match std::fs::File::open("/dev/kmsg") {
             Ok(f) => f,
@@ -161,7 +161,7 @@ pub fn spawn_worker(store: Arc<Mutex<KmsgStore>>) {
     });
     // Windows: the System event log, re-read every 30 s (wevtutil is cheap with /c:300).
     #[cfg(windows)]
-    std::thread::spawn(move || loop {
+    crate::util::spawn_named("kernel-log", move || loop {
         let res = super::windows::read_events();
         if let Ok(mut s) = store.lock() {
             match res {

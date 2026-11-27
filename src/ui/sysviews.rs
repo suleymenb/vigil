@@ -192,7 +192,7 @@ pub fn system(f: &mut Frame, app: &mut App, area: Rect) {
         title.push(Span::styled(format!(" {failed} failed "), Style::new().fg(theme::header_bg()).bg(theme::red())));
     }
     if !app.sys_events_focus {
-        title.push(Span::styled(" ◀ ", Style::new().fg(theme::blue())));
+        title.push(Span::styled(theme::sym3(" ◀ ", " ◄ ", " < "), Style::new().fg(theme::blue())));
     }
     let mut block = frame().title(Line::from(title));
     if let Some(e) = &st.error {
@@ -274,7 +274,7 @@ pub fn system(f: &mut Frame, app: &mut App, area: Rect) {
     let what = if cfg!(windows) { "event log" } else { "kernel events" };
     let mut title = vec![Span::styled(format!(" {what} ({n}) "), Style::new().fg(theme::red()).bold())];
     if app.sys_events_focus {
-        title.push(Span::styled(" ◀ ", Style::new().fg(theme::blue())));
+        title.push(Span::styled(theme::sym3(" ◀ ", " ◄ ", " < "), Style::new().fg(theme::blue())));
     }
     let mut block = frame().title(Line::from(title)).title(
         Line::styled(

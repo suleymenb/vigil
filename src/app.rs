@@ -670,6 +670,12 @@ pub struct App {
     pub interval: Duration,
     pub paused: bool,
     pub show_help: bool,
+    /// Help screen: first visible line, lines per page (set when drawn),
+    /// search text and whether it is being typed.
+    pub help_scroll: u16,
+    pub help_page: u16,
+    pub help_filter: String,
+    pub help_typing: bool,
     /// Explain mode (h): a panel explaining the selected item.
     pub explain: bool,
     /// `[keys]` from the config: pressed key → key it acts as.
@@ -784,6 +790,10 @@ impl App {
             interval,
             paused: false,
             show_help: false,
+            help_scroll: 0,
+            help_page: 10,
+            help_filter: String::new(),
+            help_typing: false,
             quit: false,
             mode: Mode::Normal,
             input: String::new(),
@@ -1394,6 +1404,8 @@ impl App {
 
     pub fn on_mouse(&mut self, m: MouseEvent) {
         match m.kind {
+            MouseEventKind::ScrollDown if self.show_help => self.help_scroll = self.help_scroll.saturating_add(3),
+            MouseEventKind::ScrollUp if self.show_help => self.help_scroll = self.help_scroll.saturating_sub(3),
             MouseEventKind::ScrollDown => self.move_sel(3),
             MouseEventKind::ScrollUp => self.move_sel(-3),
             MouseEventKind::Down(crossterm::event::MouseButton::Left) if self.mode == Mode::Normal => {
@@ -2007,7 +2019,7 @@ impl App {
             return;
         }
         // `[keys]` remaps apply in normal mode only, never while typing.
-        let k = if self.mode == Mode::Normal { self.key_map.get(&normalize_key(k)).copied().unwrap_or(k) } else { k };
+        let k = if self.mode == Mode::Normal && !self.show_help { self.key_map.get(&normalize_key(k)).copied().unwrap_or(k) } else { k };
         match self.mode {
             Mode::Filter => self.key_filter(k),
             Mode::Query | Mode::AddProbe | Mode::ToolInput => self.key_query(k),
@@ -2298,7 +2310,7 @@ impl App {
 
     fn key_normal(&mut self, k: KeyEvent) {
         if self.show_help {
-            self.show_help = false;
+            self.key_help(k);
             return;
         }
         if self.key_inspect(k) {
@@ -2307,7 +2319,12 @@ impl App {
         let page = 15;
         match k.code {
             KeyCode::Char('q') => self.quit = true,
-            KeyCode::Char('?') | KeyCode::F(1) => self.show_help = true,
+            KeyCode::Char('?') | KeyCode::F(1) => {
+                self.show_help = true;
+                self.help_scroll = 0;
+                self.help_typing = false;
+                self.help_filter.clear();
+            }
             KeyCode::Char('h') => self.explain = !self.explain,
             KeyCode::Char('F') => {
                 self.input.clear();
@@ -2403,6 +2420,40 @@ impl App {
                 }
                 _ => {}
             },
+        }
+    }
+
+    /// The help screen: scroll, search, close. All from the keyboard.
+    fn key_help(&mut self, k: KeyEvent) {
+        if self.help_typing {
+            match k.code {
+                KeyCode::Esc => {
+                    self.help_filter.clear();
+                    self.help_typing = false;
+                }
+                KeyCode::Enter | KeyCode::Down | KeyCode::Up => self.help_typing = false,
+                KeyCode::Backspace => {
+                    self.help_filter.pop();
+                }
+                KeyCode::Char(c) => self.help_filter.push(c),
+                _ => {}
+            }
+            self.help_scroll = 0;
+            return;
+        }
+        let page = self.help_page.max(1);
+        match k.code {
+            KeyCode::Esc if !self.help_filter.is_empty() => self.help_filter.clear(),
+            KeyCode::Esc | KeyCode::Enter | KeyCode::Char('q') | KeyCode::Char('?') | KeyCode::F(1) => self.show_help = false,
+            KeyCode::Char('/') => self.help_typing = true,
+            // (The view clamps the position to the last page when it draws.)
+            KeyCode::Down | KeyCode::Char('j') => self.help_scroll = self.help_scroll.saturating_add(1),
+            KeyCode::Up | KeyCode::Char('k') => self.help_scroll = self.help_scroll.saturating_sub(1),
+            KeyCode::PageDown | KeyCode::Char(' ') => self.help_scroll = self.help_scroll.saturating_add(page),
+            KeyCode::PageUp => self.help_scroll = self.help_scroll.saturating_sub(page),
+            KeyCode::Home | KeyCode::Char('g') => self.help_scroll = 0,
+            KeyCode::End | KeyCode::Char('G') => self.help_scroll = u16::MAX,
+            _ => {}
         }
     }
 

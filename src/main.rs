@@ -51,6 +51,10 @@ struct Args {
     #[arg(long)]
     theme: Option<String>,
 
+    /// Characters to draw with: auto, theme, safe (classic Windows console, Linux text console), ascii [config: glyphs]
+    #[arg(long, global = true, value_parser = ["auto", "theme", "safe", "ascii"])]
+    glyphs: Option<String>,
+
     /// List available themes and exit
     #[arg(long)]
     list_themes: bool,
@@ -235,6 +239,22 @@ enum Command {
     Man,
 }
 
+/// Choose the characters to draw with: `--glyphs` wins over `glyphs = …`
+/// in the config. Returns a warning for a value the config got wrong.
+fn apply_glyphs(flag: Option<&str>, configured: &str) -> Option<String> {
+    let wanted = flag.unwrap_or(configured);
+    match theme::parse_glyph_mode(wanted) {
+        Some(m) => {
+            theme::set_glyph_mode(m);
+            None
+        }
+        None => {
+            theme::set_glyph_mode(theme::parse_glyph_mode("auto").unwrap_or(theme::GlyphMode::Theme));
+            Some(format!("unknown glyphs \"{wanted}\" (auto, theme, safe or ascii): using auto"))
+        }
+    }
+}
+
 fn main() -> Result<()> {
     let args = Args::parse();
     if let Some(Command::Report { format, output, top, sample_ms, fail_on_alert, diff }) = &args.command {
@@ -274,6 +294,9 @@ fn main() -> Result<()> {
         if let Some(w) = warn {
             eprintln!("vigil: {w}");
         }
+        if let Some(w) = apply_glyphs(args.glyphs.as_deref(), &cfg.glyphs) {
+            eprintln!("vigil: {w}");
+        }
         let settings = tools::Settings::from(&cfg.troubleshoot);
         let code = match cmd {
             Command::Report { .. } | Command::Completions { .. } | Command::Man => unreachable!(),
@@ -305,6 +328,7 @@ fn main() -> Result<()> {
         return Ok(());
     }
 
+    let glyph_warning = apply_glyphs(args.glyphs.as_deref(), &cfg.glyphs);
     let theme_name = args.theme.clone().unwrap_or_else(|| cfg.theme.clone());
     let theme_idx = if theme_name.eq_ignore_ascii_case("auto") {
         theme::auto_default()
@@ -345,7 +369,7 @@ fn main() -> Result<()> {
     if let Some(q) = args.query.as_deref().and_then(Query::parse) {
         app.run_query(q);
     }
-    for w in [cfg_warning, unknown_theme, auto_note].into_iter().flatten().chain(theme_warnings).chain(key_warnings) {
+    for w in [cfg_warning, unknown_theme, glyph_warning, auto_note].into_iter().flatten().chain(theme_warnings).chain(key_warnings) {
         app.warn(w);
     }
 

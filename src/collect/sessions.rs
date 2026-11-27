@@ -164,7 +164,7 @@ fn collect() -> SessionStore {
 }
 
 pub fn spawn_worker(store: Arc<Mutex<SessionStore>>, active: Arc<AtomicBool>) {
-    thread::spawn(move || {
+    crate::util::spawn_named("sessions", move || {
         let mut last: Option<Instant> = None;
         loop {
             let iv = if active.load(Ordering::Relaxed) { 10 } else { 60 };

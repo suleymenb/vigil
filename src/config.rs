@@ -15,6 +15,10 @@ pub struct Config {
     pub theme: String,
     /// Paint the theme background. false = keep the terminal's own (transparent).
     pub background: bool,
+    /// Characters for graphs, borders and symbols: "auto" (looks at the
+    /// console), "theme" (whatever the theme draws with), "safe" (what the
+    /// classic Windows console and the Linux text console can show), "ascii".
+    pub glyphs: String,
     pub interval_ms: u64,
     pub lsof_interval_s: u64,
     pub start_tab: String,
@@ -223,6 +227,7 @@ impl Default for Config {
         Self {
             theme: "auto".into(),
             background: true,
+            glyphs: "auto".into(),
             interval_ms: 1000,
             lsof_interval_s: 3,
             start_tab: "overview".into(),

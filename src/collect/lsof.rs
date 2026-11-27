@@ -252,7 +252,7 @@ impl SocketScanner {
 }
 
 pub fn spawn_socket_worker(store: Arc<Mutex<SocketStore>>, interval: Duration, force_lsof: bool) {
-    thread::spawn(move || {
+    crate::util::spawn_named("sockets", move || {
         let mut scanner = SocketScanner::new(force_lsof);
         loop {
             let (res, backend) = scanner.scan();
@@ -347,7 +347,7 @@ pub fn spawn_query(store: Arc<Mutex<FilesStore>>, q: Query) {
         s.version += 1;
         s.generation
     };
-    thread::spawn(move || {
+    crate::util::spawn_named("lsof-query", move || {
         let res = run(&q.args());
         let mut s = store.lock().unwrap();
         if s.generation != gen {
