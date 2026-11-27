@@ -38,16 +38,15 @@ measure() { # BINARY LABEL INTERVAL_MS
   local t0 t1 calls="-"
   t0=$(ticks)
   threads > "/tmp/threads.0"
-  if command -v strace >/dev/null; then
-    # System calls in ten seconds, all threads.
-    sudo timeout 10 strace -f -c -q -p "$pid" -o "/tmp/strace.$label.$interval" >/dev/null 2>&1
-    calls=$(awk '$NF == "total" {print $4}' "/tmp/strace.$label.$interval" 2>/dev/null)
-    sleep $((secs - 10))
-  else
-    sleep "$secs"
-  fi
+  sleep "$secs"
   t1=$(ticks)
   threads > "/tmp/threads.1"
+  if command -v strace >/dev/null; then
+    # System calls in ten seconds, all threads. After the timing: being
+    # traced costs the program CPU time of its own.
+    sudo timeout 10 strace -f -c -q -p "$pid" -o "/tmp/strace.$label.$interval" >/dev/null 2>&1
+    calls=$(awk '$NF == "total" {print $4}' "/tmp/strace.$label.$interval" 2>/dev/null)
+  fi
   local fds rss
   fds=$(ls "/proc/$pid/fd" 2>/dev/null | wc -l)
   rss=$(awk '/VmRSS/ {print $2}' "/proc/$pid/status")

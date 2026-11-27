@@ -327,6 +327,8 @@ A fixed row under the tabs shows a badge for every threshold that is crossed, on
 | `E` | export view to CSV |
 | `?` / `q` | help / quit |
 
+`?` lists every key, the current view's first. It scrolls with the arrows or `PgUp` `PgDn` and searches with `/`. Everything in vigil works from the keyboard; the mouse is optional.
+
 </td><td valign="top">
 
 **Procs**
@@ -510,6 +512,7 @@ Remap any key in `[keys]` (names like `F5`, `ctrl-k`, `alt-x`, `esc`, `pgdn` wor
 ```toml
 theme = "auto"              # or any name from: vigil --list-themes
 background = true           # false keeps your terminal's own background
+glyphs = "auto"             # auto | theme | safe (basic console fonts) | ascii
 interval_ms = 1000
 lsof_interval_s = 3         # socket scan interval
 start_tab = "overview"
@@ -696,9 +699,17 @@ Copying uses the terminal's OSC 52 clipboard escape, so it also works over SSH. 
 </details>
 
 <details>
-<summary><b>Windows: colours or lines look wrong</b></summary>
+<summary><b>Windows: empty boxes instead of graphs, or colours look wrong</b></summary>
 
-Use Windows Terminal (or Windows 10 1703+ conhost) for 24-bit colour. On an old console font, `vigil --theme classic` sticks to 16 colours and ASCII lines. vigil needs Windows 10 or 11.
+Nothing to install. The classic console window (the blue PowerShell or `cmd` window, with Consolas or Lucida Console) has no fine block characters, so vigil draws with a simpler set there: plain corners and half-height graph steps. It picks that by itself; `vigil --glyphs safe` or `glyphs = "safe"` in the config forces it, `--glyphs ascii` goes all the way down to ASCII.
+
+For the smooth graphs and 24-bit colour, run vigil in Windows Terminal (the default terminal on Windows 11, free in the Microsoft Store for Windows 10); its font, Cascadia Mono, has every character. vigil needs Windows 10 or 11.
+</details>
+
+<details>
+<summary><b>Linux: boxes or question marks on the server's own console</b></summary>
+
+The text console of a server or VM (`TERM=linux`: a monitor, IPMI/KVM, a hypervisor console) has a font of 256 or 512 characters. vigil switches to the same simple glyph set there by itself, and to the 16-colour `ansi` theme. Over SSH your own terminal draws, so you get the full set.
 </details>
 
 <details>

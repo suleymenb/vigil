@@ -112,8 +112,17 @@ fn collect(limit_cache: &mut HashMap<u32, (Option<u64>, Instant)>) -> Limits {
     if let Ok(dir) = fs::read_dir("/proc") {
         for e in dir.flatten() {
             let Some(pid) = e.file_name().to_str().and_then(|s| s.parse::<u32>().ok()) else { continue };
-            let Ok(rd) = fs::read_dir(format!("/proc/{pid}/fd")) else { continue };
-            let n = rd.count() as u32;
+            // Linux 6.2+ reports the number of open files as the size of the
+            // fd directory: one stat instead of listing it. Older kernels say 0.
+            let dir = format!("/proc/{pid}/fd");
+            let n = match fs::metadata(&dir).map(|m| m.len()) {
+                Ok(n) if n > 0 => n as u32,
+                Ok(_) => match fs::read_dir(&dir) {
+                    Ok(rd) => rd.count() as u32,
+                    Err(_) => continue,
+                },
+                Err(_) => continue,
+            };
             let lim = match limit_cache.get(&pid) {
                 Some((l, at)) if at.elapsed() < Duration::from_secs(60) => *l,
                 _ => {

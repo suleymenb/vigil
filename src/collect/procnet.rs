@@ -115,6 +115,14 @@ pub fn parse_table(text: &str, proto: &'static str, v6: bool) -> Vec<RawSock> {
     out
 }
 
+/// The inode in a `/proc/<pid>/fd/N` link target of the form "socket:[12345]".
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+pub fn parse_socket_link(link: &[u8]) -> Option<u64> {
+    let digits = link.strip_prefix(b"socket:[")?;
+    let end = digits.iter().position(|b| *b == b']')?;
+    std::str::from_utf8(&digits[..end]).ok()?.parse().ok()
+}
+
 pub fn parse_passwd(text: &str) -> std::collections::HashMap<u32, String> {
     text.lines()
         .filter_map(|l| {
@@ -174,9 +182,60 @@ mod linux {
         l.to_str()?.strip_prefix("net:[")?.strip_suffix(']')?.parse().ok()
     }
 
+    /// Socket inodes among a process's open files, as (inode, fd). False when
+    /// its fd directory is not readable (another user's process, without root).
+    ///
+    /// One `readlinkat` per fd into a stack buffer: only "socket:[N]" matters,
+    /// so nothing is allocated for the thousands of files and pipes.
+    #[allow(clippy::unnecessary_cast)] // c_char is u8 on arm, i8 on x86
+    fn socket_fds(pid: u32, mut found: impl FnMut(u64, u32)) -> bool {
+        let Ok(path) = std::ffi::CString::new(format!("/proc/{pid}/fd")) else { return false };
+        unsafe {
+            let dir = libc::opendir(path.as_ptr());
+            if dir.is_null() {
+                return false;
+            }
+            let dfd = libc::dirfd(dir);
+            loop {
+                let e = libc::readdir(dir);
+                if e.is_null() {
+                    break;
+                }
+                let name = &(*e).d_name;
+                let mut fd: u32 = 0;
+                let mut digits = 0;
+                for c in name.iter().map(|c| *c as u8).take_while(|c| *c != 0) {
+                    if !c.is_ascii_digit() {
+                        digits = 0;
+                        break;
+                    }
+                    fd = fd.wrapping_mul(10).wrapping_add((c - b'0') as u32);
+                    digits += 1;
+                }
+                if digits == 0 {
+                    continue; // "." and ".."
+                }
+                let mut buf = [0u8; 48];
+                let n = libc::readlinkat(dfd, name.as_ptr(), buf.as_mut_ptr() as *mut libc::c_char, buf.len());
+                if n <= 0 {
+                    continue;
+                }
+                if let Some(ino) = parse_socket_link(&buf[..n as usize]) {
+                    found(ino, fd);
+                }
+            }
+            libc::closedir(dir);
+        }
+        true
+    }
+
     pub struct Scanner {
         /// socket inode → (pid, fd)
         owners: HashMap<u64, (u32, u32)>,
+        /// Sockets no readable process owns (other users' without root, or
+        /// kernel-held): looking again every scan would walk all of /proc
+        /// every three seconds for nothing.
+        unowned: HashSet<u64>,
         comm: HashMap<u32, String>,
         users: HashMap<u32, String>,
         built: Option<Instant>,
@@ -195,6 +254,7 @@ mod linux {
             fs::metadata("/proc/net/tcp").ok()?;
             Some(Self {
                 owners: HashMap::new(),
+                unowned: HashSet::new(),
                 comm: HashMap::new(),
                 users: parse_passwd(&fs::read_to_string("/etc/passwd").unwrap_or_default()),
                 built: None,
@@ -215,20 +275,12 @@ mod linux {
                 let name = e.file_name();
                 let Some(pid_s) = name.to_str() else { continue };
                 let Ok(pid) = pid_s.parse::<u32>() else { continue };
-                let Ok(fds) = fs::read_dir(format!("/proc/{pid}/fd")) else { continue };
                 let mut has_sock = false;
-                for fd in fds.flatten() {
-                    let Ok(link) = fs::read_link(fd.path()) else { continue };
-                    let link = link.to_string_lossy();
-                    if let Some(ino) = link.strip_prefix("socket:[").and_then(|s| s.strip_suffix(']')) {
-                        if let (Ok(ino), Some(fdn)) =
-                            (ino.parse::<u64>(), fd.file_name().to_str().and_then(|s| s.parse().ok()))
-                        {
-                            self.owners.insert(ino, (pid, fdn));
-                            has_sock = true;
-                        }
-                    }
-                }
+                let owners = &mut self.owners;
+                socket_fds(pid, |ino, fd| {
+                    owners.insert(ino, (pid, fd));
+                    has_sock = true;
+                });
                 if !has_sock {
                     continue;
                 }
@@ -269,14 +321,16 @@ mod linux {
                 }
             }
 
-            // Rebuild the inode map only when we see sockets we can't attribute.
+            // Walk every process's files only for sockets not seen before
+            // (and every 30 s, to notice a socket that changed hands).
             let stale = self.built.is_none_or(|b| b.elapsed() > Duration::from_secs(30));
             let unknown = groups
                 .iter()
                 .flat_map(|(_, v)| v.iter())
-                .any(|s| s.inode != 0 && !self.owners.contains_key(&s.inode));
+                .any(|s| s.inode != 0 && !self.owners.contains_key(&s.inode) && !self.unowned.contains(&s.inode));
             if stale || unknown {
                 self.rebuild_owners();
+                self.unowned = groups.iter().flat_map(|(_, v)| v.iter()).map(|s| s.inode).filter(|i| *i != 0 && !self.owners.contains_key(i)).collect();
             }
 
             // TCP internals for the host namespace.
@@ -344,6 +398,7 @@ mod linux {
                 }
             }
             self.owners.retain(|ino, _| live.contains(ino));
+            self.unowned.retain(|ino| live.contains(ino));
             self.prev_bytes = next_bytes;
             self.last_scan = Some(now);
             out
@@ -368,6 +423,15 @@ mod linux {
                 .expect("own listener in scan");
             assert_eq!(found.pid, me);
             assert!(found.net.as_ref().unwrap().netns.is_none());
+            // The fd it reports is one of ours and really is that socket.
+            let mut mine = Vec::new();
+            assert!(socket_fds(me, |ino, fd| mine.push((ino, fd))));
+            let fd: u32 = found.fd.parse().expect("fd number");
+            assert!(mine.iter().any(|(_, f)| *f == fd), "fd {fd} not among {mine:?}");
+            assert!(!socket_fds(u32::MAX - 7, |_, _| {}), "a pid that doesn't exist has no files");
+            // Sockets nobody readable owns are remembered, never left pending.
+            let pending = all.iter().filter(|e| e.pid == 0).count();
+            assert!(sc.unowned.len() <= pending, "{} unowned, {pending} without a process", sc.unowned.len());
         }
     }
 }
@@ -401,6 +465,15 @@ mod tests {
         assert_eq!(v[2].remote, "8.8.8.8:50000");
         assert_eq!(v[2].state, "TIME_WAIT");
         assert_eq!(v[2].inode, 0);
+    }
+
+    #[test]
+    fn socket_links() {
+        assert_eq!(parse_socket_link(b"socket:[48213]"), Some(48213));
+        assert_eq!(parse_socket_link(b"socket:[18446744073709551615]"), Some(u64::MAX));
+        for other in [&b"/var/log/syslog"[..], b"pipe:[1234]", b"anon_inode:[eventpoll]", b"socket:[12", b"socket:[x]", b""] {
+            assert_eq!(parse_socket_link(other), None, "{}", String::from_utf8_lossy(other));
+        }
     }
 
     #[cfg(target_endian = "little")]

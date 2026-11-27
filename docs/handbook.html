@@ -612,6 +612,7 @@ footer { margin-top: 72px; color: var(--muted); font-size: 13px; }
 <main class="col">
   <p style="margin-top:16px">Two themes change the characters as well as the colours. <b>cyberpunk</b> draws thick neon frames and <code>▰▱</code> meters. <b>phosphor</b> turns vigil into a green P1 CRT: pure 7-bit ASCII (<code>+--+</code>, <code>###...</code>, <code>|-</code> trees), monochrome green, and severity shown only by brightness, like a VT100.</p>
   <div class="note"><b>ansi</b> uses your terminal's 16 colours instead of fixed RGB values. Use it over plain SSH, in tmux without truecolor or on a serial console. With <code>theme = "auto"</code>, vigil picks it by itself when the terminal doesn't support truecolor.</div>
+  <div class="note"><b>Small console fonts.</b> The classic Windows console window (Consolas, Lucida Console) and the text console of a Linux server or VM (<code>TERM=linux</code>) have no fine block characters, rounded corners or symbols like the check mark; they would show empty boxes. vigil notices both and draws with a simpler set: plain corners and half-height graph steps. Nothing needs installing. <code>glyphs = "safe"</code> or <code>--glyphs safe</code> forces that set, <code>ascii</code> goes down to 7-bit ASCII, <code>theme</code> always uses the theme's own. For the smooth graphs on Windows, use Windows Terminal.</div>
 
   <h2 id="reports">Reports</h2>
   <p style="margin-top:12px"><code>vigil report</code> samples the system for one second and prints a Markdown report: health, system info, CPU and load, memory, PSI, top processes by CPU and memory, listening ports with an <b>exposed</b> flag, connection states, top peers, interfaces, filesystems and temperatures. Inside the TUI, <kbd>R</kbd> writes the same report to <code>./vigil-report-&lt;time&gt;.md</code>.</p>
@@ -632,6 +633,7 @@ footer { margin-top: 72px; color: var(--muted); font-size: 13px; }
     <tbody>
       <tr><td class="num">theme</td><td class="num">"auto"</td><td>Theme name, or auto</td></tr>
       <tr><td class="num">background</td><td class="num">true</td><td>Paint the theme background; false keeps the terminal's own</td></tr>
+      <tr><td class="num">glyphs</td><td class="num">"auto"</td><td>Characters for graphs, borders and symbols: <code>auto</code>, <code>theme</code>, <code>safe</code> (what the classic Windows console and the Linux text console can show) or <code>ascii</code>. Also <code>--glyphs</code></td></tr>
       <tr><td class="num">interval_ms</td><td class="num">1000</td><td>Sampling interval</td></tr>
       <tr><td class="num">lsof_interval_s</td><td class="num">3</td><td>Socket scan interval</td></tr>
       <tr><td class="num">start_tab</td><td class="num">"overview"</td><td>View to open on start</td></tr>
@@ -702,7 +704,8 @@ footer { margin-top: 72px; color: var(--muted); font-size: 13px; }
       <dt><kbd>E</kbd></dt><dd>export table to CSV</dd>
       <dt><kbd>space</kbd></dt><dd>pause</dd>
       <dt><kbd>+</kbd> <kbd>-</kbd></dt><dd>interval ±250 ms</dd>
-      <dt><kbd>?</kbd> <kbd>q</kbd></dt><dd>help / quit</dd></dl></div>
+      <dt><kbd>?</kbd> <kbd>q</kbd></dt><dd>help / quit</dd></dl>
+      <p style="margin-top:10px"><kbd>?</kbd> lists every key, the current view's first. Scroll it with <kbd>↑</kbd> <kbd>↓</kbd> or <kbd>PgUp</kbd> <kbd>PgDn</kbd>, search it with <kbd>/</kbd>, close it with <kbd>Esc</kbd>. Everything in vigil works from the keyboard; the mouse is optional.</p></div>
     <div><h3>Processes</h3><dl>
       <dt><kbd>c</kbd> <kbd>m</kbd> <kbd>p</kbd></dt><dd>sort cpu / mem / pid</dd>
       <dt><kbd>n</kbd> <kbd>u</kbd></dt><dd>sort name / user</dd>
