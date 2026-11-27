@@ -43,6 +43,12 @@ curl -fsSL https://raw.githubusercontent.com/suleymenb/vigil/master/install.sh |
 The script picks the right binary, checks its SHA-256 and installs to `/usr/local/bin`.
 Install somewhere else with `VIGIL_INSTALL_DIR=~/.local/bin`, or a fixed version with `VIGIL_VERSION=v0.6.0`.
 
+**Homebrew** (macOS and Linux), with the man page and shell completions:
+
+```bash
+brew install suleymenb/tap/vigil
+```
+
 **Windows 10 / 11** (x64 and ARM64), in PowerShell, no administrator rights needed:
 
 ```powershell
@@ -632,7 +638,7 @@ The ARP table couldn't be read in this environment (some sandboxes and container
 <details>
 <summary><b>How do I update?</b></summary>
 
-Run the install one-liner again (Windows: the PowerShell line). From source: `git pull && cargo install --path . --locked --force`.
+Run the install one-liner again (Windows: the PowerShell line), `brew upgrade vigil`, or install the new `.deb` / `.rpm`. From source: `git pull && cargo install --path . --locked --force`.
 </details>
 
 ## Performance
