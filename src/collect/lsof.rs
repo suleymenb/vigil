@@ -402,6 +402,9 @@ mod raw_query_tests {
     /// The example queries from docs/handbook.html must actually run.
     #[test]
     fn manual_queries_run() {
+        if !crate::platform::get().tools.lsof {
+            return; // Windows, or a minimal container without lsof
+        }
         for q in ["+L1", "-u root", "@127.0.0.1", "tcp:443", ":22"] {
             let parsed = Query::parse(q).unwrap();
             assert!(run(&parsed.args()).is_ok(), "query {q} failed: {:?}", parsed.args());

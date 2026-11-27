@@ -787,6 +787,7 @@ mod deep_tests {
         let mut s = Sampler::new();
         let d = s.deep_info(std::process::id()).expect("own process");
         assert!(!d.cwd.is_empty());
-        assert!(d.environ.iter().any(|(k, _)| k == "PATH"));
+        // Windows spells it "Path"; environment names are case-insensitive there.
+        assert!(d.environ.iter().any(|(k, _)| k.eq_ignore_ascii_case("PATH")));
     }
 }
