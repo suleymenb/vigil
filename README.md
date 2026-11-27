@@ -49,6 +49,12 @@ Install somewhere else with `VIGIL_INSTALL_DIR=~/.local/bin`, or a fixed version
 brew install suleymenb/tap/vigil
 ```
 
+**Cargo** (any OS with a Rust toolchain; the package is `vigil-tui` because `vigil` was taken on crates.io, the command is still `vigil`):
+
+```bash
+cargo install vigil-tui --locked
+```
+
 **Windows 10 / 11** (x64 and ARM64), in PowerShell, no administrator rights needed:
 
 ```powershell
