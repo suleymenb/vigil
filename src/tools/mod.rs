@@ -191,7 +191,7 @@ pub fn start(store: Arc<Mutex<ToolStore>>, kind: Kind, arg: String, settings: Se
             Kind::Reach => {
                 let mut w = arg.split_whitespace();
                 let res = match (w.next(), w.next()) {
-                    (Some(host), Some(ports)) => reach::parse_ports(ports).and_then(|p| reach::run(host, &p, std::time::Duration::from_millis(1500), &emit)).map(|_| ()),
+                    (Some(host), Some(ports)) => reach::parse_ports(ports).and_then(|p| reach::run(host, &p, reach::default_timeout(), &emit)).map(|_| ()),
                     _ => Err("give a host and ports: 10.0.0.5 22,443,3389 · db1 5432 · fw1 8000-8010".to_string()),
                 };
                 if let Err(e) = res {

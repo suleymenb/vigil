@@ -257,6 +257,25 @@ pub fn utc_offset_secs() -> i64 {
     0
 }
 
+/// Listen on every address for a server port. Linux and macOS: `[::]`, which
+/// also accepts IPv4. Windows: IPv6 sockets are IPv6-only there, so IPv4.
+pub fn bind_udp_any(port: u16) -> std::io::Result<std::net::UdpSocket> {
+    if cfg!(windows) {
+        std::net::UdpSocket::bind(("0.0.0.0", port))
+    } else {
+        std::net::UdpSocket::bind(("::", port)).or_else(|_| std::net::UdpSocket::bind(("0.0.0.0", port)))
+    }
+}
+
+/// TCP counterpart of `bind_udp_any`.
+pub fn bind_tcp_any(port: u16) -> std::io::Result<std::net::TcpListener> {
+    if cfg!(windows) {
+        std::net::TcpListener::bind(("0.0.0.0", port))
+    } else {
+        std::net::TcpListener::bind(("::", port)).or_else(|_| std::net::TcpListener::bind(("0.0.0.0", port)))
+    }
+}
+
 /// The user's home directory: $HOME, or %USERPROFILE% on Windows.
 pub fn home_dir() -> Option<std::path::PathBuf> {
     std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")).map(std::path::PathBuf::from)

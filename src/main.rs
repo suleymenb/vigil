@@ -161,9 +161,9 @@ enum Command {
         host: String,
         /// Ports: 22,443 · 8000-8010 · ssh,https,rdp
         ports: String,
-        /// Connect timeout in milliseconds
-        #[arg(short = 't', long, default_value_t = 1500)]
-        timeout: u64,
+        /// Connect timeout in milliseconds [default: 1500, Windows 3000]
+        #[arg(short = 't', long)]
+        timeout: Option<u64>,
     },
     /// Trace the path hop by hop; --tcp/--udp get through firewalls that drop ICMP
     Trace {
@@ -281,7 +281,7 @@ fn main() -> Result<()> {
             Command::Calc { input } => tools::cli::calc(&input.join(" ")),
             Command::Dns { query } => tools::cli::dns(&query.join(" "), &settings),
             Command::Mtu { target } => tools::cli::mtu(target.as_deref().unwrap_or(&settings.internet4)),
-            Command::Reach { host, ports, timeout } => tools::cli::reach(host, ports, *timeout),
+            Command::Reach { host, ports, timeout } => tools::cli::reach(host, ports, timeout.unwrap_or(tools::reach::default_timeout().as_millis() as u64)),
             Command::Trace { host, tcp, udp } => tools::cli::trace(host, *tcp, *udp),
             Command::Snmp { host, community, user, auth_protocol, auth_password, priv_password, port, interval, all } => {
                 tools::cli::snmp(host, community.as_deref(), user.as_deref(), auth_protocol, auth_password.as_deref(), priv_password.as_deref(), *port, *interval, *all, &cfg.snmp)

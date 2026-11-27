@@ -11,7 +11,7 @@
 //! for the duration and closes.
 
 use std::io::{Read, Write};
-use std::net::{Shutdown, SocketAddr, TcpListener, TcpStream, ToSocketAddrs};
+use std::net::{Shutdown, SocketAddr, TcpStream, ToSocketAddrs};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::thread;
@@ -37,7 +37,7 @@ pub fn fmt_bps(bytes: f64, secs: f64) -> String {
 
 /// Serve tests until interrupted. Each connection runs on its own thread.
 pub fn serve(port: u16, emit: &(dyn Fn(Tone, String) + Sync)) -> Result<(), String> {
-    let l = TcpListener::bind(("::", port)).or_else(|_| TcpListener::bind(("0.0.0.0", port))).map_err(|e| format!("listen on {port}: {e}"))?;
+    let l = crate::util::bind_tcp_any(port).map_err(|e| format!("listen on {port}: {e}"))?;
     emit(Tone::Head, format!("vigil perf server listening on TCP {port} (ctrl-c to stop)"));
     thread::scope(|s| {
         for conn in l.incoming().flatten() {
@@ -218,6 +218,7 @@ pub fn internet(url: &str, emit: &dyn Fn(Tone, String)) -> Result<f64, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::net::TcpListener;
 
     #[test]
     fn loopback_upload_and_download() {

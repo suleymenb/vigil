@@ -15,6 +15,12 @@ use super::Tone;
 
 pub const MAX_PORTS: usize = 1024;
 
+/// Connect timeout. Windows retries a refused SYN for about 2 s before it
+/// reports "refused", so a shorter timeout would call closed ports filtered.
+pub fn default_timeout() -> Duration {
+    Duration::from_millis(if cfg!(windows) { 3000 } else { 1500 })
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum State {
     Open(f64),
@@ -156,7 +162,7 @@ mod tests {
         let open = l.local_addr().unwrap().port();
         // A port that was free a moment ago is almost certainly closed now.
         let closed = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
-        let res = run("127.0.0.1", &[open, closed], Duration::from_millis(800), &|_, _| {}).unwrap();
+        let res = run("127.0.0.1", &[open, closed], default_timeout(), &|_, _| {}).unwrap();
         assert!(matches!(res[0], (p, State::Open(_)) if p == open), "{res:?}");
         assert!(matches!(res[1], (p, State::Refused(_)) if p == closed), "{res:?}");
     }

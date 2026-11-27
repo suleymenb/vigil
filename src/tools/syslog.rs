@@ -8,7 +8,7 @@
 //! Cisco IOS / NX-OS, Arista, HPE Aruba and Linux are recognised.
 
 use std::io::{BufRead, BufReader, Write};
-use std::net::{SocketAddr, TcpListener, UdpSocket};
+use std::net::{SocketAddr, TcpListener};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -184,9 +184,9 @@ fn time_hms() -> String {
 /// Listen until `stop` is set. `filter` keeps lines containing that text
 /// (case-insensitive); `save` appends every raw message to a file.
 pub fn listen(port: u16, filter: Option<&str>, save: Option<&std::path::Path>, stop: Arc<AtomicBool>, emit: &(dyn Fn(Tone, String) + Sync)) -> Result<(), String> {
-    let udp = UdpSocket::bind(("::", port)).or_else(|_| UdpSocket::bind(("0.0.0.0", port))).map_err(|e| bind_error(port, &e))?;
+    let udp = crate::util::bind_udp_any(port).map_err(|e| bind_error(port, &e))?;
     udp.set_read_timeout(Some(Duration::from_millis(300))).ok();
-    let tcp = TcpListener::bind(("::", port)).or_else(|_| TcpListener::bind(("0.0.0.0", port))).ok();
+    let tcp: Option<TcpListener> = crate::util::bind_tcp_any(port).ok();
     if let Some(t) = &tcp {
         t.set_nonblocking(true).ok();
     }
@@ -287,6 +287,7 @@ fn bind_error(port: u16, e: &std::io::Error) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::net::UdpSocket;
 
     #[test]
     fn parses_vendor_messages() {
