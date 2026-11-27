@@ -96,3 +96,21 @@ jobs:
     uses: ./.github/workflows/packages.yml
     with:
       tag: ${{ github.ref_name }}
+
+  # crates.io via trusted publishing (no token stored in the repo). Enable it
+  # after the first manual `cargo publish`: crate settings on crates.io →
+  # Trusted Publishing → suleymenb/vigil, workflow release.yml; then set the
+  # repository variable CRATES_IO_TRUSTED=true.
+  crates-io:
+    needs: build
+    if: vars.CRATES_IO_TRUSTED == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: rust-lang/crates-io-auth-action@v1
+        id: auth
+      - run: cargo publish --locked
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}

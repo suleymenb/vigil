@@ -2,8 +2,19 @@
 name = "vigil"
 version = "0.6.0"
 edition = "2021"
-description = "A modern terminal system monitor for DevOps, networking and Linux administration"
+description = "Terminal monitor and network troubleshooter: processes, sockets with lsof, routes, probes, firewall, containers, and a layer-by-layer network doctor"
 license = "MIT"
+repository = "https://github.com/suleymenb/vigil"
+readme = "README.md"
+keywords = ["monitoring", "tui", "lsof", "network", "troubleshooting"]
+categories = ["command-line-utilities", "network-programming", "visualization"]
+# Only what the build needs; screenshots, docs and CI stay on GitHub.
+include = ["src/**/*.rs", "Cargo.toml", "Cargo.lock", "README.md", "LICENSE"]
+
+# The command is always `vigil`, whatever the package is called on crates.io.
+[[bin]]
+name = "vigil"
+path = "src/main.rs"
 
 [dependencies]
 ratatui = "=0.29.0"
