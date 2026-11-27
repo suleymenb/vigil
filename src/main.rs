@@ -309,3 +309,14 @@ fn run(terminal: &mut ratatui::DefaultTerminal, app: &mut App) -> Result<()> {
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    /// The command must stay `vigil`: the release workflow, the packages, the
+    /// Homebrew formula and every install line depend on it, whatever the
+    /// package is called on crates.io.
+    #[test]
+    fn binary_is_named_vigil() {
+        assert_eq!(env!("CARGO_BIN_NAME"), "vigil");
+    }
+}

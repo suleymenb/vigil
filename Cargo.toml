@@ -13,7 +13,7 @@ include = ["src/**/*.rs", "Cargo.toml", "Cargo.lock", "README.md", "LICENSE"]
 
 # The command is always `vigil`, whatever the package is called on crates.io.
 [[bin]]
-name = "vigil-tui"
+name = "vigil"
 path = "src/main.rs"
 
 [dependencies]
