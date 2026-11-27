@@ -150,11 +150,21 @@ impl KernelNet {
         #[cfg(target_os = "macos")]
         {
             let (poller, seen) = self.poller.get_or_insert_with(|| {
-                let p = crate::util::Poller::spawn(std::time::Duration::from_secs(2), || {
+                // Without root the kernel reports every TCP counter as zero
+                // (net.inet.tcp.disable_access_to_stats): once seen, stop asking.
+                let root = unsafe { libc::geteuid() } == 0;
+                let mut tcp_hidden = false;
+                let p = crate::util::Poller::spawn(std::time::Duration::from_secs(2), move || {
                     let mut m = HashMap::new();
                     for proto in ["tcp", "udp"] {
+                        if proto == "tcp" && tcp_hidden {
+                            continue;
+                        }
                         let o = std::process::Command::new("netstat").args(["-s", "-p", proto]).output().ok()?;
                         parse_netstat_s(&String::from_utf8_lossy(&o.stdout), &mut m);
+                        if proto == "tcp" && !root {
+                            tcp_hidden = ["Tcp.OutSegs", "Tcp.InSegs"].iter().all(|k| m.get(*k).copied().unwrap_or(0) == 0);
+                        }
                     }
                     Some(m)
                 });

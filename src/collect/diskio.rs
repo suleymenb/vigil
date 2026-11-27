@@ -1,6 +1,6 @@
 //! Per-device disk latency, like `iostat -x`: IOPS, throughput, await,
 //! utilisation and queue depth from `/proc/diskstats` (Linux, one read per
-//! tick) or IOKit block-driver statistics via `ioreg` (macOS, every 2 s).
+//! tick) or the I/O Registry's block-driver statistics (macOS, once a second).
 
 #![allow(dead_code)] // parsers for other platforms are unit-tested on every OS
 
@@ -91,10 +91,12 @@ pub fn rates(prev: &Raw, cur: &Raw, dt: f64, name: &str) -> DevStats {
     }
 }
 
-/// macOS: `ioreg -c IOBlockStorageDriver -r -w0 -l`. Each driver's "Statistics"
-/// dictionary (operations, bytes, total time in ns per direction) belongs to
-/// the first whole-disk "BSD Name" below it. IOKit has no busy-time counter,
-/// so utilisation and queue are estimated from the summed service time.
+/// macOS: the text of `ioreg -c IOBlockStorageDriver -r -w0 -l`. Each driver's
+/// "Statistics" dictionary (operations, bytes, total time in ns per
+/// direction) belongs to the first whole-disk "BSD Name" below it. IOKit has
+/// no busy-time counter, so utilisation and queue are estimated from the
+/// summed service time. vigil reads the registry itself (`macio.rs`); this
+/// parser checks that against the command in the tests.
 pub fn parse_ioreg(text: &str) -> HashMap<String, Raw> {
     let mut m = HashMap::new();
     let mut pending: Option<Raw> = None;
@@ -132,9 +134,6 @@ pub struct DiskIo {
     prev: HashMap<String, Raw>,
     last: Option<Instant>,
     pub devices: Vec<DevStats>,
-    /// macOS: ioreg runs on a poller thread (~15 ms per call).
-    #[cfg(target_os = "macos")]
-    poller: Option<(crate::util::Poller<HashMap<String, Raw>>, u64)>,
 }
 
 impl DiskIo {
@@ -146,21 +145,16 @@ impl DiskIo {
                 let Ok(t) = std::fs::read_to_string("/proc/diskstats") else { return };
                 parse(&t)
             };
-            #[cfg(target_os = "macos")]
-            let (cur, now) = {
-                let (poller, seen) = self.poller.get_or_insert_with(|| {
-                    let p = crate::util::Poller::spawn(std::time::Duration::from_secs(2), || {
-                        let o = std::process::Command::new("ioreg").args(["-c", "IOBlockStorageDriver", "-r", "-w0", "-l"]).output().ok()?;
-                        Some(parse_ioreg(&String::from_utf8_lossy(&o.stdout)))
-                    });
-                    (p, 0)
-                });
-                let Some((at, seq, cur)) = poller.latest(*seen) else { return };
-                *seen = seq;
-                (cur, at)
-            };
-            #[cfg(target_os = "linux")]
             let now = Instant::now();
+            #[cfg(target_os = "macos")]
+            let cur = {
+                // The counters move in steps; a second between reads keeps
+                // the rates smooth (and the registry calls rare).
+                if self.last.is_some_and(|l| now.duration_since(l).as_millis() < 1000) {
+                    return;
+                }
+                super::macio::read()
+            };
             if let Some(last) = self.last {
                 let dt = now.duration_since(last).as_secs_f64().max(0.05);
                 let mut v: Vec<DevStats> = cur

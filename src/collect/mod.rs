@@ -8,7 +8,13 @@ pub mod kernelnet;
 pub mod kmsg;
 pub mod l2;
 pub mod limits;
+#[cfg(any(target_os = "linux", test))]
+pub mod linproc;
 pub mod lsof;
+#[cfg(target_os = "macos")]
+pub mod macio;
+#[cfg(target_os = "macos")]
+pub mod macproc;
 pub mod netinfo;
 pub mod probes;
 pub mod procbw;
