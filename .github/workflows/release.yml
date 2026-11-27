@@ -77,13 +77,6 @@ jobs:
             sum "$name.tar.gz" > "$name.tar.gz.sha256"
           fi
 
-      - name: Keep Linux binaries for the packages job
-        if: runner.os == 'Linux'
-        uses: actions/upload-artifact@v4
-        with:
-          name: bin-${{ matrix.target }}
-          path: target/${{ matrix.target }}/release/vigil
-
       - name: Ensure release exists
         shell: bash
         env:
@@ -98,91 +91,8 @@ jobs:
 
   packages:
     needs: build
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
-        with:
-          pattern: bin-*
-      - name: Install rpm
-        run: sudo apt-get update && sudo apt-get install -y rpm
-      - name: Completions and man page
-        run: |
-          chmod +x bin-*/vigil
-          v=bin-x86_64-unknown-linux-musl/vigil
-          mkdir -p extra/completions
-          $v completions bash > extra/completions/vigil.bash
-          $v completions zsh > extra/completions/_vigil
-          $v completions fish > extra/completions/vigil.fish
-          $v completions powershell > extra/completions/_vigil.ps1
-          $v completions elvish > extra/completions/vigil.elv
-          $v man > extra/vigil.1
-          gzip -9n -c extra/vigil.1 > extra/vigil.1.gz
-          tar czf vigil-completions-and-man.tar.gz -C extra .
-      - name: .deb and .rpm
-        run: |
-          version="${GITHUB_REF_NAME#v}"
-          for pair in "x86_64-unknown-linux-musl amd64 x86_64" "aarch64-unknown-linux-musl arm64 aarch64"; do
-            set -- $pair
-            target=$1 deb_arch=$2 rpm_arch=$3
-            root="pkg-$deb_arch"
-            install -Dm755 "bin-$target/vigil" "$root/usr/bin/vigil"
-            install -Dm644 extra/vigil.1.gz "$root/usr/share/man/man1/vigil.1.gz"
-            install -Dm644 extra/completions/vigil.bash "$root/usr/share/bash-completion/completions/vigil"
-            install -Dm644 extra/completions/_vigil "$root/usr/share/zsh/vendor-completions/_vigil"
-            install -Dm644 extra/completions/vigil.fish "$root/usr/share/fish/vendor_completions.d/vigil.fish"
-            install -Dm644 README.md "$root/usr/share/doc/vigil/README.md"
-            install -Dm644 LICENSE "$root/usr/share/doc/vigil/copyright"
-
-            mkdir -p "$root/DEBIAN"
-            cat > "$root/DEBIAN/control" <<EOF
-          Package: vigil
-          Version: $version
-          Architecture: $deb_arch
-          Maintainer: suleymenb <suleymenb@users.noreply.github.com>
-          Section: admin
-          Priority: optional
-          Homepage: https://github.com/suleymenb/vigil
-          Recommends: lsof, tcpdump, mtr-tiny, lldpd
-          Description: terminal monitor and troubleshooter for DevOps and network engineers
-           Processes, sockets with lsof, network, routes, probes, firewall counters,
-           containers, services, kernel events and a layer-by-layer network doctor.
-          EOF
-            dpkg-deb --build --root-owner-group "$root" "vigil-$deb_arch.deb"
-
-            mkdir -p rpmbuild/SOURCES
-            cat > vigil.spec <<EOF
-          %global debug_package %{nil}
-          %global __os_install_post %{nil}
-          Name: vigil
-          Version: $version
-          Release: 1
-          Summary: Terminal monitor and troubleshooter for DevOps and network engineers
-          License: MIT
-          URL: https://github.com/suleymenb/vigil
-          Recommends: lsof
-          %description
-          Processes, sockets with lsof, network, routes, probes, firewall counters,
-          containers, services, kernel events and a layer-by-layer network doctor.
-          %install
-          mkdir -p %{buildroot}
-          cp -a $PWD/$root/usr %{buildroot}/
-          rm -rf %{buildroot}/usr/share/doc
-          %files
-          /usr/bin/vigil
-          /usr/share/man/man1/vigil.1.gz
-          /usr/share/bash-completion/completions/vigil
-          /usr/share/zsh/vendor-completions/_vigil
-          /usr/share/fish/vendor_completions.d/vigil.fish
-          %license $PWD/LICENSE
-          %doc $PWD/README.md
-          EOF
-            rpmbuild -bb --target "$rpm_arch" --define "_topdir $PWD/rpmbuild" vigil.spec
-            cp rpmbuild/RPMS/$rpm_arch/vigil-*.rpm "vigil-$rpm_arch.rpm"
-          done
-          for f in vigil-*.deb vigil-*.rpm vigil-completions-and-man.tar.gz; do sha256sum "$f" > "$f.sha256"; done
-          ls -l vigil-*
-      - name: Upload
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh release upload "$GITHUB_REF_NAME" vigil-*.deb vigil-*.rpm vigil-completions-and-man.tar.gz *.sha256 --clobber
+    permissions:
+      contents: write
+    uses: ./.github/workflows/packages.yml
+    with:
+      tag: ${{ github.ref_name }}
