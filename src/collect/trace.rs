@@ -1,12 +1,32 @@
 //! Path analysis for a probe target: latency and loss per hop.
 //!
 //! Uses `mtr --json` when installed (loss per hop over several cycles),
-//! otherwise `traceroute -n`. Runs on demand (`t` in the Probes view) on its
-//! own thread; the result stays attached to the probe until the next run.
+//! otherwise `traceroute -n`. ICMP by default; TCP (to a port) or UDP get
+//! through firewalls that drop ICMP and show where a service's traffic
+//! really stops. Runs on demand (`t` in the Probes view, `vigil trace`).
 
 use std::process::Command;
 use std::sync::{Arc, Mutex};
 use std::thread;
+
+/// Which packets probe the path.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub enum Mode {
+    #[default]
+    Icmp,
+    Udp,
+    Tcp(u16),
+}
+
+impl Mode {
+    pub fn label(self) -> String {
+        match self {
+            Mode::Icmp => "icmp".into(),
+            Mode::Udp => "udp".into(),
+            Mode::Tcp(p) => format!("tcp/{p}"),
+        }
+    }
+}
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Hop {
@@ -24,6 +44,7 @@ pub struct Hop {
 #[derive(Clone, Debug, Default)]
 pub struct TraceResult {
     pub target: String,
+    pub mode: Mode,
     pub tool: &'static str,
     pub hops: Vec<Hop>,
     pub error: Option<String>,
@@ -94,7 +115,28 @@ pub fn parse_traceroute(text: &str) -> Vec<Hop> {
     hops
 }
 
-fn run(target: &str) -> (&'static str, Result<Vec<Hop>, String>) {
+/// mtr / traceroute arguments for a mode (Linux and macOS spell TCP differently).
+pub fn args(tool: &str, mode: Mode, target: &str) -> Vec<String> {
+    let mut a: Vec<String> = match tool {
+        "mtr" => vec!["-n".into(), "--json".into(), "-c".into(), "5".into(), "-r".into()],
+        _ => vec!["-n".into(), "-q".into(), "3".into(), "-w".into(), "1".into(), "-m".into(), "30".into()],
+    };
+    match (tool, mode) {
+        ("mtr", Mode::Tcp(p)) => a.extend(["--tcp".into(), "-P".into(), p.to_string()]),
+        ("mtr", Mode::Udp) => a.push("--udp".into()),
+        (_, Mode::Tcp(p)) if cfg!(target_os = "macos") => a.extend(["-P".into(), "tcp".into(), "-p".into(), p.to_string()]),
+        (_, Mode::Tcp(p)) => a.extend(["-T".into(), "-p".into(), p.to_string()]),
+        // traceroute's own default (UDP) works without root; mtr's default is ICMP.
+        _ => {}
+    }
+    a.push(target.to_string());
+    a
+}
+
+fn run(target: &str, mode: Mode) -> (&'static str, Result<Vec<Hop>, String>) {
+    if cfg!(windows) && mode != Mode::Icmp {
+        return ("tracert", Err("Windows tracert traces with ICMP only; for TCP use WSL or pathping".into()));
+    }
     if cfg!(windows) {
         return match Command::new("tracert").args(["-d", "-h", "30", "-w", "1000", target]).output() {
             Ok(o) => {
@@ -112,7 +154,7 @@ fn run(target: &str) -> (&'static str, Result<Vec<Hop>, String>) {
     if !tools.mtr && !tools.traceroute {
         return ("-", Err("install mtr or traceroute to trace the path".into()));
     }
-    let mtr = if tools.mtr { Command::new("mtr").args(["-n", "--json", "-c", "5", "-r", target]).output().ok() } else { None };
+    let mtr = if tools.mtr { Command::new("mtr").args(args("mtr", mode, target)).output().ok() } else { None };
     if let Some(o) = mtr {
         if o.status.success() {
             let hops = parse_mtr_json(&String::from_utf8_lossy(&o.stdout));
@@ -121,12 +163,14 @@ fn run(target: &str) -> (&'static str, Result<Vec<Hop>, String>) {
             }
         }
     }
-    match Command::new("traceroute").args(["-n", "-q", "3", "-w", "1", "-m", "30", target]).output() {
+    match Command::new("traceroute").args(args("traceroute", mode, target)).output() {
         Ok(o) => {
             let hops = parse_traceroute(&String::from_utf8_lossy(&o.stdout));
             if hops.is_empty() {
                 let e = String::from_utf8_lossy(&o.stderr);
-                ("traceroute", Err(e.lines().last().unwrap_or("traceroute failed").to_string()))
+                let last = e.lines().last().unwrap_or("traceroute failed").to_string();
+                let needs_root = mode != Mode::Udp && (last.contains("permission") || last.contains("Operation not permitted") || last.contains("root"));
+                ("traceroute", Err(if needs_root { format!("{last} ({} traceroute needs root: run with sudo)", mode.label()) } else { last }))
             } else {
                 ("traceroute", Ok(hops))
             }
@@ -135,22 +179,49 @@ fn run(target: &str) -> (&'static str, Result<Vec<Hop>, String>) {
     }
 }
 
-pub fn start(store: Arc<Mutex<TraceStore>>, target: String) {
+/// Trace and print (for `vigil trace`).
+pub fn report(target: &str, mode: Mode, emit: &dyn Fn(crate::tools::Tone, String)) -> bool {
+    use crate::tools::Tone;
+    emit(Tone::Head, format!("path to {target} · {}", mode.label()));
+    let (tool, res) = run(target, mode);
+    match res {
+        Ok(hops) => {
+            emit(Tone::Dim, format!("  {:>3}  {:<40} {:>6} {:>5} {:>8} {:>8} {:>8}   ({tool})", "HOP", "HOST", "LOSS%", "SENT", "AVG ms", "BEST", "WORST"));
+            let last = hops.len();
+            for (i, h) in hops.iter().enumerate() {
+                let tone = if h.loss_pct >= 100.0 { Tone::Dim } else if h.loss_pct > 0.0 && i + 1 < last && hops[i + 1..].iter().all(|x| x.loss_pct > 0.0) { Tone::Bad } else { Tone::Normal };
+                emit(tone, format!("  {:>3}  {:<40} {:>5.0}% {:>5} {:>8.1} {:>8.1} {:>8.1}", h.n, crate::util::truncate(&h.host, 40), h.loss_pct, h.sent, h.avg, h.best, h.worst));
+            }
+            if let Some(stop) = hops.iter().rposition(|h| h.loss_pct < 100.0) {
+                if stop + 1 < hops.len() {
+                    emit(Tone::Warn, format!("→ no answers after hop {} ({}): {}", hops[stop].n, hops[stop].host, if mode == Mode::Icmp { "ICMP filtered from there on; try --tcp 443" } else { "the path or a firewall stops this traffic there" }));
+                }
+            }
+            true
+        }
+        Err(e) => {
+            emit(Tone::Bad, e);
+            false
+        }
+    }
+}
+
+pub fn start(store: Arc<Mutex<TraceStore>>, target: String, mode: Mode) {
     if let Ok(mut s) = store.lock() {
         if s.current.as_ref().is_some_and(|c| c.running) {
             return;
         }
-        s.current = Some(TraceResult { target: target.clone(), running: true, ..Default::default() });
+        s.current = Some(TraceResult { target: target.clone(), mode, running: true, ..Default::default() });
         s.version += 1;
     }
     thread::spawn(move || {
-        let (tool, res) = run(&target);
+        let (tool, res) = run(&target, mode);
         if let Ok(mut s) = store.lock() {
             let (hops, error) = match res {
                 Ok(h) => (h, None),
                 Err(e) => (Vec::new(), Some(e)),
             };
-            s.current = Some(TraceResult { target, tool, hops, error, running: false });
+            s.current = Some(TraceResult { target, mode, tool, hops, error, running: false });
             s.version += 1;
         }
     });
@@ -167,6 +238,18 @@ mod tests {
         assert_eq!(h.len(), 2);
         assert_eq!(h[0].host, "10.0.0.1");
         assert_eq!(h[1].loss_pct, 100.0);
+    }
+
+    #[test]
+    fn mode_arguments() {
+        assert!(args("mtr", Mode::Tcp(443), "1.1.1.1").windows(3).any(|w| w == ["--tcp", "-P", "443"]));
+        let t = args("traceroute", Mode::Tcp(443), "1.1.1.1");
+        if cfg!(target_os = "macos") {
+            assert!(t.windows(2).any(|w| w == ["-P", "tcp"]));
+        } else {
+            assert!(t.contains(&"-T".to_string()));
+        }
+        assert_eq!(args("traceroute", Mode::Udp, "h").last().unwrap(), "h");
     }
 
     #[test]

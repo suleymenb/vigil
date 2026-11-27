@@ -135,7 +135,7 @@ pub fn capture(iface: Option<&str>, secs: Option<u64>, count: Option<u64>, write
             eprintln!("{text}");
         }
     };
-    match capture::run(&spec, out, &emit) {
+    match capture::run(&spec, out, None, &emit) {
         Ok(d) => {
             if open {
                 if let Some(p) = &d.path {
@@ -151,4 +151,82 @@ pub fn capture(iface: Option<&str>, secs: Option<u64>, count: Option<u64>, write
             1
         }
     }
+}
+
+pub fn reach(host: &str, ports: &str, timeout_ms: u64) -> i32 {
+    match super::reach::parse_ports(ports).and_then(|p| super::reach::run(host, &p, std::time::Duration::from_millis(timeout_ms.clamp(100, 30_000)), &emit)) {
+        Ok(r) => i32::from(!r.iter().any(|(_, s)| matches!(s, super::reach::State::Open(_)))),
+        Err(e) => {
+            eprintln!("vigil reach: {e}");
+            2
+        }
+    }
+}
+
+pub fn trace(host: &str, tcp: Option<u16>, udp: bool) -> i32 {
+    use crate::collect::trace::{report, Mode};
+    let mode = match (tcp, udp) {
+        (Some(p), _) => Mode::Tcp(p),
+        (None, true) => Mode::Udp,
+        _ => Mode::Icmp,
+    };
+    i32::from(!report(host, mode, &emit))
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn snmp(host: &str, community: Option<&str>, user: Option<&str>, proto: &str, auth_pass: Option<&str>, priv_pass: Option<&str>, port: u16, interval: u64, all: bool, cfg: &crate::config::Snmp) -> i32 {
+    use super::snmp::{report, Auth, AuthProto};
+    let env = |k: &str| std::env::var(k).ok().filter(|v| !v.is_empty());
+    let auth = match user {
+        Some(u) => {
+            let Some(p) = AuthProto::parse(proto) else {
+                eprintln!("vigil snmp: unknown auth protocol {proto} (md5, sha, sha256)");
+                return 2;
+            };
+            let a = auth_pass.map(String::from).or_else(|| env("VIGIL_SNMP_AUTH"));
+            let x = priv_pass.map(String::from).or_else(|| env("VIGIL_SNMP_PRIV"));
+            Ok(Auth::V3 { user: u.to_string(), auth: a.map(|a| (p, a)), privacy: x })
+        }
+        None => cfg.auth(community),
+    };
+    let port = if port == 161 { cfg.port } else { port };
+    match auth.and_then(|a| report(host, port, a, std::time::Duration::from_secs(interval.clamp(1, 300)), all, &emit)) {
+        Ok(_) => 0,
+        Err(e) => {
+            eprintln!("vigil snmp: {e}");
+            1
+        }
+    }
+}
+
+pub fn syslog(port: u16, filter: Option<&str>, save: Option<&std::path::Path>) -> i32 {
+    let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    match super::syslog::listen(port, filter, save, stop, &|t, l| print(t, &l)) {
+        Ok(()) => 0,
+        Err(e) => {
+            eprintln!("vigil syslog: {e}");
+            1
+        }
+    }
+}
+
+pub fn dhcp(iface: Option<&str>, secs: u64) -> i32 {
+    match super::dhcp::run(iface, std::time::Duration::from_secs(secs.clamp(1, 60)), &emit) {
+        Ok(offers) => {
+            let servers: std::collections::BTreeSet<_> = offers.iter().map(|o| o.server_id).collect();
+            match servers.len() {
+                1 => 0,
+                0 => 1,
+                _ => 3, // more than one server: possibly rogue
+            }
+        }
+        Err(e) => {
+            eprintln!("vigil dhcp: {e}");
+            2
+        }
+    }
+}
+
+pub fn wifi() -> i32 {
+    i32::from(crate::collect::wifi::report(&emit) == 0)
 }

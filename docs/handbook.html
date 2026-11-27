@@ -151,7 +151,7 @@ footer { margin-top: 72px; color: var(--muted); font-size: 13px; }
 </style>
 
 <header class="hero col">
-  <span class="eyebrow">Field handbook · v0.6</span>
+  <span class="eyebrow">Field handbook · v0.7</span>
   <h1><span class="mark">◆</span> vigil</h1>
   <p class="lead">A Rust terminal monitor for people who run servers and debug networks, on Linux, macOS and Windows. Processes, sockets and open files live in one screen, with <code>lsof</code> built in, and a doctor walks the network layer by layer. This handbook shows how it works and how to solve the usual incidents with it.</p>
   <div class="cmds">
@@ -447,6 +447,12 @@ footer { margin-top: 72px; color: var(--muted); font-size: 13px; }
       <tr><td><kbd>n</kbd></td><td class="num">vigil dns NAME MX @10.0.0.53</td><td>Its own DNS client asks each resolver directly and compares answers, TTLs, DNSSEC flags and latency</td></tr>
       <tr><td><kbd>p</kbd></td><td class="num">vigil perf HOST -P 4 -R</td><td>TCP throughput to a machine running <code>vigil perf --server</code>, per second, with parallel streams and reverse mode</td></tr>
       <tr><td><kbd>t</kbd></td><td class="num">vigil capture -i eth0 -t 30 port 443</td><td>Packet capture to a .pcap Wireshark opens directly; <code>-w - | wireshark -k -i -</code> streams it live, also from a remote server over SSH. <kbd>C</kbd> in Network captures the selected interface</td></tr>
+      <tr><td><kbd>r</kbd></td><td class="num">vigil reach 10.0.0.5 22,443,3389</td><td>Is a TCP port open, refused (RST) or filtered (a firewall drops it) from here</td></tr>
+      <tr><td><kbd>e</kbd></td><td class="num">vigil trace HOST --tcp 443</td><td>The path hop by hop; TCP or UDP get through firewalls that drop ICMP</td></tr>
+      <tr><td><kbd>s</kbd></td><td class="num">vigil snmp sw1</td><td>A switch or router over SNMP v2c/v3: port state, traffic, utilisation, errors, CRC, discards, flaps, duplex, LLDP neighbours, CPU, with findings</td></tr>
+      <tr><td><kbd>l</kbd></td><td class="num">sudo vigil syslog</td><td>A syslog receiver: link flaps, OSPF/BGP neighbours, STP, err-disable, logins and commits from your devices, live and classified</td></tr>
+      <tr><td><kbd>o</kbd></td><td class="num">sudo vigil dhcp</td><td>Lists every DHCP server that answers a discover: finds rogue DHCP servers</td></tr>
+      <tr><td><kbd>w</kbd></td><td class="num">vigil wifi</td><td>Wi-Fi signal, noise, SNR, channel, band and rate; roaming events in the link-layer panel</td></tr>
       <tr><td><kbd>h</kbd></td><td class="num">any view</td><td>Explain mode: what the selected state, event, counter, route, rule or check means and what to run next</td></tr>
       <tr><td><kbd>F</kbd></td><td class="num">any view</td><td>Find anything: processes, ports, IPs, MACs, services, containers, routes, users; Enter jumps there</td></tr>
     </tbody>
@@ -478,6 +484,10 @@ footer { margin-top: 72px; color: var(--muted); font-size: 13px; }
       <tr><td>Which rule drops it?</td><td class="num">show security policies hit-count</td><td class="num">show access-lists</td><td><kbd>9</kbd> firewall, <kbd>z</kbd> <kbd>s</kbd></td></tr>
       <tr><td>Who is talking?</td><td class="num">show security flow session</td><td class="num">show ip nat translations</td><td><kbd>4</kbd> sockets (RTT, retransmits, bandwidth)</td></tr>
       <tr><td>Subnet maths</td><td colspan="2">by hand</td><td class="num">vigil calc 10.0.0.0/22 /24</td></tr>
+      <tr><td>Port errors and flaps, from your laptop</td><td class="num">show interfaces extensive</td><td class="num">show interfaces counters errors</td><td class="num">vigil snmp sw1</td></tr>
+      <tr><td>What happens while I change it?</td><td class="num">monitor start messages</td><td class="num">terminal monitor</td><td class="num">vigil syslog (set system syslog host IP any any)</td></tr>
+      <tr><td>Is the firewall letting it through?</td><td class="num">show security flow session destination-port 443</td><td class="num">show access-lists</td><td class="num">vigil reach HOST 443</td></tr>
+      <tr><td>Who hands out addresses here?</td><td class="num">show dhcp server binding</td><td class="num">show ip dhcp binding</td><td class="num">vigil dhcp</td></tr>
     </tbody>
   </table></div>
   <h3>Windows</h3>
@@ -664,10 +674,10 @@ footer { margin-top: 72px; color: var(--muted); font-size: 13px; }
   </table></div>
 
   <h2 id="roadmap">Roadmap</h2>
-  <p style="margin-top:12px">What comes next. v0.6 shipped the layer-by-layer doctor, subnet calculator, DNS per resolver, path MTU and throughput tools, explain mode, global search, NIC errors, LLDP and ARP watch, Windows support, macOS counters and Docker containers, custom themes and keys, completions, a man page and .deb/.rpm packages. v0.5 shipped the process inspector with history graphs, needs-restart detection, users and SSH logins, copy/export/mouse and report diffs. v0.4 shipped containers, services and the journal, kernel events, fd/port/inode exhaustion, disk latency, HTTPS probes with certificate expiry and path tracing.</p>
+  <p style="margin-top:12px">What comes next. v0.7 shipped SNMP device polling (v2c/v3), a syslog receiver, port reachability, TCP/UDP traceroute, rogue DHCP detection, Wi-Fi details, MOS call quality on probes and explanations in every view. v0.6 shipped the layer-by-layer doctor, subnet calculator, DNS per resolver, path MTU and throughput tools, explain mode, global search, NIC errors, LLDP and ARP watch, Windows support, macOS counters and Docker containers, custom themes and keys, completions, a man page and .deb/.rpm packages. v0.5 shipped the process inspector with history graphs, needs-restart detection, users and SSH logins, copy/export/mouse and report diffs. v0.4 shipped containers, services and the journal, kernel events, fd/port/inode exhaustion, disk latency, HTTPS probes with certificate expiry and path tracing.</p>
   <div class="road">
     <div class="item"><span class="pri p2">Then</span><div><h3>UDP and QUIC bandwidth</h3><p>Per-flow byte counters for UDP need eBPF; TCP is covered by sock_diag today.</p></div></div>
-    <div class="item"><span class="pri p2">Then</span><div><h3>SNMP polling</h3><p>Interface counters and errors from switches and routers next to the host's own view.</p></div></div>
+    <div class="item"><span class="pri p2">Then</span><div><h3>Flow records</h3><p>A NetFlow / sFlow / IPFIX collector: top talkers as the router sees them.</p></div></div>
     <div class="item"><span class="pri p3">Later</span><div><h3>GPU</h3><p>Utilisation and memory per GPU and per process, for machines that have one.</p></div></div>
   </div>
 

@@ -21,7 +21,7 @@ jobs:
           rustup default stable
       - name: Install lsof
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y lsof tcpdump
+        run: sudo apt-get update && sudo apt-get install -y lsof tcpdump snmpd snmp
       - run: cargo clippy --all-targets --locked -- -D warnings
       - run: cargo test --locked
       # A real capture with root (the runners have passwordless sudo / admin).
@@ -47,3 +47,25 @@ jobs:
           Stop-Job $job -ErrorAction SilentlyContinue
           $f = Get-Item "$env:RUNNER_TEMP\t.pcapng"
           if ($f.Length -lt 1000) { Write-Error "capture is empty ($($f.Length) bytes)"; exit 1 }
+      # SNMP interop with a real net-snmp agent (Linux: 5.9 with SHA-256; macOS: 5.6).
+      - name: SNMP interop (net-snmp)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          d="$RUNNER_TEMP/snmpd"; mkdir -p "$d/persist"
+          {
+            echo "agentaddress udp:127.0.0.1:16161"
+            echo "rocommunity public 127.0.0.1"
+            echo "createUser vsha SHA authpass123 AES privpass123"
+            echo "createUser vmd5 MD5 authpass123 AES privpass123"
+            echo "createUser vauth SHA authpass123"
+            [ "$RUNNER_OS" = Linux ] && echo "createUser vsha256 SHA-256 authpass123 AES privpass123"
+            echo "rouser vsha priv"; echo "rouser vmd5 priv"; echo "rouser vauth auth"; echo "rouser vsha256 priv"
+          } > "$d/snmpd.conf"
+          snmpd=$(command -v snmpd || echo /usr/sbin/snmpd)
+          SNMP_PERSISTENT_DIR="$d/persist" "$snmpd" -f -Lf "$d/log" -C -c "$d/snmpd.conf" -p "$d/pid" &
+          sleep 3
+          [ "$RUNNER_OS" = Linux ] && export VIGIL_SNMPD_SHA256=1
+          VIGIL_SNMPD_PORT=16161 cargo test --locked snmpd_interop -- --ignored --nocapture
+          VIGIL_SNMP_AUTH=authpass123 VIGIL_SNMP_PRIV=privpass123 ./target/debug/vigil snmp 127.0.0.1 -p 16161 -u vsha -i 1 | head -12
+          kill "$(cat "$d/pid")" || true

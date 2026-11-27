@@ -156,6 +156,76 @@ enum Command {
         /// BPF filter, e.g. port 443 · host 10.0.0.5 and tcp
         filter: Vec<String>,
     },
+    /// Is a TCP port open, refused or filtered from here? vigil reach 10.0.0.5 22,443,3389
+    Reach {
+        host: String,
+        /// Ports: 22,443 · 8000-8010 · ssh,https,rdp
+        ports: String,
+        /// Connect timeout in milliseconds
+        #[arg(short = 't', long, default_value_t = 1500)]
+        timeout: u64,
+    },
+    /// Trace the path hop by hop; --tcp/--udp get through firewalls that drop ICMP
+    Trace {
+        host: String,
+        /// Trace with TCP SYNs to this port
+        #[arg(long, value_name = "PORT", conflicts_with = "udp")]
+        tcp: Option<u16>,
+        /// Trace with UDP
+        #[arg(long)]
+        udp: bool,
+    },
+    /// Poll a switch/router/firewall: ports, errors, CRC, discards, flaps, LLDP, CPU
+    Snmp {
+        host: String,
+        /// v2c community (default: [snmp] community, VIGIL_SNMP_COMMUNITY, "public")
+        #[arg(short, long)]
+        community: Option<String>,
+        /// SNMPv3 user (switches to v3)
+        #[arg(short, long)]
+        user: Option<String>,
+        /// v3 auth protocol: md5, sha, sha256
+        #[arg(short = 'a', long, default_value = "sha")]
+        auth_protocol: String,
+        /// v3 auth password (or VIGIL_SNMP_AUTH)
+        #[arg(short = 'A', long)]
+        auth_password: Option<String>,
+        /// v3 AES privacy password (or VIGIL_SNMP_PRIV)
+        #[arg(short = 'x', long)]
+        priv_password: Option<String>,
+        /// UDP port
+        #[arg(short, long, default_value_t = 161)]
+        port: u16,
+        /// Seconds between the two counter samples (rates)
+        #[arg(short, long, default_value_t = 5)]
+        interval: u64,
+        /// Show every interface, also disabled and logical ones
+        #[arg(long)]
+        all: bool,
+    },
+    /// Receive syslog from network devices and show it live, classified (ctrl-c stops)
+    Syslog {
+        /// UDP/TCP port (514 needs root; 5514 doesn't)
+        #[arg(short, long, default_value_t = 514)]
+        port: u16,
+        /// Only show lines containing this text
+        #[arg(short, long)]
+        filter: Option<String>,
+        /// Also append every raw message to this file
+        #[arg(short, long, value_name = "FILE")]
+        write: Option<std::path::PathBuf>,
+    },
+    /// Which DHCP servers answer here? Finds rogue DHCP servers (needs root)
+    Dhcp {
+        /// Interface to send the DHCP discover on
+        #[arg(short, long)]
+        interface: Option<String>,
+        /// Seconds to wait for offers
+        #[arg(short = 't', long, default_value_t = 4)]
+        time: u64,
+    },
+    /// Wi-Fi link: signal, noise, SNR, channel, band, rate
+    Wifi,
     /// Print a shell completion script: vigil completions bash > /etc/bash_completion.d/vigil
     Completions {
         #[arg(value_enum)]
@@ -211,6 +281,14 @@ fn main() -> Result<()> {
             Command::Calc { input } => tools::cli::calc(&input.join(" ")),
             Command::Dns { query } => tools::cli::dns(&query.join(" "), &settings),
             Command::Mtu { target } => tools::cli::mtu(target.as_deref().unwrap_or(&settings.internet4)),
+            Command::Reach { host, ports, timeout } => tools::cli::reach(host, ports, *timeout),
+            Command::Trace { host, tcp, udp } => tools::cli::trace(host, *tcp, *udp),
+            Command::Snmp { host, community, user, auth_protocol, auth_password, priv_password, port, interval, all } => {
+                tools::cli::snmp(host, community.as_deref(), user.as_deref(), auth_protocol, auth_password.as_deref(), priv_password.as_deref(), *port, *interval, *all, &cfg.snmp)
+            }
+            Command::Syslog { port, filter, write } => tools::cli::syslog(*port, filter.as_deref(), write.as_deref()),
+            Command::Dhcp { interface, time } => tools::cli::dhcp(interface.as_deref(), *time),
+            Command::Wifi => tools::cli::wifi(),
             Command::Capture { interface, time, count, write, open, filter } => tools::cli::capture(interface.as_deref(), *time, *count, write.as_deref(), *open, &filter.join(" ")),
             Command::Perf { host, server, port, time, parallel, reverse, internet } => {
                 tools::cli::perf(host.as_deref(), *server, *port, *time, *parallel, *reverse, *internet, &settings)

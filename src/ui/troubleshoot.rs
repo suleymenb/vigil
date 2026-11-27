@@ -58,11 +58,17 @@ pub fn wrap(text: &str, width: usize) -> Vec<String> {
     out
 }
 
-const MENU: [(&str, &str, &str); 6] = [
+const MENU: [(&str, &str, &str); 12] = [
     ("d", "doctor", "walk L1 → L7: link, NIC errors, ARP, IP, gateway, internet, MTU, TCP, clock, TLS, DNS, HTTP"),
     ("c", "calc", "subnet calculator: 10.0.0.0/22 /24 · 10.1.2.3 255.255.252.0 · 10.0.0.0/22 10.0.4.1 · 2001:db8::/48"),
     ("m", "mtu", "path MTU with don't-fragment pings; finds PPPoE, tunnels and PMTU black holes"),
     ("n", "dns", "ask every resolver directly: github.com MX · 8.8.8.8 (PTR) · name @10.0.0.53"),
+    ("r", "reach", "is a TCP port open, refused or filtered from here: 10.0.0.5 22,443,3389"),
+    ("e", "trace", "path hop by hop, with TCP or UDP when ICMP is filtered: app.example.com tcp 443"),
+    ("s", "snmp", "a switch or router from the outside: ports, errors, CRC, flaps, LLDP, CPU (v2c / v3)"),
+    ("l", "syslog", "receive device logs live: link flaps, OSPF/BGP, STP, logins, commits (x stops)"),
+    ("o", "dhcp", "which DHCP servers answer here: finds rogue servers (needs root)"),
+    ("w", "wifi", "signal, noise, SNR, channel, band and rate of the Wi-Fi link"),
     ("p", "perf", "throughput to a host running `vigil perf --server` (blank: HTTP download test)"),
     ("t", "capture", "packets to a .pcap for Wireshark: en0 30s port 443 · 500p host 10.0.0.5 (Network view: C)"),
 ];
@@ -128,7 +134,7 @@ fn output(f: &mut Frame, app: &mut App, area: Rect) {
             ]));
         }
         lines.push(Line::raw(""));
-        lines.push(Line::styled("   The same tools on the command line: vigil doctor · calc · dns · mtu · perf · capture", Style::new().fg(theme::dim())));
+        lines.push(Line::styled("   The same tools on the command line: vigil doctor · calc · dns · mtu · reach · trace · snmp · syslog · dhcp · wifi · perf · capture", Style::new().fg(theme::dim())));
         lines.push(Line::styled("   Targets live in [troubleshoot] in the config file; nothing is contacted until you run a tool.", Style::new().fg(theme::dim())));
         f.render_widget(Paragraph::new(lines).wrap(ratatui::widgets::Wrap { trim: false }).block(block), area);
         return;
@@ -212,6 +218,19 @@ fn link_layer(f: &mut Frame, app: &mut App, area: Rect) {
             format!(" {:<10} {:<13} {:>6} {:>7} {:>7} {:>5}", crate::util::truncate(&n.name, 10), crate::util::truncate(&link, 13), if rate > 0.0 { format!("{rate:.1}") } else { "0".into() }, errs, if cfg!(target_os = "linux") { phys.to_string() } else { "·".into() }, flaps),
             Style::new().fg(col),
         ));
+    }
+
+    if !st.wifi.is_empty() || !st.wifi_events.is_empty() {
+        lines.push(Line::raw(""));
+        lines.push(sec("Wi-Fi"));
+        for wf in &st.wifi {
+            let (q, tone) = wf.quality();
+            lines.push(Line::styled(format!(" {} · {q}", crate::util::truncate(&wf.line(), w.saturating_sub(12))), tone_style(tone)));
+        }
+        for (at, ev) in st.wifi_events.iter().rev().take(3) {
+            let ago = SystemTime::now().duration_since(*at).map(|d| d.as_secs()).unwrap_or(0);
+            lines.push(Line::styled(format!(" {:>4} {ev}", if ago < 60 { format!("{ago}s") } else { format!("{}m", ago / 60) }), dim));
+        }
     }
 
     lines.push(Line::raw(""));

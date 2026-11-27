@@ -253,6 +253,10 @@ pub fn probes(f: &mut Frame, app: &mut App, area: Rect) {
                     ),
                     None => none(),
                 },
+                match p.mos() {
+                    Some(m) => num(format!("{m:.1}"), Style::new().fg(if m >= 4.0 { theme::green() } else if m >= 3.6 { theme::yellow() } else { theme::red() })),
+                    None => none(),
+                },
                 match p.cert_days {
                     Some(d) => num(
                         format!("{d}d"),
@@ -282,12 +286,13 @@ pub fn probes(f: &mut Frame, app: &mut App, area: Rect) {
             Constraint::Length(7),
             Constraint::Length(6),
             Constraint::Length(6),
+            Constraint::Length(4),
             Constraint::Length(6),
             Constraint::Length(w as u16),
         ],
     )
     .column_spacing(2)
-    .header(header(&["TARGET", "TYPE", "LAST ms", "MIN", "AVG", "MAX", "JITTER", "LOSS", "STATUS", "CERT", "HISTORY"]))
+    .header(header(&["TARGET", "TYPE", "LAST ms", "MIN", "AVG", "MAX", "JITTER", "LOSS", "STATUS", "MOS", "CERT", "HISTORY"]))
     .block(panel(format!("latency probes ({n})"), theme::cyan()))
     .row_highlight_style(sel_style())
     .highlight_symbol(theme::glyphs().select);
@@ -303,9 +308,9 @@ pub fn probes(f: &mut Frame, app: &mut App, area: Rect) {
     let trace = app.net.trace.try_lock().ok().and_then(|t| t.current.clone()).filter(|t| t.target == host);
     if let Some(tr) = trace {
         let title = if tr.running {
-            format!("path to {}  tracing…", tr.target)
+            format!("path to {} ({})  tracing…", tr.target, tr.mode.label())
         } else {
-            format!("path to {}  ({}, {} hops)", tr.target, tr.tool, tr.hops.len())
+            format!("path to {}  ({}, {}, {} hops)", tr.target, tr.mode.label(), tr.tool, tr.hops.len())
         };
         let mut block = panel(title, theme::cyan());
         if let Some(e) = &tr.error {

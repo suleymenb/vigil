@@ -155,6 +155,16 @@ impl Probe {
         Some((min, avg, max, jitter))
     }
 
+    /// Estimated call quality (MOS 1-5) from latency, jitter and loss, using
+    /// the common simplification of the ITU-T G.107 E-model. Not for HTTP/DNS.
+    pub fn mos(&self) -> Option<f64> {
+        if matches!(self.target, Target::Http(_) | Target::Dns(_)) || self.sent() < 5 {
+            return None;
+        }
+        let (_, avg, _, jitter) = self.stats()?;
+        Some(mos(avg, jitter, self.loss_pct()))
+    }
+
     fn record(&mut self, r: Result<Outcome, String>) {
         match r {
             Ok(o) => {
@@ -249,6 +259,17 @@ pub fn run_once(t: &Target) -> Result<Outcome, String> {
         }
         Target::Icmp(ip) => icmp::ping(*ip, TIMEOUT).map(Outcome::ms),
     }
+}
+
+/// MOS from round-trip latency (ms), jitter (ms) and loss (%).
+/// ≥ 4.3 excellent, ≥ 4.0 good, ≥ 3.6 fair (calls work), below that poor.
+pub fn mos(rtt_ms: f64, jitter_ms: f64, loss_pct: f64) -> f64 {
+    // One-way delay plus jitter buffer and codec delay.
+    let eff = rtt_ms / 2.0 + jitter_ms * 2.0 + 10.0;
+    let mut r = 93.2 - if eff < 160.0 { eff / 40.0 } else { (eff - 120.0) / 10.0 };
+    r -= loss_pct * 2.5;
+    let r = r.clamp(0.0, 100.0);
+    (1.0 + 0.035 * r + 0.000007 * r * (r - 60.0) * (100.0 - r)).clamp(1.0, 4.5)
 }
 
 /// HTTP(S) via curl: status code, time to first byte, certificate expiry.
@@ -519,6 +540,14 @@ mod icmp {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn mos_scores() {
+        assert!(mos(20.0, 2.0, 0.0) > 4.3, "clean LAN");
+        assert!(mos(150.0, 30.0, 1.0) < 4.3);
+        assert!(mos(400.0, 80.0, 10.0) < 3.0, "bad path");
+        assert!((1.0..=4.5).contains(&mos(5000.0, 1000.0, 100.0)));
+    }
 
     #[test]
     fn silent_auto_probes_do_not_alarm() {

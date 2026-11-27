@@ -246,6 +246,16 @@ pub fn parse_scutil_dns(text: &str) -> Dns {
 
 // ───────────────────────────── collection ─────────────────────────────
 
+/// The interface of the first IPv4 default route, skipping VPN tunnels.
+pub fn default_iface() -> Option<String> {
+    let (routes, _, _, _) = collect();
+    routes
+        .iter()
+        .filter(|r| r.family == "inet" && matches!(r.dst.as_str(), "default" | "0.0.0.0/0") && !r.dev.is_empty())
+        .map(|r| r.dev.clone())
+        .find(|d| !["utun", "tun", "wg", "ppp", "ipsec"].iter().any(|p| d.starts_with(p)))
+}
+
 pub fn collect() -> (Vec<Route>, Vec<Neighbor>, Dns, Option<String>) {
     #[cfg(target_os = "linux")]
     {

@@ -345,7 +345,7 @@ pub fn finish(mut r: Running) -> Result<Done, String> {
 }
 
 /// Run a whole capture, reporting progress through `emit` every 5 s.
-pub fn run(spec: &Spec, out: Out, emit: &dyn Fn(Tone, String)) -> Result<Done, String> {
+pub fn run(spec: &Spec, out: Out, stop: Option<&std::sync::atomic::AtomicBool>, emit: &dyn Fn(Tone, String)) -> Result<Done, String> {
     let target = match &out {
         Out::File(p) => p.display().to_string(),
         Out::Stdout => "stdout".into(),
@@ -359,7 +359,7 @@ pub fn run(spec: &Spec, out: Out, emit: &dyn Fn(Tone, String)) -> Result<Done, S
     emit(Tone::Head, format!("capturing on {} · {limit} · {} → {target}", spec.iface, if spec.filter.is_empty() { "all traffic".to_string() } else { format!("filter: {}", spec.filter) }));
     let mut r = spawn(spec, out.clone())?;
     let mut last = Instant::now();
-    while !poll(&mut r) {
+    while !poll(&mut r) && !stop.is_some_and(|s| s.load(std::sync::atomic::Ordering::Relaxed)) {
         thread::sleep(Duration::from_millis(200));
         if last.elapsed() >= Duration::from_secs(5) {
             last = Instant::now();

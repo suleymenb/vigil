@@ -298,6 +298,10 @@ pub struct L2Store {
     pub lldp: Vec<Lldp>,
     pub lldp_note: Option<String>,
     pub arp: ArpWatch,
+    /// Connected Wi-Fi links (refreshed every 15 s while the view is open).
+    pub wifi: Vec<super::wifi::Wifi>,
+    /// Roaming events: (when, text).
+    pub wifi_events: Vec<(SystemTime, String)>,
     pub updated: Option<Instant>,
     pub version: u64,
 }
@@ -331,7 +335,35 @@ pub fn spawn_worker(store: Arc<Mutex<L2Store>>, netinfo: Arc<Mutex<super::netinf
         let mut last_lldp: Option<Instant> = None;
         let mut prev: HashMap<String, u64> = HashMap::new();
         let mut net_version = 0u64;
+        // Wi-Fi is slow to read on macOS (~5 s): its own poller, only while the view is open.
+        let act = active.clone();
+        let wifi_poll = crate::util::Poller::spawn(Duration::from_secs(15), move || act.load(Ordering::Relaxed).then(super::wifi::read));
+        let mut wifi_seen = 0u64;
         loop {
+            if let Some((_, seq, links)) = wifi_poll.latest(wifi_seen) {
+                wifi_seen = seq;
+                if let Ok(mut s) = store.lock() {
+                    for w in &links {
+                        if let Some(old) = s.wifi.iter().find(|o| o.iface == w.iface) {
+                            let what = if !w.bssid.is_empty() && !old.bssid.is_empty() && w.bssid != old.bssid {
+                                Some(format!("{}: roamed {} → {}", w.iface, old.bssid, w.bssid))
+                            } else if w.channel != old.channel && !old.channel.is_empty() {
+                                Some(format!("{}: channel {} → {}", w.iface, old.channel, w.channel))
+                            } else {
+                                None
+                            };
+                            if let Some(t) = what {
+                                s.wifi_events.push((SystemTime::now(), t));
+                                if s.wifi_events.len() > 50 {
+                                    s.wifi_events.remove(0);
+                                }
+                            }
+                        }
+                    }
+                    s.wifi = links;
+                    s.version += 1;
+                }
+            }
             let on = active.load(Ordering::Relaxed);
             let iv = if on { 2 } else { 30 };
             if last.is_none_or(|t| t.elapsed() >= Duration::from_secs(iv)) {

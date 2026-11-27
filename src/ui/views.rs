@@ -30,7 +30,7 @@ pub(super) fn is_numeric_col(name: &str) -> bool {
         "AVG", "MAX", "JITTER", "LOSS", "PACKETS", "BYTES", "PKT/s", "BYTES/s", "METRIC", "CPU", "THROTTLED",
         "PIDS", "IO R/s", "IO W/s", "NET ↓/s", "NET ↑/s", "OOM", "RESTARTS", "MEMORY", "R IOPS", "W IOPS",
         "AWAIT ms", "QUEUE", "R/s", "W/s", "STATUS", "CERT", "HOP", "SENT", "BEST", "WORST", "CPU%/LIM", "MEM%",
-        "CPU%", "CONN", "LOSS%", "%", "ATTEMPTS", "IDLE",
+        "CPU%", "CONN", "LOSS%", "%", "ATTEMPTS", "IDLE", "MOS",
     ];
     EXACT.contains(&n)
 }

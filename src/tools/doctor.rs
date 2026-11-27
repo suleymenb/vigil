@@ -478,6 +478,7 @@ mod tests {
             public_resolvers: vec![],
             perf_url: String::new(),
             capture_secs: 20,
+            snmp: crate::config::Snmp::default(),
         };
         let lines = std::sync::Mutex::new(Vec::new());
         let checks = run(&s, &|_, l| lines.lock().unwrap().push(l));

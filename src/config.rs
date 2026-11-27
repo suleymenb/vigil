@@ -25,6 +25,7 @@ pub struct Config {
     pub alerts: Alerts,
     pub network: Network,
     pub troubleshoot: Troubleshoot,
+    pub snmp: Snmp,
     /// Remap keys in normal mode: `"F5" = "R"`, `"ctrl-k" = "K"`, `"Q" = "q"`.
     #[serde(skip_serializing_if = "std::collections::BTreeMap::is_empty")]
     pub keys: std::collections::BTreeMap<String, String>,
@@ -81,6 +82,55 @@ pub struct CustomTheme {
     pub base: String,
     pub glyphs: String,
     pub colors: std::collections::BTreeMap<String, String>,
+}
+
+/// Credentials for `vigil snmp` and `s` in the Troubleshoot view. Passwords
+/// can stay out of the file: VIGIL_SNMP_COMMUNITY, VIGIL_SNMP_AUTH and
+/// VIGIL_SNMP_PRIV override it.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Snmp {
+    /// "2c" or "3".
+    pub version: String,
+    pub community: String,
+    pub port: u16,
+    pub user: String,
+    /// md5, sha, sha256
+    pub auth_protocol: String,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub auth_password: String,
+    /// AES-128 privacy password (empty: authNoPriv).
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub priv_password: String,
+}
+
+impl Default for Snmp {
+    fn default() -> Self {
+        Self { version: "2c".into(), community: "public".into(), port: 161, user: String::new(), auth_protocol: "sha".into(), auth_password: String::new(), priv_password: String::new() }
+    }
+}
+
+impl Snmp {
+    /// Credentials, with environment variables winning over the file and an
+    /// explicit community (from the prompt) winning over both.
+    pub fn auth(&self, community: Option<&str>) -> Result<crate::tools::snmp::Auth, String> {
+        use crate::tools::snmp::{Auth, AuthProto};
+        let env = |k: &str| std::env::var(k).ok().filter(|v| !v.is_empty());
+        if self.version.trim_start_matches(['v', 'V']) == "3" && community.is_none() {
+            if self.user.is_empty() {
+                return Err("SNMPv3 needs [snmp] user = … in the config".into());
+            }
+            let auth_pass = env("VIGIL_SNMP_AUTH").unwrap_or_else(|| self.auth_password.clone());
+            let priv_pass = env("VIGIL_SNMP_PRIV").unwrap_or_else(|| self.priv_password.clone());
+            let proto = AuthProto::parse(&self.auth_protocol).ok_or_else(|| format!("unknown auth_protocol \"{}\" (md5, sha, sha256)", self.auth_protocol))?;
+            return Ok(Auth::V3 {
+                user: self.user.clone(),
+                auth: (!auth_pass.is_empty()).then_some((proto, auth_pass)),
+                privacy: (!priv_pass.is_empty()).then_some(priv_pass),
+            });
+        }
+        Ok(Auth::V2c { community: community.map(String::from).or_else(|| env("VIGIL_SNMP_COMMUNITY")).unwrap_or_else(|| self.community.clone()) })
+    }
 }
 
 /// Targets for the Troubleshoot view (W) and `vigil doctor|dns|mtu|perf`.
@@ -183,6 +233,7 @@ impl Default for Config {
             alerts: Alerts::default(),
             network: Network::default(),
             troubleshoot: Troubleshoot::default(),
+            snmp: Snmp::default(),
             keys: Default::default(),
             custom_themes: Vec::new(),
             raw: None,

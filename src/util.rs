@@ -231,6 +231,32 @@ pub fn csv(headers: &[&str], rows: &[Vec<String>]) -> String {
     o
 }
 
+/// Offset of local time from UTC, in seconds (east positive).
+pub fn utc_offset_secs() -> i64 {
+    #[cfg(unix)]
+    unsafe {
+        let t = libc::time(std::ptr::null_mut());
+        let mut tm: libc::tm = std::mem::zeroed();
+        libc::localtime_r(&t, &mut tm);
+        tm.tm_gmtoff as i64
+    }
+    #[cfg(windows)]
+    {
+        #[link(name = "kernel32")]
+        extern "system" {
+            fn GetTimeZoneInformation(tzi: *mut u8) -> u32;
+        }
+        // TIME_ZONE_INFORMATION: Bias @0, StandardBias @84, DaylightBias @168 (minutes, UTC = local + bias).
+        let mut b = [0u8; 172];
+        let r = unsafe { GetTimeZoneInformation(b.as_mut_ptr()) };
+        let at = |o: usize| i32::from_le_bytes([b[o], b[o + 1], b[o + 2], b[o + 3]]) as i64;
+        let bias = at(0) + if r == 2 { at(168) } else { at(84) };
+        -bias * 60
+    }
+    #[cfg(not(any(unix, windows)))]
+    0
+}
+
 /// The user's home directory: $HOME, or %USERPROFILE% on Windows.
 pub fn home_dir() -> Option<std::path::PathBuf> {
     std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")).map(std::path::PathBuf::from)

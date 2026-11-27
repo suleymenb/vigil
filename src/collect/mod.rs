@@ -18,4 +18,5 @@ pub mod sessions;
 pub mod sockdiag;
 pub mod system;
 pub mod trace;
+pub mod wifi;
 pub mod windows;

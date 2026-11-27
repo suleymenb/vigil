@@ -299,6 +299,43 @@ pub fn key_map(keys: &std::collections::BTreeMap<String, String>) -> (HashMap<(K
     (m, w)
 }
 
+/// The explain-mode key for a health badge's text ("MEM 96%" → "MEM").
+pub fn badge_key(text: &str) -> &'static str {
+    const PREFIXES: [&str; 23] = [
+        "GATEWAY MAC CHANGED", "EPHEMERAL PORTS", "NEEDS RESTART", "FAILED UNITS", "LISTEN DROPS", "UDP DROPS", "SSH FAILS", "CLOSE_WAIT",
+        "TIME_WAIT", "CONNTRACK", "THROTTLED", "RETRANS", "INODES", "FILES", "SWAP", "DISK", "LOAD", "TEMP", "LOSS", "CERT", "HTTP", "MEM", "FDS",
+    ];
+    let mapped = |p: &str| -> &'static str {
+        match p {
+            "LISTEN DROPS" => "listen drops",
+            "UDP DROPS" => "UDP buffer drops",
+            "FAILED UNITS" => "failed",
+            "THROTTLED" => "throttled",
+            "FILES" => "FDS",
+            "HTTP" => "HTTP error",
+            _ => PREFIXES.iter().find(|x| **x == p).copied().unwrap_or("healthy"),
+        }
+    };
+    if let Some(p) = PREFIXES.iter().find(|p| text.starts_with(**p)) {
+        return mapped(p);
+    }
+    if text.starts_with("OOM") {
+        "OOM"
+    } else if text.starts_with("PSI") {
+        "PSI"
+    } else if text.contains(" AWAIT ") {
+        "AWAIT"
+    } else if text.contains(" BUSY ") {
+        "BUSY"
+    } else if text.contains(" ERR ") {
+        "ERR"
+    } else if text.contains(" DROPS ") {
+        "drops"
+    } else {
+        "healthy"
+    }
+}
+
 /// The signals this OS can deliver.
 pub fn signals() -> &'static [(&'static str, &'static str, Signal)] {
     if cfg!(windows) {
@@ -1682,8 +1719,33 @@ impl App {
             }
             Tab::Troubleshoot => {
                 let t = self.net.tools.try_lock().ok()?;
-                let line = match self.tool_state.selected() {
-                    Some(i) => t.lines.get(i)?.text.clone(),
+                let sel = self.tool_state.selected().and_then(|i| t.lines.get(i)).map(|l| l.text.clone());
+                // Tools other than the doctor: explain the tool, or the selected line's verdict.
+                let line_or = |dflt: &str| -> Option<String> {
+                    let l = sel.clone().unwrap_or_default();
+                    let kinds = ["ERRDISABLE", "ROUTING", "SECURITY", "CONFIG", "DUPLEX", "LOGIN", "LINK", "STP", "HW"];
+                    if let Some(k) = kinds.iter().find(|k| l.contains(&format!(" {k} "))) {
+                        return Some(k.to_string());
+                    }
+                    for (needle, key) in [(" open ", "open"), (" refused ", "refused"), (" filtered ", "filtered"), ("CRC", "CRC"), ("DOWN", "port down"), ("discards", "discards")] {
+                        if l.contains(needle) {
+                            return Some(key.into());
+                        }
+                    }
+                    Some(dflt.into())
+                };
+                match t.kind {
+                    Some(tools::Kind::Syslog) => return line_or("syslog"),
+                    Some(tools::Kind::Reach) => return line_or("reach"),
+                    Some(tools::Kind::Snmp) => return line_or("snmp"),
+                    Some(tools::Kind::Dhcp) => return Some("dhcp servers".into()),
+                    Some(tools::Kind::Wifi) => return Some("Wi-Fi".into()),
+                    Some(tools::Kind::Trace) => return Some("trace".into()),
+                    Some(tools::Kind::Capture) => return Some("capture".into()),
+                    _ => {}
+                }
+                let line = match sel {
+                    Some(l) => l,
                     None => {
                         let c = t.checks.iter().find(|c| c.status == tools::doctor::Status::Fail).or_else(|| t.checks.iter().find(|c| c.status == tools::doctor::Status::Warn))?;
                         return Some(c.name.to_string());
@@ -1696,7 +1758,31 @@ impl App {
                     if line.contains("MTU") { Some("MTU".into()) } else if line.contains("ARP") { Some("ARP change".into()) } else { None }
                 })
             }
-            _ => None,
+            Tab::Overview => {
+                let mut alerts = self.alerts();
+                alerts.sort_by_key(|(_, c)| *c != theme::red());
+                Some(match alerts.first() {
+                    Some((t, _)) => badge_key(t).to_string(),
+                    None => "healthy".into(),
+                })
+            }
+            Tab::Files => {
+                let f = self.file_rows().get(self.files_state.selected()?)?;
+                Some(if f.name.contains("(deleted)") {
+                    "deleted".into()
+                } else if matches!(f.fd.as_str(), "cwd" | "txt" | "mem") {
+                    f.fd.clone()
+                } else if f.ftype.starts_with("IPv") {
+                    "IPv4".into()
+                } else {
+                    f.ftype.clone()
+                })
+            }
+            Tab::Storage => Some("storage".into()),
+            Tab::Users => {
+                let failed = self.net.sessions.try_lock().map(|s| s.failed_total).unwrap_or(0);
+                Some(if failed > 0 { "SSH FAILS" } else { "sessions" }.into())
+            }
         }
     }
 
@@ -2070,6 +2156,7 @@ impl App {
         let dns = self.net.netinfo.try_lock().map(|n| n.dns.servers.clone()).unwrap_or_default();
         let mut settings = tools::Settings::from(&self.cfg.troubleshoot);
         settings.capture_secs = self.cfg.network.capture_seconds;
+        settings.snmp = self.cfg.snmp.clone();
         tools::start(self.net.tools.clone(), kind, arg, settings, dns);
         self.tool_kind = kind;
         self.tool_state.select(None);
@@ -2088,6 +2175,30 @@ impl App {
             KeyCode::Char('n') => tools::Kind::Dns,
             KeyCode::Char('p') => tools::Kind::Perf,
             KeyCode::Char('t') => tools::Kind::Capture,
+            KeyCode::Char('r') => tools::Kind::Reach,
+            KeyCode::Char('l') => tools::Kind::Syslog,
+            KeyCode::Char('s') => tools::Kind::Snmp,
+            KeyCode::Char('o') => tools::Kind::Dhcp,
+            KeyCode::Char('e') => tools::Kind::Trace,
+            KeyCode::Char('w') => {
+                self.run_tool(tools::Kind::Wifi, String::new());
+                return;
+            }
+            KeyCode::Char('x') => {
+                let running = self
+                    .net
+                    .tools
+                    .try_lock()
+                    .map(|t| {
+                        t.stop.store(true, std::sync::atomic::Ordering::Relaxed);
+                        t.running
+                    })
+                    .unwrap_or(false);
+                if running {
+                    self.set_status("stopping…", theme::yellow());
+                }
+                return;
+            }
             _ => return,
         };
         self.tool_kind = kind;
@@ -2102,18 +2213,22 @@ impl App {
                 self.mode = Mode::AddProbe;
             }
             KeyCode::Char('t') => {
+                // TCP probes trace with TCP to their port (firewalls often drop ICMP/UDP).
                 let target = self.net.probes.try_lock().ok().and_then(|p| {
                     p.probes.get(self.probe_state.selected().unwrap_or(0)).map(|pr| match &pr.target {
-                        probes::Target::Icmp(ip) => ip.to_string(),
-                        probes::Target::Tcp(h, _) | probes::Target::Dns(h) => h.clone(),
+                        probes::Target::Icmp(ip) => (ip.to_string(), trace::Mode::Icmp),
+                        probes::Target::Tcp(h, port) => (h.clone(), trace::Mode::Tcp(*port)),
+                        probes::Target::Dns(h) => (h.clone(), trace::Mode::Icmp),
                         probes::Target::Http(u) => {
-                            u.split("://").nth(1).unwrap_or(u).split(['/', ':']).next().unwrap_or("").to_string()
+                            let https = u.starts_with("https");
+                            (u.split("://").nth(1).unwrap_or(u).split(['/', ':']).next().unwrap_or("").to_string(), trace::Mode::Tcp(if https { 443 } else { 80 }))
                         }
                     })
                 });
-                if let Some(t) = target.filter(|t| !t.is_empty()) {
-                    trace::start(self.net.trace.clone(), t.clone());
-                    self.set_status(format!("tracing the path to {t}…"), theme::cyan());
+                if let Some((t, mode)) = target.filter(|(t, _)| !t.is_empty()) {
+                    let mode = if cfg!(windows) { trace::Mode::Icmp } else { mode };
+                    trace::start(self.net.trace.clone(), t.clone(), mode);
+                    self.set_status(format!("tracing the path to {t} ({})…", mode.label()), theme::cyan());
                 }
             }
             KeyCode::Char('d') | KeyCode::Delete => {
@@ -2450,6 +2565,15 @@ impl App {
 #[cfg(test)]
 mod key_tests {
     use super::*;
+
+    #[test]
+    fn every_badge_has_an_explanation() {
+        for b in ["MEM 96%", "SWAP 60%", "DISK /var 94%", "LOAD 2.1/core", "CLOSE_WAIT 412", "TIME_WAIT 30000", "TEMP 95°C", "RETRANS 3.1%", "LISTEN DROPS 4/s", "UDP DROPS 2/s", "CONNTRACK 91%", "eth0 DROPS 12/s", "LOSS gateway 10.0.0.1 40%", "FDS nginx 95%", "FILES 85%", "EPHEMERAL PORTS 88%", "INODES /var 99%", "nvme0n1 AWAIT 140ms", "sda BUSY 99%", "CERT api 9d", "HTTP api 503", "THROTTLED web 40%", "OOM web", "OOM KILLS 2", "NEEDS RESTART 4", "SSH FAILS 1400/h", "FAILED UNITS 2", "eth0 ERR 3/s", "PSI io 37%", "GATEWAY MAC CHANGED"] {
+            let k = badge_key(b);
+            assert_ne!(k, "healthy", "{b}");
+            assert!(crate::explain::lookup(k).is_some(), "{b} → {k} has no entry");
+        }
+    }
 
     #[test]
     fn parses_key_names_and_remaps() {

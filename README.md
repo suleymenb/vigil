@@ -23,7 +23,8 @@ plus a layer-by-layer network doctor. One binary. `lsof` built in. Linux, macOS 
 ## Why vigil
 
 - **Troubleshoot layer by layer.** `vigil doctor` (or `W`, `d`) walks the OSI layers bottom-up: link and NIC errors, ARP, IP, gateway, internet, path MTU, TCP, clock, TLS, DNS per resolver, HTTP. It names the lowest broken layer and the next command to run, with the Junos and Cisco equivalent.
-- **Explains what you see.** Press `h` on any row: what `CLOSE_WAIT`, a `STALE` neighbour, a `D` process, an `OOM` event or a `DROP` rule means, and what to do about it.
+- **Explains what you see.** Press `h` in any view: what `CLOSE_WAIT`, a `STALE` neighbour, a `D` process, an `OOM` event, a `DROP` rule, a health badge, a BGP neighbour going Idle or a filtered port means, and what to do about it.
+- **Both ends of the cable.** `vigil snmp` shows a switch's ports, CRC errors, flaps and LLDP neighbours; `vigil syslog` receives its logs live; `vigil reach`, `trace --tcp`, `dhcp` and `wifi` answer the classic tickets ("is the firewall blocking it?", "is there a rogue DHCP server?", "is it the Wi-Fi?").
 - **Built for incidents.** Health badges in the header tell you what's wrong before you start looking: memory, disk, inodes, file descriptors, ephemeral ports, disk latency, OOM kills, failed services, container throttling, retransmits, listen-queue drops, conntrack, packet loss, expiring certificates.
 - **lsof built in.** Who uses this port, who holds this file, which deleted file is filling the disk: one keystroke or one flag.
 - **Network internals without five other tools.** RTT, retransmits and bandwidth per connection (`ss -ti`), kernel counters (`nstat`), routes and neighbours (`ip`), latency and path probes (`ping`, `mtr`), HTTP and TLS checks (`curl`), firewall hits (`nft`) and one-key packet capture (`tcpdump`).
@@ -132,6 +133,13 @@ Every common question, as one command.
 | Calculate a subnet, split it, check membership | `vigil calc 10.0.0.0/22 /24` · `vigil calc 10.0.0.0/22 10.0.4.1` |
 | See if my resolvers disagree or one is dead | `vigil dns github.com` · `vigil dns example.com MX @10.0.0.53` |
 | Find the path MTU (PPPoE, VPN, black holes) | `vigil mtu 1.1.1.1` |
+| Is the firewall letting it through? | `vigil reach 10.0.0.5 22,443,3389` |
+| Where does TCP 443 stop on the way? | `sudo vigil trace app.example.com --tcp 443` |
+| See a switch's ports, CRC errors, flaps and LLDP neighbours | `vigil snmp sw1` |
+| Watch a router's logs live while you change it | `sudo vigil syslog` (Junos: `set system syslog host <ip> any any`) |
+| Is there a rogue DHCP server? | `sudo vigil dhcp` |
+| Is it the Wi-Fi? | `vigil wifi` |
+| Is this link good enough for Teams/VoIP calls? | `vigil -t probes`: the **MOS** column |
 | Capture traffic for Wireshark | `sudo vigil capture -i eth0 -t 30 port 443` (or `W`, `t`; Network view: `C`) |
 | Watch live in Wireshark | `sudo vigil capture -w - port 53 \| wireshark -k -i -` |
 | Capture a remote server in your local Wireshark | `ssh srv sudo vigil capture -w - port 443 \| wireshark -k -i -` |
@@ -184,12 +192,12 @@ Switch with `1`–`9`, `0`, `S`, `U`, `W`, `Tab`, `←` `→`, or click a tab.
 | `5` | **Files** | lsof queries by pid, port, path or raw arguments |
 | `6` | **Storage** | Filesystem usage **and inodes**, **disk latency per device** (iostat), disk I/O per process, sensors |
 | `7` | **Routes** | Routing table, neighbours (failed first), default gateways, DNS servers |
-| `8` | **Probes** | ICMP, TCP, DNS and **HTTPS** probes with jitter, loss, status code, **certificate expiry**, and an **mtr-style path trace** |
+| `8` | **Probes** | ICMP, TCP, DNS and **HTTPS** probes with jitter, loss, **MOS call quality**, status code, **certificate expiry**, and an **mtr-style path trace** (TCP for TCP probes) |
 | `9` | **Firewall** | nftables, iptables or pf rules with packets, bytes and live packets per second |
 | `0` | **Containers** | Docker, containerd/Kubernetes, CRI-O, Podman: CPU, **throttling**, memory vs limit, **OOM kills**, I/O, network |
 | `U` | **Users** | Logged-in sessions (who, from where, idle, running what), failed SSH logins in the last hour by source and the usernames tried, accepted logins |
 | `S` | **System** | systemd / launchd / Windows services (failed and restarting first), the **journal** of the selected unit, and **kernel events** (Windows: the System event log): OOM kills, link flaps, NIC resets, segfaults, I/O errors, unexpected reboots |
-| `W` | **Troubleshoot** | The **doctor**, **subnet calculator**, **path MTU**, **DNS per resolver** and **throughput** tools, next to a **link layer** panel: NIC error counters (CRC, frame, missed, flaps), **LLDP** neighbours (switch, port, VLAN) and an **ARP watch** that flags MAC changes |
+| `W` | **Troubleshoot** | Twelve tools (doctor, subnet calc, MTU, DNS, reach, trace, SNMP, syslog, DHCP, Wi-Fi, perf, capture) next to a **link layer** panel: NIC error counters (CRC, frame, missed, flaps), **Wi-Fi** signal and roaming, **LLDP** neighbours (switch, port, VLAN) and an **ARP watch** that flags MAC changes |
 
 Press `Enter` on any process (or `i` on a socket) for the **inspector**: identity, parent chain, children, systemd unit, container, cgroup, two-minute graphs of CPU, memory and open fds with a trend (`+38 % in 2 min` flags a leak), its sockets with RTT, open files, the unit's journal, and its environment with keys like `*_TOKEN` and `*_PASSWORD` hidden.
 
@@ -207,6 +215,13 @@ Press `W` (or run the same tools from the shell). Nothing is contacted until you
 | `n` | `vigil dns NAME [TYPE] [@server]` | Asks every configured resolver *and* public ones directly, compares answers, TTLs, DNSSEC flags and latency |
 | `p` | `vigil perf HOST` | TCP throughput to a machine running `vigil perf --server` (iperf-style, per-second rates, parallel streams, reverse); blank = HTTP download test |
 | `t` | `vigil capture` | Packet capture to a `.pcap` that Wireshark opens directly: any interface, BPF filter, a time or packet limit (`en0 30s port 443`, `500p host 10.0.0.5`). `C` in the Network view captures the selected interface |
+| `r` | `vigil reach HOST PORTS` | Is a TCP port **open**, **refused** (RST: nothing listens or a firewall rejects) or **filtered** (silence: a firewall drops it)? `22,443,3389` · `8000-8010` · `ssh,https,rdp` |
+| `e` | `vigil trace HOST [--tcp PORT \| --udp]` | The path hop by hop with loss and latency (mtr / traceroute / tracert); TCP or UDP get through firewalls that drop ICMP. Probes made as `tcp:host:port` trace with TCP automatically |
+| `s` | `vigil snmp DEVICE` | A switch, router or firewall from the outside: every port's state, speed, traffic, utilisation, errors, **CRC/FCS**, discards, last change (flaps), duplex, the **LLDP neighbours** and CPU (Juniper, Cisco, generic), with findings. SNMP v2c and v3 (MD5/SHA/SHA-256, AES) |
+| `l` | `vigil syslog` | A syslog receiver (UDP + TCP): point a device at this machine and watch **link flaps, OSPF/BGP/IS-IS neighbours, STP, err-disable, logins and commits** live, classified. Junos, Cisco, Arista, Aruba, Linux |
+| `o` | `vigil dhcp` | Broadcasts a DHCP discover (from a random MAC, your lease is untouched) and lists every server that offers an address: **finds rogue DHCP servers** |
+| `w` | `vigil wifi` | Wi-Fi signal (RSSI), noise, **SNR**, channel and band, PHY and rate, and roaming events in the link-layer panel |
+| `x` | | stops a running capture or syslog receiver |
 
 ### The doctor
 
@@ -232,6 +247,18 @@ L2 · Data link
 11 passed · 1 warnings · 1 failed · 2.1 s
 → start at L2 Data link (Gateway MAC): the layers above depend on it
 ```
+
+### Network devices: SNMP and syslog
+
+```bash
+vigil snmp 10.0.0.1                                        # v2c, community from [snmp] or "public"
+vigil snmp sw1 -c s3cret -i 10                             # other community, 10 s sampling window
+VIGIL_SNMP_AUTH=… VIGIL_SNMP_PRIV=… vigil snmp mx1 -u netops -a sha256   # SNMPv3 authPriv (AES)
+sudo vigil syslog                                          # receive on UDP/TCP 514
+vigil syslog -p 5514 -f ge-0/0/1 -w lab.log                # unprivileged port, filter, keep a raw copy
+```
+
+On the device: `set snmp community public authorization read-only` and `set system syslog host <vigil-ip> any any` (Junos), `snmp-server community public RO` and `logging host <vigil-ip>` (Cisco). For SNMPv3 put the user in `[snmp]` and the passwords in `VIGIL_SNMP_AUTH` / `VIGIL_SNMP_PRIV` (or the config file).
 
 ### Packet capture for Wireshark
 
@@ -358,6 +385,10 @@ A fixed row under the tabs shows a badge for every threshold that is crossed, on
 | `d` | doctor |
 | `c` `m` `n` `p` | calc, mtu, dns, perf |
 | `t` | packet capture |
+| `r` `e` | reach, trace |
+| `s` `l` | SNMP device, syslog |
+| `o` `w` | DHCP servers, Wi-Fi |
+| `x` | stop a running tool |
 | `y` | copy the output (or the selected line) |
 
 **Network**
@@ -523,6 +554,14 @@ ssh_failures_per_hour = 100
 nic_errors_per_s = 1.0
 gateway_mac_change = true
 
+[snmp]                      # vigil snmp / s in Troubleshoot
+version = "2c"              # or "3"
+community = "public"        # VIGIL_SNMP_COMMUNITY overrides
+port = 161
+user = ""                   # SNMPv3
+auth_protocol = "sha"       # md5, sha, sha256; passwords: auth_password / priv_password,
+                            # or VIGIL_SNMP_AUTH / VIGIL_SNMP_PRIV (kept out of the file)
+
 [troubleshoot]              # only contacted when you run a tool
 internet_target = "1.1.1.1"
 internet_target6 = "2606:4700:4700::1111"
@@ -556,6 +595,12 @@ vigil calc NET [/PREFIX | ADDR]
 vigil dns NAME [TYPE] [@SERVER …]
 vigil mtu [HOST]
 vigil capture [-i IFACE] [-t SECS] [-c COUNT] [-w FILE|-] [--open] [BPF FILTER]
+vigil reach HOST PORTS [-t MS]
+vigil trace HOST [--tcp PORT | --udp]
+vigil snmp DEVICE [-c COMMUNITY] [-u USER -a md5|sha|sha256 -A AUTH -x PRIV] [-p PORT] [-i SECS] [--all]
+vigil syslog [-p PORT] [-f FILTER] [-w FILE]
+vigil dhcp [-i IFACE] [-t SECS]
+vigil wifi
 vigil perf HOST [-t SECS] [-P STREAMS] [-R] [-p PORT] | --server [-p PORT] | --internet
 vigil completions bash|zsh|fish|powershell|elvish
 vigil man
@@ -585,6 +630,10 @@ vigil detects the OS and the helper tools (`lsof`, `tcpdump`, `mtr`, `lldpctl`, 
 | Doctor, calc, DNS, MTU, perf | ✅ | ✅ | ✅ (MTU: IPv4) |
 | Firewall counters | ✅ nft / iptables | ✅ pf | – (no per-rule counters) |
 | Packet capture for Wireshark (`C`, `t`, `vigil capture`) | ✅ tcpdump | ✅ tcpdump | ✅ pktmon (.pcapng) |
+| SNMP device polling, syslog receiver, port reachability | ✅ | ✅ | ✅ |
+| Path trace with TCP / UDP | ✅ (TCP: root) | ✅ (TCP: root) | ICMP only |
+| Rogue DHCP detection | ✅ root | ✅ | ✅ administrator |
+| Wi-Fi signal, SNR, channel, roaming | ✅ `iw` | ✅ (SSID needs Location permission) | ✅ `netsh wlan` |
 | Close one connection (`D`) | ✅ root | – | – |
 | Disk latency per device (iostat) | ✅ | ✅ IOKit | – |
 | Containers | ✅ cgroup v2 (Docker API on v1) | ✅ Docker Desktop API | ✅ Docker Desktop API |

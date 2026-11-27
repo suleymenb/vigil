@@ -137,7 +137,7 @@ td:first-child { white-space: nowrap; }
 
 <div class="app">
   <aside class="rail" aria-label="Course navigation">
-    <div class="brand"><span class="mark">◆ vigil</span><strong>Field Course</strong><small>From first launch to incident drills. Covers v0.6.</small></div>
+    <div class="brand"><span class="mark">◆ vigil</span><strong>Field Course</strong><small>From first launch to incident drills. Covers v0.7.</small></div>
     <div class="progress"><span id="progress-label">0 of 0 lessons done</span><div class="bar"><i id="progress-bar" style="width:0"></i></div></div>
     <div class="mobile-nav"><label for="mobile-select" class="eyebrow">Jump to</label><select id="mobile-select"></select></div>
     <nav class="nav" id="nav"></nav>
@@ -471,6 +471,12 @@ lesson({ id: 'troubleshoot', group: 'Troubleshooting', title: 'Troubleshooting l
    ['n · vigil dns github.com MX', 'Ask every resolver directly; spot a dead one, NXDOMAIN on one only (split-horizon), SERVFAIL (DNSSEC)'],
    ['m · vigil mtu 1.1.1.1', 'Path MTU with DF pings: 1492 PPPoE, 1476 GRE, 1450 VXLAN, 1420 WireGuard; black holes'],
    ['p · vigil perf HOST', 'Throughput to <code>vigil perf --server</code> on the other side; <code>-P 4</code> streams, <code>-R</code> reverse'],
+   ['r · vigil reach 10.0.0.5 22,443', 'Open, refused (RST) or filtered (dropped): is it the app or the firewall?'],
+   ['e · vigil trace HOST --tcp 443', 'The path hop by hop; TCP/UDP when ICMP is filtered'],
+   ['s · vigil snmp sw1', 'A switch from the outside: port state, errors, CRC, discards, flaps, LLDP, CPU (v2c/v3)'],
+   ['l · vigil syslog', 'Device logs live: link flaps, OSPF/BGP, STP, err-disable, commits'],
+   ['o · vigil dhcp', 'Every DHCP server that answers: finds rogue servers'],
+   ['w · vigil wifi', 'Signal, noise, SNR, channel and band of the Wi-Fi link'],
    ['t · vigil capture port 443', 'Packet capture to a .pcap for Wireshark; <code>-w - | wireshark -k -i -</code> streams live, even from a remote server over SSH'],
    ['h (any view)', 'Explain the selected item: CLOSE_WAIT, STALE, D state, OOM, DROP, a doctor check…'],
    ['F (any view)', 'Find a process, port, IP, MAC, service, container, route or user and jump to it']]
@@ -507,7 +513,7 @@ var TRAIN = [
   ['Firewall', 'Hide rules without hits', ['z']], ['Firewall', 'Sort by packets per second', ['s']],
   ['System', 'Switch between units and kernel events', ['e']], ['Files', 'Who else has this file open', ['↵']],
   ['Anywhere', 'Go to Troubleshoot', ['W']], ['Anywhere', 'Explain the selected item', ['h']], ['Anywhere', 'Find anything', ['F']],
-  ['Troubleshoot', 'Run the doctor', ['d']], ['Troubleshoot', 'Capture packets for Wireshark', ['t']], ['Network', 'Capture the selected interface', ['C']], ['Troubleshoot', 'Subnet calculator', ['c']], ['Troubleshoot', 'Path MTU', ['m']], ['Troubleshoot', 'DNS per resolver', ['n']]
+  ['Troubleshoot', 'Run the doctor', ['d']], ['Troubleshoot', 'Check if ports are reachable', ['r']], ['Troubleshoot', 'Poll a switch over SNMP', ['s']], ['Troubleshoot', 'Receive syslog', ['l']], ['Troubleshoot', 'Look for DHCP servers', ['o']], ['Troubleshoot', 'Stop a running tool', ['x']], ['Troubleshoot', 'Capture packets for Wireshark', ['t']], ['Network', 'Capture the selected interface', ['C']], ['Troubleshoot', 'Subnet calculator', ['c']], ['Troubleshoot', 'Path MTU', ['m']], ['Troubleshoot', 'DNS per resolver', ['n']]
 ];
 
 var DRILLS = [
@@ -539,6 +545,14 @@ var DRILLS = [
     steps: [
       { q: 'First move?', o: ['vigil doctor', 'Restart the router', 'vigil perf', 'T'], a: 0, why: 'The doctor walks L1 → L7 and names the lowest broken layer.' },
       { q: 'It says L2 Gateway MAC: ARP failed. Most likely?', o: ['DNS server down', 'The switch port is in the wrong VLAN', 'MTU too small', 'Expired certificate'], a: 1, why: 'No ARP reply from the gateway is a layer-2 problem: VLAN, port or port security.' } ] },
+  { title: 'Users get the wrong IP address', story: 'Some laptops on the 3rd floor get 192.168.0.x instead of 10.20.30.x and have no network.',
+    steps: [
+      { q: 'Which tool first?', o: ['sudo vigil dhcp', 'vigil calc', 'vigil perf', 'T'], a: 0, why: 'It lists every DHCP server that answers on that VLAN.' },
+      { q: 'Two servers answer, one is 192.168.0.1. Next?', o: ['Restart the real DHCP server', 'Find that MAC in the switch MAC table, unplug it, and enable DHCP snooping', 'Change the subnet', 'Reboot the laptops'], a: 1, why: 'A home router on a wall port is a rogue DHCP server; DHCP snooping stops it for good.' } ] },
+  { title: 'App unreachable after a firewall change', story: 'Since last night’s change the web app times out. The server looks fine.',
+    steps: [
+      { q: 'What do you run from a client?', o: ['vigil reach app 443', 'vigil wifi', 'vigil calc', 'vigil dhcp'], a: 0, why: 'Open, refused or filtered tells app problem from firewall problem.' },
+      { q: '443 is filtered, 22 on the same host is open. Conclusion?', o: ['The app crashed', 'A firewall drops 443: check the policy hit counts and the commit log (vigil syslog shows UI_COMMIT)', 'DNS is wrong', 'The cable is bad'], a: 1, why: 'The host is reachable, so silence on one port is a filter, not the server.' } ] },
   { title: 'Websites half load over the VPN', story: 'Over the site-to-site VPN, small pages load, big downloads and TLS handshakes stall.',
     steps: [
       { q: 'Which tool?', o: ['vigil mtu REMOTE_IP', 'vigil calc', 'vigil dns', 'Users'], a: 0, why: 'Stalls on big packets point at the path MTU.' },
@@ -563,7 +577,10 @@ var EXAM = [
   { q: 'Lowercase t in Procs does what?', o: ['Theme picker', 'Process tree', 'Trace path', 'Top'], a: 1 },
   { q: 'Which key explains the selected item?', o: ['?', 'h', 'e', 'x'], a: 1 },
   { q: 'Which command checks the network layer by layer?', o: ['vigil report', 'vigil doctor', 'vigil calc', 'vigil mtu'], a: 1 },
-  { q: 'How many usable hosts in a /26?', o: ['64', '62', '30', '126'], a: 1 }
+  { q: 'How many usable hosts in a /26?', o: ['64', '62', '30', '126'], a: 1 },
+  { q: 'vigil reach says a port is filtered. What does that mean?', o: ['Nothing listens', 'No answer at all: a firewall drops it, or the host is down', 'The port is open', 'DNS failed'], a: 1 },
+  { q: 'Which command shows a switch port’s CRC errors from your laptop?', o: ['vigil snmp sw1', 'vigil dhcp', 'vigil wifi', 'vigil calc'], a: 0 },
+  { q: 'Two DHCP servers answer on one VLAN. What is likely?', o: ['Load balancing', 'A rogue DHCP server', 'IPv6', 'A full DHCP pool'], a: 1 }
 ];
 
 var EXTRA = [
