@@ -81,6 +81,13 @@ impl OpenFile {
 
 pub fn run(args: &[String]) -> Result<(Vec<OpenFile>, Duration), String> {
     let start = Instant::now();
+    if !crate::platform::get().tools.lsof {
+        return Err(if cfg!(windows) {
+            crate::platform::unavailable("lsof", "sockets are listed natively in view 2; for file handles use Sysinternals `handle.exe`")
+        } else {
+            "lsof not found: install it (apt install lsof · dnf install lsof · apk add lsof)".into()
+        });
+    }
     let out = Command::new("lsof")
         .arg("-w")
         .arg(FIELDS)
@@ -165,6 +172,9 @@ pub enum SocketBackend {
     ProcNet,
     /// `lsof -nP -i` (macOS, BSD, or forced with --lsof-sockets).
     Lsof,
+    /// IP Helper API tables (Windows).
+    #[cfg_attr(not(windows), allow(dead_code))]
+    IpHelper,
 }
 
 impl SocketBackend {
@@ -172,6 +182,7 @@ impl SocketBackend {
         match self {
             SocketBackend::ProcNet => "/proc/net",
             SocketBackend::Lsof => "lsof -nP -i",
+            SocketBackend::IpHelper => "GetExtendedTcpTable",
         }
     }
 }
@@ -200,7 +211,8 @@ impl Default for SocketStore {
     }
 }
 
-/// One socket source: native /proc/net on Linux (unless forced off), else `lsof -i`.
+/// One socket source: native /proc/net on Linux (unless forced off), the IP
+/// Helper API on Windows, else `lsof -i`.
 pub struct SocketScanner {
     #[cfg(target_os = "linux")]
     native: Option<super::procnet::Scanner>,
@@ -226,6 +238,15 @@ impl SocketScanner {
             let entries = sc.scan();
             return (Ok((entries, start.elapsed())), SocketBackend::ProcNet);
         }
+        #[cfg(windows)]
+        {
+            let _ = self;
+            let start = Instant::now();
+            let names = super::windows::process_names();
+            let entries = super::windows::to_open_files(super::windows::sockets(), &names);
+            (Ok((entries, start.elapsed())), SocketBackend::IpHelper)
+        }
+        #[cfg(not(windows))]
         (run(&["-nP".into(), "-i".into()]), SocketBackend::Lsof)
     }
 }

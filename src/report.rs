@@ -297,6 +297,8 @@ pub struct Host {
     pub physical_cores: usize,
     pub logical_cores: usize,
     pub uptime_seconds: u64,
+    /// OS family, privileges and missing helper tools as vigil sees them.
+    pub platform: String,
 }
 
 #[derive(Serialize)]
@@ -667,6 +669,7 @@ pub fn build(
             physical_cores: s.host.physical_cores,
             logical_cores: s.ncores(),
             uptime_seconds: s.uptime,
+            platform: crate::platform::get().summary(),
         },
         health: badges.into_iter().map(|(t, _)| t).collect(),
         findings,
@@ -1211,6 +1214,7 @@ pub fn to_markdown(r: &Report) -> String {
         c.core_min_pct, c.core_avg_pct, c.core_max_pct, c.busiest_core
     );
     let _ = writeln!(o, "| Uptime | {} |", fmt_duration(h.uptime_seconds));
+    let _ = writeln!(o, "| vigil sees | {} |", md(&h.platform));
     let _ = writeln!(o, "| Report generated | {} |\n", r.generated_utc);
     let _ = writeln!(
         o,
@@ -1299,8 +1303,8 @@ pub fn write_from_tui(
     let text = to_markdown(&report);
     let name = format!("vigil-report-{}.md", file_stamp(SystemTime::now()));
     let mut dirs: Vec<PathBuf> = vec![PathBuf::from(".")];
-    if let Some(h) = std::env::var_os("HOME") {
-        dirs.push(PathBuf::from(h));
+    if let Some(h) = crate::util::home_dir() {
+        dirs.push(h);
     }
     let mut last_err = String::from("no writable directory");
     for d in dirs {

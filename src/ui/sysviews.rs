@@ -241,7 +241,7 @@ pub fn system(f: &mut Frame, app: &mut App, area: Rect) {
             .collect()
     };
     f.render_widget(
-        Paragraph::new(lines).wrap(Wrap { trim: false }).block(panel(format!("journal · {jt}"), theme::purple())),
+        Paragraph::new(lines).wrap(Wrap { trim: false }).block(panel(format!("{} · {jt}", if cfg!(windows) { "SCM events" } else { "journal" }), theme::purple())),
         journal_area,
     );
     drop(st);
@@ -259,7 +259,7 @@ pub fn system(f: &mut Frame, app: &mut App, area: Rect) {
         .iter()
         .map(|e| {
             let col = match e.kind {
-                "OOM" | "HUNG" | "HW" | "FS" | "IO" | "CONNTRACK" => theme::red(),
+                "OOM" | "HUNG" | "HW" | "FS" | "IO" | "CONNTRACK" | "POWER" | "CRASH" => theme::red(),
                 "LINK" | "NIC" | "SYNFLOOD" | "SEGV" => theme::orange(),
                 _ if e.level <= 3 => theme::red(),
                 _ => theme::yellow(),
@@ -271,18 +271,23 @@ pub fn system(f: &mut Frame, app: &mut App, area: Rect) {
             ])
         })
         .collect();
-    let mut title = vec![Span::styled(format!(" kernel events ({n}) "), Style::new().fg(theme::red()).bold())];
+    let what = if cfg!(windows) { "event log" } else { "kernel events" };
+    let mut title = vec![Span::styled(format!(" {what} ({n}) "), Style::new().fg(theme::red()).bold())];
     if app.sys_events_focus {
         title.push(Span::styled(" ◀ ", Style::new().fg(theme::blue())));
     }
     let mut block = frame().title(Line::from(title)).title(
-        Line::styled(" OOM · LINK · NIC · SEGV · IO · FS · SYNFLOOD · HUNG ", Style::new().fg(theme::dim())).right_aligned(),
+        Line::styled(
+            if cfg!(windows) { " POWER · CRASH · LINK · IO · FS · HW · OOM " } else { " OOM · LINK · NIC · SEGV · IO · FS · SYNFLOOD · HUNG " },
+            Style::new().fg(theme::dim()),
+        )
+        .right_aligned(),
     );
     if let Some(e) = &ks.error {
         block = block.title_bottom(Line::styled(format!(" {e} "), Style::new().fg(theme::orange())));
     }
     if n == 0 {
-        let msg = if ks.error.is_some() { "" } else { " no notable kernel events since boot" };
+        let msg = if ks.error.is_some() { "" } else if cfg!(windows) { " no warnings or errors in the recent System log" } else { " no notable kernel events since boot" };
         f.render_widget(Paragraph::new(Line::styled(msg, Style::new().fg(theme::dim()))).block(block), events);
         return;
     }

@@ -5,6 +5,8 @@
 //! talking to any daemon: everything comes from /sys/fs/cgroup, plus
 //! /proc/<pid>/net/dev for traffic inside the container's network namespace.
 //! Docker names are read from /var/lib/docker/containers/<id>/config.v2.json.
+//! macOS, Windows and cgroup v1 hosts use the Docker Engine API instead
+//! (see `docker.rs`).
 //!
 //! Polled every 2 s while the Containers view is open, every 10 s otherwise
 //! (throttling and OOM badges need it).
@@ -175,7 +177,7 @@ impl Collector {
             return Err(if cfg!(target_os = "linux") {
                 "cgroup v2 not mounted at /sys/fs/cgroup (cgroup v1 hosts are not supported)".into()
             } else {
-                "containers: Linux only (Docker Desktop runs containers inside a VM)".into()
+                "containers: no Docker API socket found (start Docker Desktop, or set DOCKER_HOST=unix://…)".into()
             });
         }
         let mut found = Vec::new();
@@ -249,9 +251,34 @@ impl Collector {
     }
 }
 
+/// cgroup v2 on Linux; the Docker Engine API on macOS / Windows (Docker
+/// Desktop) and on Linux hosts without cgroup v2.
+enum Source {
+    Cgroup(Collector),
+    Docker(super::docker::DockerCollector),
+}
+
+impl Source {
+    fn pick() -> Source {
+        let cgroup = cfg!(target_os = "linux") && Path::new("/sys/fs/cgroup/cgroup.controllers").exists();
+        match crate::platform::get().tools.docker.clone() {
+            Some(ep) if !cgroup => Source::Docker(super::docker::DockerCollector::new(ep)),
+            _ => Source::Cgroup(Collector::new()),
+        }
+    }
+
+    fn collect(&mut self) -> Result<Vec<Container>, String> {
+        match self {
+            Source::Cgroup(c) => c.collect(),
+            Source::Docker(d) => d.collect(),
+        }
+    }
+}
+
 pub fn spawn_worker(store: Arc<Mutex<ContainerStore>>, active: Arc<AtomicBool>) {
     thread::spawn(move || {
-        let mut col = Collector::new();
+        let mut col = Source::pick();
+        let docker = matches!(col, Source::Docker(_));
         let mut last: Option<Instant> = None;
         loop {
             let iv = if active.load(Ordering::Relaxed) { 2 } else { 10 };
@@ -268,7 +295,7 @@ pub fn spawn_worker(store: Arc<Mutex<ContainerStore>>, active: Arc<AtomicBool>) 
                     s.version += 1;
                 }
                 last = Some(Instant::now());
-                if store.lock().map(|s| s.error.is_some() && s.containers.is_empty()).unwrap_or(false) && !cfg!(target_os = "linux") {
+                if !docker && !cfg!(target_os = "linux") && store.lock().map(|s| s.error.is_some() && s.containers.is_empty()).unwrap_or(false) {
                     return; // nothing will ever appear on this OS
                 }
             }

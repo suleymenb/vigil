@@ -253,7 +253,7 @@ fn collect() -> (Result<Vec<FwRule>, String>, &'static str) {
     }
     #[cfg(not(any(target_os = "linux", target_os = "macos")))]
     {
-        (Err("not supported on this OS".into()), "-")
+        (Err(crate::platform::unavailable("rule counters", "Windows Defender Firewall keeps no per-rule hit counters (see `netsh advfirewall monitor show firewall`)")), "-")
     }
 }
 

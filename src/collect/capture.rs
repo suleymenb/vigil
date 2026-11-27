@@ -40,6 +40,13 @@ pub fn start(state: Arc<Mutex<CaptureState>>, filter: String, secs: u64) -> Resu
     if state.lock().map(|s| s.running.is_some()).unwrap_or(false) {
         return Err("a capture is already running".into());
     }
+    if !crate::platform::get().tools.tcpdump {
+        return Err(if cfg!(windows) {
+            crate::platform::unavailable("capture", "use `pktmon start --capture` (Windows 10 1809+) or Wireshark")
+        } else {
+            "tcpdump not found: install it (apt install tcpdump · dnf install tcpdump)".into()
+        });
+    }
     let stamp = SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)
         .map(|d| d.as_secs())
@@ -48,8 +55,8 @@ pub fn start(state: Arc<Mutex<CaptureState>>, filter: String, secs: u64) -> Resu
         std::fs::metadata(d).map(|m| !m.permissions().readonly()).unwrap_or(false)
     });
     let file = dir
-        .or_else(|| std::env::var_os("HOME").map(PathBuf::from))
-        .unwrap_or_else(|| PathBuf::from("/tmp"))
+        .or_else(crate::util::home_dir)
+        .unwrap_or_else(std::env::temp_dir)
         .join(format!("vigil-capture-{stamp}.pcap"));
     let mut child = Command::new("tcpdump")
         .args(["-i", "any", "-nn", "-U", "-s", "0", "-w"])

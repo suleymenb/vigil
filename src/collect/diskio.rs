@@ -1,7 +1,8 @@
 //! Per-device disk latency, like `iostat -x`: IOPS, throughput, await,
-//! utilisation and queue depth from `/proc/diskstats` (Linux, one read per tick).
+//! utilisation and queue depth from `/proc/diskstats` (Linux, one read per
+//! tick) or IOKit block-driver statistics via `ioreg` (macOS, every 2 s).
 
-#![cfg_attr(not(target_os = "linux"), allow(dead_code))]
+#![allow(dead_code)] // parsers for other platforms are unit-tested on every OS
 
 use std::collections::HashMap;
 use std::time::Instant;
@@ -90,19 +91,75 @@ pub fn rates(prev: &Raw, cur: &Raw, dt: f64, name: &str) -> DevStats {
     }
 }
 
+/// macOS: `ioreg -c IOBlockStorageDriver -r -w0 -l`. Each driver's "Statistics"
+/// dictionary (operations, bytes, total time in ns per direction) belongs to
+/// the first whole-disk "BSD Name" below it. IOKit has no busy-time counter,
+/// so utilisation and queue are estimated from the summed service time.
+pub fn parse_ioreg(text: &str) -> HashMap<String, Raw> {
+    let mut m = HashMap::new();
+    let mut pending: Option<Raw> = None;
+    for l in text.lines() {
+        if let Some(i) = l.find("\"Statistics\" = {").filter(|_| l.contains("Total Time (Read)")) {
+            let body = &l[i + 16..];
+            let get = |k: &str| -> u64 {
+                body.find(&format!("\"{k}\"=")).and_then(|p| body[p + k.len() + 3..].split([',', '}']).next()).and_then(|v| v.trim().parse().ok()).unwrap_or(0)
+            };
+            let (rt, wt) = (get("Total Time (Read)") / 1_000_000, get("Total Time (Write)") / 1_000_000);
+            pending = Some(Raw {
+                reads: get("Operations (Read)"),
+                read_sectors: get("Bytes (Read)") / 512,
+                read_ms: rt,
+                writes: get("Operations (Write)"),
+                write_sectors: get("Bytes (Write)") / 512,
+                write_ms: wt,
+                io_ms: rt + wt,
+                weighted_ms: rt + wt,
+            });
+        } else if let Some(i) = l.find("\"BSD Name\" = \"") {
+            if let Some(raw) = pending.take() {
+                let name = l[i + 14..].trim_end_matches('"').to_string();
+                if raw.reads + raw.writes > 0 {
+                    m.insert(name, raw);
+                }
+            }
+        }
+    }
+    m
+}
+
 #[derive(Default)]
 pub struct DiskIo {
     prev: HashMap<String, Raw>,
     last: Option<Instant>,
     pub devices: Vec<DevStats>,
+    /// macOS: ioreg runs on a poller thread (~15 ms per call).
+    #[cfg(target_os = "macos")]
+    poller: Option<(crate::util::Poller<HashMap<String, Raw>>, u64)>,
 }
 
 impl DiskIo {
     pub fn refresh(&mut self) {
-        #[cfg(target_os = "linux")]
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
         {
-            let Ok(t) = std::fs::read_to_string("/proc/diskstats") else { return };
-            let cur = parse(&t);
+            #[cfg(target_os = "linux")]
+            let cur = {
+                let Ok(t) = std::fs::read_to_string("/proc/diskstats") else { return };
+                parse(&t)
+            };
+            #[cfg(target_os = "macos")]
+            let (cur, now) = {
+                let (poller, seen) = self.poller.get_or_insert_with(|| {
+                    let p = crate::util::Poller::spawn(std::time::Duration::from_secs(2), || {
+                        let o = std::process::Command::new("ioreg").args(["-c", "IOBlockStorageDriver", "-r", "-w0", "-l"]).output().ok()?;
+                        Some(parse_ioreg(&String::from_utf8_lossy(&o.stdout)))
+                    });
+                    (p, 0)
+                });
+                let Some((at, seq, cur)) = poller.latest(*seen) else { return };
+                *seen = seq;
+                (cur, at)
+            };
+            #[cfg(target_os = "linux")]
             let now = Instant::now();
             if let Some(last) = self.last {
                 let dt = now.duration_since(last).as_secs_f64().max(0.05);
@@ -142,6 +199,23 @@ mod tests {
         assert_eq!(s.await_ms, (100.0 + 200.0) / 200.0);
         assert_eq!(s.util_pct, 50.0);
         assert_eq!(s.queue, 1.0);
+    }
+
+    #[test]
+    fn macos_ioreg() {
+        let t = "+-o IOBlockStorageDriver  <class IOBlockStorageDriver>\n      \"Statistics\" = {\"Operations (Write)\"=0,\"Bytes (Read)\"=0,\"Total Time (Read)\"=0,\"Total Time (Write)\"=0,\"Bytes (Write)\"=0,\"Operations (Read)\"=0}\n    +-o Media\n          \"BSD Name\" = \"disk9\"\n+-o IOBlockStorageDriver\n  |   \"Statistics\" = {\"Operations (Write)\"=1216244,\"Bytes (Read)\"=61797339136,\"Total Time (Read)\"=348113085960,\"Total Time (Write)\"=68432797349,\"Bytes (Write)\"=69153046528,\"Operations (Read)\"=1385454}\n  | +-o APPLE SSD Media\n  |       \"BSD Name\" = \"disk0\"\n  |   +-o disk0s1\n  |         \"BSD Name\" = \"disk0s1\"\n";
+        let m = parse_ioreg(t);
+        assert_eq!(m.len(), 1);
+        let d = m["disk0"];
+        assert_eq!((d.reads, d.writes, d.read_ms), (1385454, 1216244, 348113));
+        assert_eq!(d.read_sectors, 61797339136 / 512);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn reads_real_ioreg() {
+        let o = std::process::Command::new("ioreg").args(["-c", "IOBlockStorageDriver", "-r", "-w0", "-l"]).output().unwrap();
+        assert!(!parse_ioreg(&String::from_utf8_lossy(&o.stdout)).is_empty());
     }
 
     #[cfg(target_os = "linux")]

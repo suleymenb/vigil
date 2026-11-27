@@ -95,8 +95,25 @@ pub fn parse_traceroute(text: &str) -> Vec<Hop> {
 }
 
 fn run(target: &str) -> (&'static str, Result<Vec<Hop>, String>) {
-    let mtr = Command::new("mtr").args(["-n", "--json", "-c", "5", "-r", target]).output();
-    if let Ok(o) = mtr {
+    if cfg!(windows) {
+        return match Command::new("tracert").args(["-d", "-h", "30", "-w", "1000", target]).output() {
+            Ok(o) => {
+                let hops = super::windows::parse_tracert(&String::from_utf8_lossy(&o.stdout));
+                if hops.is_empty() {
+                    ("tracert", Err(String::from_utf8_lossy(&o.stdout).lines().find(|l| !l.trim().is_empty()).unwrap_or("tracert failed").trim().to_string()))
+                } else {
+                    ("tracert", Ok(hops))
+                }
+            }
+            Err(e) => ("tracert", Err(format!("tracert: {e}"))),
+        };
+    }
+    let tools = &crate::platform::get().tools;
+    if !tools.mtr && !tools.traceroute {
+        return ("-", Err("install mtr or traceroute to trace the path".into()));
+    }
+    let mtr = if tools.mtr { Command::new("mtr").args(["-n", "--json", "-c", "5", "-r", target]).output().ok() } else { None };
+    if let Some(o) = mtr {
         if o.status.success() {
             let hops = parse_mtr_json(&String::from_utf8_lossy(&o.stdout));
             if !hops.is_empty() {

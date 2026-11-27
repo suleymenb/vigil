@@ -1,9 +1,11 @@
 //! Runtime-switchable colour palettes.
 //!
-//! The active palette is a single atomic index into a static table, so a colour
-//! lookup is one relaxed load + an array index: no locks, no allocation.
+//! The active palette is a single atomic index into a table fixed at startup
+//! (built-in themes plus `[[custom_themes]]`), so a colour lookup is two
+//! relaxed loads + an array index: no locks, no allocation.
 
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::OnceLock;
 
 use ratatui::style::Color;
 use ratatui::symbols::border;
@@ -24,7 +26,7 @@ pub struct Glyphs {
     pub thumb: &'static str,
 }
 
-pub const MODERN: Glyphs = Glyphs {
+pub static MODERN: Glyphs = Glyphs {
     border: border::ROUNDED,
     meter_on: "■",
     meter_off: "■",
@@ -37,7 +39,7 @@ pub const MODERN: Glyphs = Glyphs {
     thumb: "┃",
 };
 
-pub const NEON: Glyphs = Glyphs {
+pub static NEON: Glyphs = Glyphs {
     border: border::THICK,
     meter_on: "▰",
     meter_off: "▱",
@@ -51,7 +53,7 @@ pub const NEON: Glyphs = Glyphs {
 };
 
 /// Pure 7-bit ASCII, as on a VT100 / serial console.
-pub const ASCII: Glyphs = Glyphs {
+pub static ASCII: Glyphs = Glyphs {
     border: border::Set {
         top_left: "+",
         top_right: "+",
@@ -73,6 +75,7 @@ pub const ASCII: Glyphs = Glyphs {
     thumb: "#",
 };
 
+#[derive(Clone, Copy)]
 pub struct Palette {
     pub name: &'static str,
     pub glyphs: &'static Glyphs,
@@ -99,7 +102,7 @@ const fn rgb(hex: u32) -> Color {
     Color::Rgb((hex >> 16) as u8, ((hex >> 8) & 0xff) as u8, (hex & 0xff) as u8)
 }
 
-pub const THEMES: &[Palette] = &[
+static BUILTIN: &[Palette] = &[
     Palette {
         name: "tokyo-night",
         glyphs: &MODERN,
@@ -194,13 +197,149 @@ pub const THEMES: &[Palette] = &[
         green: Color::Green, yellow: Color::Yellow, orange: Color::LightRed, red: Color::Red,
         pink: Color::LightMagenta,
     },
+    // Okabe-Ito: distinguishable with every common form of colour blindness
+    // (no red/green pair carries meaning on its own).
+    Palette {
+        name: "okabe-ito",
+        glyphs: &MODERN,
+        bg: rgb(0x111418), fg: rgb(0xe8e8e8), dim: rgb(0x6b7280), muted: rgb(0x9ca3af),
+        border: rgb(0x3a4150), sel_bg: rgb(0x243041), header_bg: rgb(0x0b0d10),
+        blue: rgb(0x56b4e9), purple: rgb(0xcc79a7), cyan: rgb(0x56b4e9), teal: rgb(0x009e73),
+        green: rgb(0x009e73), yellow: rgb(0xf0e442), orange: rgb(0xe69f00), red: rgb(0xd55e00),
+        pink: rgb(0xcc79a7),
+    },
+    // The 16 terminal colours with 7-bit ASCII glyphs: Windows 7/8 consoles,
+    // raster fonts, serial lines and anything else without braille or blocks.
+    Palette {
+        name: "classic",
+        glyphs: &ASCII,
+        bg: Color::Reset, fg: Color::Reset, dim: Color::DarkGray, muted: Color::Gray,
+        border: Color::DarkGray, sel_bg: Color::DarkGray, header_bg: Color::Black,
+        blue: Color::Blue, purple: Color::Magenta, cyan: Color::Cyan, teal: Color::LightCyan,
+        green: Color::Green, yellow: Color::Yellow, orange: Color::LightRed, red: Color::Red,
+        pink: Color::LightMagenta,
+    },
 ];
 
 static CURRENT: AtomicUsize = AtomicUsize::new(0);
+/// Built-in themes plus `[[custom_themes]]` from the config, fixed at startup.
+static ALL: OnceLock<Vec<Palette>> = OnceLock::new();
+
+/// Every theme, built-in first.
+pub fn all() -> &'static [Palette] {
+    ALL.get().map(|v| v.as_slice()).unwrap_or(BUILTIN)
+}
 
 #[inline]
 pub fn pal() -> &'static Palette {
-    &THEMES[CURRENT.load(Ordering::Relaxed)]
+    let a = all();
+    &a[CURRENT.load(Ordering::Relaxed).min(a.len() - 1)]
+}
+
+/// `#rrggbb`, `reset`, an ANSI colour name (`red`, `light-blue`, `dark-gray`)
+/// or `ansi:N` for one of the 256 indexed colours.
+pub fn parse_color(s: &str) -> Option<Color> {
+    let t = s.trim().to_ascii_lowercase().replace(['_', ' '], "-");
+    if let Some(h) = t.strip_prefix('#') {
+        return (h.len() == 6).then(|| u32::from_str_radix(h, 16).ok()).flatten().map(rgb);
+    }
+    if let Some(n) = t.strip_prefix("ansi:") {
+        return n.parse::<u8>().ok().map(Color::Indexed);
+    }
+    Some(match t.as_str() {
+        "reset" | "default" | "none" => Color::Reset,
+        "black" => Color::Black,
+        "red" => Color::Red,
+        "green" => Color::Green,
+        "yellow" => Color::Yellow,
+        "blue" => Color::Blue,
+        "magenta" => Color::Magenta,
+        "cyan" => Color::Cyan,
+        "gray" | "grey" => Color::Gray,
+        "dark-gray" | "dark-grey" => Color::DarkGray,
+        "light-red" => Color::LightRed,
+        "light-green" => Color::LightGreen,
+        "light-yellow" => Color::LightYellow,
+        "light-blue" => Color::LightBlue,
+        "light-magenta" => Color::LightMagenta,
+        "light-cyan" => Color::LightCyan,
+        "white" => Color::White,
+        _ => return None,
+    })
+}
+
+/// Register `[[custom_themes]]`. Call once, before the first `set`.
+/// Returns warnings for unknown bases, glyph sets or colours.
+pub fn install_custom(custom: &[crate::config::CustomTheme]) -> Vec<String> {
+    let (v, warnings) = build(custom);
+    let _ = ALL.set(v);
+    warnings
+}
+
+fn build(custom: &[crate::config::CustomTheme]) -> (Vec<Palette>, Vec<String>) {
+    let mut warnings = Vec::new();
+    let mut v: Vec<Palette> = BUILTIN.to_vec();
+    for c in custom {
+        if c.name.trim().is_empty() {
+            warnings.push("custom theme without a name skipped".into());
+            continue;
+        }
+        let base = if c.base.is_empty() {
+            0
+        } else {
+            match v.iter().position(|t| t.name.eq_ignore_ascii_case(&c.base)) {
+                Some(i) => i,
+                None => {
+                    warnings.push(format!("theme {}: unknown base \"{}\", using {}", c.name, c.base, BUILTIN[0].name));
+                    0
+                }
+            }
+        };
+        let mut p = v[base];
+        p.name = Box::leak(c.name.trim().to_string().into_boxed_str());
+        match c.glyphs.to_ascii_lowercase().as_str() {
+            "" => {}
+            "modern" => p.glyphs = &MODERN,
+            "neon" => p.glyphs = &NEON,
+            "ascii" => p.glyphs = &ASCII,
+            g => warnings.push(format!("theme {}: unknown glyphs \"{g}\" (modern, neon, ascii)", c.name)),
+        }
+        for (k, val) in &c.colors {
+            let Some(col) = parse_color(val) else {
+                warnings.push(format!("theme {}: bad colour {k} = \"{val}\"", c.name));
+                continue;
+            };
+            let slot = match k.as_str() {
+                "bg" => &mut p.bg,
+                "fg" => &mut p.fg,
+                "dim" => &mut p.dim,
+                "muted" => &mut p.muted,
+                "border" => &mut p.border,
+                "sel_bg" => &mut p.sel_bg,
+                "header_bg" => &mut p.header_bg,
+                "blue" => &mut p.blue,
+                "purple" => &mut p.purple,
+                "cyan" => &mut p.cyan,
+                "teal" => &mut p.teal,
+                "green" => &mut p.green,
+                "yellow" => &mut p.yellow,
+                "orange" => &mut p.orange,
+                "red" => &mut p.red,
+                "pink" => &mut p.pink,
+                other => {
+                    warnings.push(format!("theme {}: unknown colour slot {other}", c.name));
+                    continue;
+                }
+            };
+            *slot = col;
+        }
+        // A custom theme with a built-in's name replaces it.
+        match v.iter().position(|t| t.name.eq_ignore_ascii_case(p.name)) {
+            Some(i) => v[i] = p,
+            None => v.push(p),
+        }
+    }
+    (v, warnings)
 }
 
 #[inline]
@@ -227,17 +366,33 @@ pub fn index() -> usize {
 }
 
 pub fn set(i: usize) {
-    CURRENT.store(i.min(THEMES.len() - 1), Ordering::Relaxed);
+    CURRENT.store(i.min(all().len() - 1), Ordering::Relaxed);
 }
 
 pub fn by_name(name: &str) -> Option<usize> {
-    THEMES.iter().position(|t| t.name.eq_ignore_ascii_case(name))
+    all().iter().position(|t| t.name.eq_ignore_ascii_case(name))
 }
 
 /// Pick a sensible default: plain 16 colours when the terminal can't do truecolor.
+pub fn names() -> Vec<&'static str> {
+    all().iter().map(|t| t.name).collect()
+}
+
 pub fn auto_default() -> usize {
     let env = |k: &str| std::env::var(k).unwrap_or_default();
-    if supports_truecolor(&env("COLORTERM"), &env("TERM"), &env("TERM_PROGRAM")) {
+    let p = crate::platform::get();
+    let truecolor = if p.os == crate::platform::Os::Windows {
+        // Windows Terminal / VS Code / ConEmu, or Windows 10 1703+ conhost.
+        std::env::var_os("WT_SESSION").is_some()
+            || !env("TERM_PROGRAM").is_empty()
+            || env("ConEmuANSI") == "ON"
+            || p.windows_build.is_some_and(|b| b >= 15_063)
+    } else {
+        supports_truecolor(&env("COLORTERM"), &env("TERM"), &env("TERM_PROGRAM"))
+    };
+    if p.legacy_windows() {
+        by_name("classic").unwrap_or(0)
+    } else if truecolor {
         0
     } else {
         by_name("ansi").unwrap_or(0)
@@ -336,8 +491,29 @@ mod tests {
     use super::*;
 
     #[test]
+    fn custom_themes() {
+        let c = crate::config::CustomTheme {
+            name: "noc".into(),
+            base: "nord".into(),
+            glyphs: "ascii".into(),
+            colors: [("bg".to_string(), "#000000".to_string()), ("red".into(), "light-red".into()), ("blue".into(), "ansi:33".into()), ("nope".into(), "#fff".into())].into_iter().collect(),
+        };
+        let (v, w) = build(&[c, crate::config::CustomTheme { name: "x".into(), base: "missing".into(), ..Default::default() }]);
+        let t = v.iter().find(|t| t.name == "noc").unwrap();
+        assert_eq!(t.bg, Color::Rgb(0, 0, 0));
+        assert_eq!(t.red, Color::LightRed);
+        assert_eq!(t.blue, Color::Indexed(33));
+        assert!(std::ptr::eq(t.glyphs, &ASCII));
+        assert_eq!(v.len(), BUILTIN.len() + 2);
+        assert_eq!(w.len(), 2, "{w:?}"); // "nope" slot (and bad #fff) + unknown base
+        assert_eq!(parse_color("#12ab3C"), Some(Color::Rgb(0x12, 0xab, 0x3c)));
+        assert_eq!(parse_color("Dark Gray"), Some(Color::DarkGray));
+        assert_eq!(parse_color("#fff"), None);
+    }
+
+    #[test]
     fn theme_names_unique_and_resolvable() {
-        for (i, t) in THEMES.iter().enumerate() {
+        for (i, t) in all().iter().enumerate() {
             assert_eq!(by_name(t.name), Some(i));
         }
     }

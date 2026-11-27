@@ -1,3 +1,7 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>vigil Field Course</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -133,7 +137,7 @@ td:first-child { white-space: nowrap; }
 
 <div class="app">
   <aside class="rail" aria-label="Course navigation">
-    <div class="brand"><span class="mark">◆ vigil</span><strong>Field Course</strong><small>From first launch to incident drills. Covers v0.5.</small></div>
+    <div class="brand"><span class="mark">◆ vigil</span><strong>Field Course</strong><small>From first launch to incident drills. Covers v0.6.</small></div>
     <div class="progress"><span id="progress-label">0 of 0 lessons done</span><div class="bar"><i id="progress-bar" style="width:0"></i></div></div>
     <div class="mobile-nav"><label for="mobile-select" class="eyebrow">Jump to</label><select id="mobile-select"></select></div>
     <nav class="nav" id="nav"></nav>
@@ -437,7 +441,7 @@ lesson({ id: 'reports', group: 'Services & people', title: 'Reports, diffs & con
   [['sudo vigil report &gt; incident.md', 'An incident ticket'], ['vigil report -f json -o snap.json', 'Scripts and dashboards'], ['vigil report --fail-on-alert', 'Exit code 2 when a threshold is crossed (cron, CI)'],
    ['vigil report -f json -o before.json', 'Snapshot before a change'], ['vigil report --diff before.json', 'What changed: findings, ports, services, containers, metrics, kernel events'], ['vigil report --top 25 --sample-ms 3000', 'Longer tables, longer sampling window']]
    .map(function (r) { return '<tr><td class="mono">' + r[0] + '</td><td>' + r[1] + '</td></tr>'; }).join('') + '</tbody></table></div>' +
-  '<h2>Config and flags</h2><div class="prose"><p>Settings live in <code>~/.config/vigil/config.toml</code> (also under sudo: vigil uses the config of the user who ran sudo). Theme, interval, sort, tree mode, probes and reverse DNS are saved when you quit. Flags win over the file:</p></div>' +
+  '<h2>Config and flags</h2><div class="prose"><p>Settings live in <code>~/.config/vigil/config.toml</code> (Windows: <code>%APPDATA%\\vigil\\config.toml</code>; under sudo vigil uses the config of the user who ran sudo). Theme, interval, sort, tree mode, probes and reverse DNS are saved when you quit. vigil detects the OS at start and lays a <code>[linux]</code>, <code>[macos]</code> or <code>[windows]</code> section over the shared settings; <code>[keys]</code> remaps keys and <code>[[custom_themes]]</code> adds your own palettes. Flags win over the file:</p></div>' +
   '<div class="tbl"><table><thead><tr><th>Flag</th><th>Does</th></tr></thead><tbody>' +
   [['-t sockets', 'Start in a view'], ['-q :443', 'Run an lsof query at start'], ['-i 500', 'Interval in ms'], ['--theme nord', 'Pick a theme (auto picks ansi on terminals without truecolor)'], ['--list-themes', 'List themes'], ['--config path', 'Use another config file'], ['--no-save', 'Don’t write settings on quit'], ['--lsof-sockets', 'Use lsof instead of /proc/net on Linux'], ['--no-mouse', 'Disable the mouse']]
    .map(function (r) { return '<tr><td class="mono">' + r[0] + '</td><td>' + r[1] + '</td></tr>'; }).join('') + '</tbody></table></div>' +
@@ -446,6 +450,42 @@ lesson({ id: 'reports', group: 'Services & people', title: 'Reports, diffs & con
     { q: 'You want cron to alert only when something is wrong. Which flag?', o: ['--quiet', '--fail-on-alert', '--diff', '--top 0'], a: 1, why: 'It exits with code 2 when a threshold is crossed, so <code>|| mail …</code> only fires then.' },
     { q: 'Which flag shows what changed since an earlier JSON report?', o: ['--compare', '--diff before.json', '--since', '-q'], a: 1, why: 'The diff lists new and resolved findings, ports, services, containers, metric shifts and new kernel events.' },
     { q: 'Under sudo, which config does vigil use?', o: ['/root/.config/vigil', 'The config of the user who ran sudo', '/etc/vigil.toml', 'None'], a: 1, why: 'So vigil and sudo vigil share one set of settings.' }
+  ] });
+
+lesson({ id: 'troubleshoot', group: 'Troubleshooting', title: 'Troubleshooting layer by layer', min: 12,
+  goals: ['Run the doctor and read its verdict', 'Map each check to an OSI layer and its usual causes', 'Use the subnet, DNS, MTU and throughput tools', 'Ask vigil what something means with h'],
+  body:
+  '<div class="prose"><p>When something is <i>broken</i> rather than slow, press <kbd>W</kbd> for the Troubleshoot view, or run the same tools from the shell. Nothing is contacted until you run a tool; the targets live in <code>[troubleshoot]</code> in the config.</p>' +
+  '<p>The <b>doctor</b> (<kbd>d</kbd>, or <code>vigil doctor</code>) checks every layer bottom-up and names the <b>lowest</b> one that fails, because a broken lower layer explains every failure above it. That is the method network courses teach: cable, then ARP, then IP, then TCP, then the application.</p></div>' +
+  '<div class="tbl"><table><thead><tr><th>Layer</th><th>vigil checks</th><th>Usual cause when it fails</th></tr></thead><tbody>' +
+  [['L1 Physical', 'carrier, speed, duplex, CRC / frame / collisions, link flaps', 'cable or optic, duplex mismatch, flapping port'],
+   ['L2 Data link', 'gateway in the ARP table, LLDP neighbour', 'wrong VLAN, port down, port security / DAI'],
+   ['L3 Network', 'usable IPv4, default route, gateway + internet loss, path MTU, IPv6', '169.254 = DHCP failed, missing route, tunnel MTU'],
+   ['L4 Transport', 'TCP connect to the internet target, retransmits, listen drops', 'firewall or proxy-only network, congestion'],
+   ['L5/6 Session, TLS', 'clock skew vs the web server, TLS handshake, certificate', 'no NTP, TLS-inspecting proxy'],
+   ['L7 Application', 'system resolver, every DNS server directly, HTTP', 'dead resolver, split-horizon DNS, server errors']]
+   .map(function (r) { return '<tr><td><b>' + r[0] + '</b></td><td>' + r[1] + '</td><td>' + r[2] + '</td></tr>'; }).join('') + '</tbody></table></div>' +
+  '<h2>The other tools</h2><div class="tbl"><table><thead><tr><th>Key / command</th><th>Use it for</th></tr></thead><tbody>' +
+  [['c · vigil calc 10.0.0.0/22 /24', 'Mask, wildcard (ACL / OSPF), broadcast, host range, binary, splitting, membership: <code>vigil calc 10.0.0.0/22 10.0.4.1</code>'],
+   ['n · vigil dns github.com MX', 'Ask every resolver directly; spot a dead one, NXDOMAIN on one only (split-horizon), SERVFAIL (DNSSEC)'],
+   ['m · vigil mtu 1.1.1.1', 'Path MTU with DF pings: 1492 PPPoE, 1476 GRE, 1450 VXLAN, 1420 WireGuard; black holes'],
+   ['p · vigil perf HOST', 'Throughput to <code>vigil perf --server</code> on the other side; <code>-P 4</code> streams, <code>-R</code> reverse'],
+   ['h (any view)', 'Explain the selected item: CLOSE_WAIT, STALE, D state, OOM, DROP, a doctor check…'],
+   ['F (any view)', 'Find a process, port, IP, MAC, service, container, route or user and jump to it']]
+   .map(function (r) { return '<tr><td class="mono">' + r[0] + '</td><td>' + r[1] + '</td></tr>'; }).join('') + '</tbody></table></div>' +
+  '<h2>Switch CLI and vigil side by side</h2><div class="tbl"><table><thead><tr><th>Question</th><th>Junos</th><th>vigil</th></tr></thead><tbody>' +
+  [['Link errors?', 'show interfaces ge-0/0/1 extensive', 'W link layer: CRC, frame, flaps'], ['Which port am I on?', 'show lldp neighbors', 'W LLDP neighbours'],
+   ['Who has this MAC?', 'show ethernet-switching table', '7 neighbours, F search the MAC'], ['Which route?', 'show route 1.1.1.1', '7 routes, h on the route'],
+   ['MTU on the path?', 'ping 1.1.1.1 size 1472 do-not-fragment', 'vigil mtu 1.1.1.1'], ['Which rule drops it?', 'show security policies hit-count', '9 firewall, z then s']]
+   .map(function (r) { return '<tr><td>' + r[0] + '</td><td class="mono">' + r[1] + '</td><td>' + r[2] + '</td></tr>'; }).join('') + '</tbody></table></div>' +
+  '<div class="prose"><p><b>Windows</b>: vigil runs on Windows 10/11 natively (sockets from the IP Helper API, services, the System event log, <code>tracert</code>). The same doctor and tools work there. Windows 7/8.1 get an experimental build.</p></div>' +
+  tryit(['Run <code>vigil doctor</code> and read the last line: it tells you where to start.', 'Run <code>vigil calc 192.168.10.77/26</code>: which host range and broadcast? Then <code>vigil calc 192.168.10.0/24 /26</code>.', 'In the Sockets view select a CLOSE_WAIT or TIME_WAIT row and press <kbd>h</kbd>.']),
+  quiz: [
+    { q: 'The doctor shows L1 and L2 fine, the gateway ping fails and DNS fails. Where do you start?', o: ['DNS', 'L3: the gateway', 'TLS', 'HTTP'], a: 1, why: 'DNS needs IP connectivity; the lowest failing layer is L3.' },
+    { q: 'Your address is 169.254.12.7. What happened?', o: ['Static IP conflict', 'DHCP never answered (APIPA)', 'IPv6 only', 'VPN is up'], a: 1, why: '169.254/16 is self-assigned when no DHCP server answers.' },
+    { q: 'Ping works, but TLS and SSH hang right after connecting. Which tool?', o: ['vigil calc', 'vigil mtu', 'vigil dns', 'vigil perf'], a: 1, why: 'Small packets pass and big ones vanish: a PMTU black hole.' },
+    { q: 'One resolver answers NXDOMAIN and the others an internal IP. What is it?', o: ['A DNS attack', 'Split-horizon DNS: an internal zone the public resolver does not know', 'A broken cable', 'Clock skew'], a: 1, why: 'Internal names only exist on internal resolvers.' },
+    { q: 'What is the wildcard mask of a /22?', o: ['255.255.252.0', '0.0.3.255', '0.0.0.255', '255.255.255.252'], a: 1, why: 'The wildcard is the inverted netmask: 255.255.252.0 → 0.0.3.255.' }
   ] });
 
 // ───────────────────────────── trainer, drills, exam, cheat sheet ─────────────────────────────
@@ -463,7 +503,9 @@ var TRAIN = [
   ['Inspector', 'Switch journal and environment', ['v']], ['Inspector', 'Close the inspector', ['Esc', 'q']],
   ['Probes', 'Add a probe', ['a']], ['Probes', 'Trace the path', ['t']], ['Probes', 'Delete a probe', ['d', 'Del']],
   ['Firewall', 'Hide rules without hits', ['z']], ['Firewall', 'Sort by packets per second', ['s']],
-  ['System', 'Switch between units and kernel events', ['e']], ['Files', 'Who else has this file open', ['↵']]
+  ['System', 'Switch between units and kernel events', ['e']], ['Files', 'Who else has this file open', ['↵']],
+  ['Anywhere', 'Go to Troubleshoot', ['W']], ['Anywhere', 'Explain the selected item', ['h']], ['Anywhere', 'Find anything', ['F']],
+  ['Troubleshoot', 'Run the doctor', ['d']], ['Troubleshoot', 'Subnet calculator', ['c']], ['Troubleshoot', 'Path MTU', ['m']], ['Troubleshoot', 'DNS per resolver', ['n']]
 ];
 
 var DRILLS = [
@@ -490,7 +532,15 @@ var DRILLS = [
   { title: 'Who is hammering SSH?', story: 'The SSH FAILS badge shows 1400/h.',
     steps: [
       { q: 'Where?', o: ['U Users', '4 Sockets', '6 Storage', '0 Containers'], a: 0, why: 'Users groups failed logins by source with the usernames tried.' },
-      { q: 'You want the attacker’s IP for fail2ban or the firewall.', o: ['Select it and press y', 'Press E', 'Press C', 'Press D'], a: 0, why: 'y copies the selected value to your clipboard.' } ] }
+      { q: 'You want the attacker’s IP for fail2ban or the firewall.', o: ['Select it and press y', 'Press E', 'Press C', 'Press D'], a: 0, why: 'y copies the selected value to your clipboard.' } ] },
+  { title: '“The internet is down”', story: 'A user on VLAN 20 has no internet. Others are fine.',
+    steps: [
+      { q: 'First move?', o: ['vigil doctor', 'Restart the router', 'vigil perf', 'T'], a: 0, why: 'The doctor walks L1 → L7 and names the lowest broken layer.' },
+      { q: 'It says L2 Gateway MAC: ARP failed. Most likely?', o: ['DNS server down', 'The switch port is in the wrong VLAN', 'MTU too small', 'Expired certificate'], a: 1, why: 'No ARP reply from the gateway is a layer-2 problem: VLAN, port or port security.' } ] },
+  { title: 'Websites half load over the VPN', story: 'Over the site-to-site VPN, small pages load, big downloads and TLS handshakes stall.',
+    steps: [
+      { q: 'Which tool?', o: ['vigil mtu REMOTE_IP', 'vigil calc', 'vigil dns', 'Users'], a: 0, why: 'Stalls on big packets point at the path MTU.' },
+      { q: 'It reports a PMTU black hole at 1400. Fix?', o: ['Raise the MTU to 9000', 'Clamp the TCP MSS on the router (e.g. 1360) or allow ICMP frag-needed', 'Restart DNS', 'Disable IPv6'], a: 1, why: 'MSS clamping keeps TCP segments small enough for the tunnel.' } ] }
 ];
 
 var EXAM = [
@@ -508,7 +558,10 @@ var EXAM = [
   { q: 'Which key hides firewall rules without hits?', o: ['h', 'z', 's', '/'], a: 1 },
   { q: 'What does UTIL in Network measure?', o: ['Busiest direction against link speed', 'CPU of the driver', 'Packets per second', 'Errors'], a: 0 },
   { q: 'Which report command lists what changed since an earlier JSON report?', o: ['vigil report --diff before.json', 'vigil report --compare', 'vigil diff', 'vigil report -q'], a: 0 },
-  { q: 'Lowercase t in Procs does what?', o: ['Theme picker', 'Process tree', 'Trace path', 'Top'], a: 1 }
+  { q: 'Lowercase t in Procs does what?', o: ['Theme picker', 'Process tree', 'Trace path', 'Top'], a: 1 },
+  { q: 'Which key explains the selected item?', o: ['?', 'h', 'e', 'x'], a: 1 },
+  { q: 'Which command checks the network layer by layer?', o: ['vigil report', 'vigil doctor', 'vigil calc', 'vigil mtu'], a: 1 },
+  { q: 'How many usable hosts in a /26?', o: ['64', '62', '30', '126'], a: 1 }
 ];
 
 var EXTRA = [

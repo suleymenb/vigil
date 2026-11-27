@@ -4,6 +4,7 @@
 //!
 //! Linux: a thread reads `/dev/kmsg` (the existing ring buffer first, then new
 //! records as they arrive). Needs root when `kernel.dmesg_restrict = 1`.
+//! Windows: warnings and errors from the System event log (`wevtutil`).
 
 #![cfg_attr(not(target_os = "linux"), allow(dead_code))]
 
@@ -47,7 +48,7 @@ pub fn classify(msg: &str, level: u8) -> Option<&'static str> {
     let has = |s: &str| m.contains(s);
     Some(if has("out of memory") || has("oom-kill") || has("oom_kill_process") || has("killed process") {
         "OOM"
-    } else if has("link is down") || has("link is up") || has("nic link is") || has("carrier lost") || has("link down") {
+    } else if has("link is down") || has("link is up") || has("nic link is") || has("carrier lost") || has("link down") || has("link is disconnected") || has("link has been established") {
         "LINK"
     } else if has("netdev watchdog") || has("transmit queue") && has("timed out") || has("reset adapter") || has("tx hang") {
         "NIC"
@@ -113,7 +114,9 @@ pub fn read_existing() -> Vec<KEvent> {
         }
         out
     }
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(windows)]
+    return super::windows::read_events().unwrap_or_default();
+    #[cfg(not(any(target_os = "linux", windows)))]
     Vec::new()
 }
 
@@ -156,9 +159,31 @@ pub fn spawn_worker(store: Arc<Mutex<KmsgStore>>) {
             }
         }
     });
-    #[cfg(not(target_os = "linux"))]
+    // Windows: the System event log, re-read every 30 s (wevtutil is cheap with /c:300).
+    #[cfg(windows)]
+    std::thread::spawn(move || loop {
+        let res = super::windows::read_events();
+        if let Ok(mut s) = store.lock() {
+            match res {
+                Ok(v) => {
+                    let changed = s.events.back().map(|e| (e.at, e.text.len())) != v.last().map(|e| (e.at, e.text.len()));
+                    if changed {
+                        s.events = v.into_iter().rev().take(KEEP).rev().collect();
+                        s.version += 1;
+                    }
+                    s.error = None;
+                }
+                Err(e) => {
+                    s.error = Some(e);
+                    s.version += 1;
+                }
+            }
+        }
+        std::thread::sleep(Duration::from_secs(30));
+    });
+    #[cfg(not(any(target_os = "linux", windows)))]
     if let Ok(mut s) = store.lock() {
-        s.error = Some("kernel events: Linux only".into());
+        s.error = Some("kernel events: Linux and Windows only".into());
     }
 }
 

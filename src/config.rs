@@ -24,6 +24,16 @@ pub struct Config {
     pub mouse: bool,
     pub alerts: Alerts,
     pub network: Network,
+    pub troubleshoot: Troubleshoot,
+    /// Remap keys in normal mode: `"F5" = "R"`, `"ctrl-k" = "K"`, `"Q" = "q"`.
+    #[serde(skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub keys: std::collections::BTreeMap<String, String>,
+    /// Extra themes: name, base theme, glyphs and colour overrides.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub custom_themes: Vec<CustomTheme>,
+    /// The file as read (shared part + per-OS sections); not serialized.
+    #[serde(skip)]
+    pub raw: Option<RawConfig>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -48,6 +58,58 @@ impl Default for Network {
             probe_interval_s: 5,
             capture_seconds: 20,
             reverse_dns: false,
+        }
+    }
+}
+
+/// A theme defined in the config:
+///
+/// ```toml
+/// [[custom_themes]]
+/// name = "noc-wall"
+/// base = "nord"          # start from this theme
+/// glyphs = "neon"        # modern | neon | ascii
+/// [custom_themes.colors]
+/// bg = "#000000"
+/// red = "#ff3355"
+/// green = "light-green"  # ANSI names and ansi:N work too
+/// ```
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct CustomTheme {
+    pub name: String,
+    pub base: String,
+    pub glyphs: String,
+    pub colors: std::collections::BTreeMap<String, String>,
+}
+
+/// Targets for the Troubleshoot view (W) and `vigil doctor|dns|mtu|perf`.
+/// These are only contacted when you run one of those tools.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Troubleshoot {
+    /// Pinged and TCP-connected (port 443) by the doctor; default target for `mtu`.
+    pub internet_target: String,
+    pub internet_target6: String,
+    /// Name the doctor resolves through every configured resolver.
+    pub dns_test_name: String,
+    /// Fetched for the TLS, clock and HTTP checks.
+    pub http_test_url: String,
+    /// Compared with your own resolvers by the DNS tool.
+    pub public_resolvers: Vec<String>,
+    /// Download used by `vigil perf --internet` (and `p` with no host).
+    pub perf_url: String,
+}
+
+impl Default for Troubleshoot {
+    fn default() -> Self {
+        Self {
+            internet_target: "1.1.1.1".into(),
+            internet_target6: "2606:4700:4700::1111".into(),
+            dns_test_name: "example.com".into(),
+            http_test_url: "https://example.com/".into(),
+            public_resolvers: vec!["1.1.1.1".into(), "8.8.8.8".into(), "9.9.9.9".into()],
+            perf_url: "https://speed.cloudflare.com/__down?bytes=25000000".into(),
         }
     }
 }
@@ -100,6 +162,10 @@ pub struct Alerts {
     pub needs_restart: bool,
     /// Failed SSH logins in the last hour (Linux).
     pub ssh_failures_per_hour: u32,
+    /// NIC error counters (CRC, frame, missed …) rising faster than this per second.
+    pub nic_errors_per_s: f64,
+    /// The default gateway's MAC address changed (failover or ARP spoofing).
+    pub gateway_mac_change: bool,
 }
 
 impl Default for Config {
@@ -116,6 +182,10 @@ impl Default for Config {
             mouse: true,
             alerts: Alerts::default(),
             network: Network::default(),
+            troubleshoot: Troubleshoot::default(),
+            keys: Default::default(),
+            custom_themes: Vec::new(),
+            raw: None,
         }
     }
 }
@@ -148,11 +218,17 @@ impl Default for Alerts {
             failed_units: true,
             needs_restart: true,
             ssh_failures_per_hour: 100,
+            nic_errors_per_s: 1.0,
+            gateway_mac_change: true,
         }
     }
 }
 
 pub fn path() -> Option<PathBuf> {
+    // Windows: %APPDATA%\vigil\config.toml
+    if cfg!(windows) {
+        return std::env::var_os("APPDATA").map(|a| PathBuf::from(a).join("vigil").join("config.toml"));
+    }
     // Under sudo, use the invoking user's config, not root's: `vigil` and
     // `sudo vigil` should share one set of settings.
     if let Some(home) = sudo_user().map(|u| u.home) {
@@ -166,6 +242,7 @@ pub fn path() -> Option<PathBuf> {
 }
 
 /// The user who ran `sudo vigil`, when we are root because of sudo.
+#[cfg_attr(not(unix), allow(dead_code))]
 pub struct SudoUser {
     pub home: PathBuf,
     pub uid: u32,
@@ -194,14 +271,50 @@ pub fn home_from_passwd(passwd: &str, user: &str) -> Option<PathBuf> {
     })
 }
 
+const OS_SECTIONS: [&str; 3] = ["linux", "macos", "windows"];
+
+/// Recursively overlay `over` onto `base` (tables merge, values replace).
+pub fn merge(base: &mut toml::Table, over: &toml::Table) {
+    for (k, v) in over {
+        match (base.get_mut(k), v) {
+            (Some(toml::Value::Table(b)), toml::Value::Table(o)) => merge(b, o),
+            _ => {
+                base.insert(k.clone(), v.clone());
+            }
+        }
+    }
+}
+
+/// Split a config file into the shared part and the per-OS sections, then
+/// apply the section for the OS vigil is running on.
+pub fn effective(text: &str, os_key: &str) -> Result<(Config, RawConfig), toml::de::Error> {
+    let mut root: toml::Table = toml::from_str(text)?;
+    let mut sections = toml::Table::new();
+    for k in OS_SECTIONS {
+        if let Some(v) = root.remove(k) {
+            sections.insert(k.to_string(), v);
+        }
+    }
+    let mut eff = root.clone();
+    if let Some(toml::Value::Table(t)) = sections.get(os_key) {
+        merge(&mut eff, t);
+    }
+    let cfg: Config = toml::Value::Table(eff.clone()).try_into()?;
+    Ok((cfg, RawConfig { base: root, sections, effective: eff }))
+}
+
 /// Load the config. A broken file never stops vigil: you get defaults plus a warning.
+/// Sections `[linux]`, `[macos]` and `[windows]` override the shared settings on that OS.
 pub fn load(explicit: Option<&PathBuf>) -> (Config, Option<String>) {
     let Some(p) = explicit.cloned().or_else(path) else {
         return (Config::default(), None);
     };
     match std::fs::read_to_string(&p) {
-        Ok(s) => match toml::from_str::<Config>(&s) {
-            Ok(c) => (c, None),
+        Ok(s) => match effective(&s, crate::platform::Os::current().key()) {
+            Ok((mut c, raw)) => {
+                c.raw = Some(raw);
+                (c, None)
+            }
             Err(e) => (
                 Config::default(),
                 Some(format!("config {} ignored: {}", p.display(), e.message())),
@@ -211,16 +324,82 @@ pub fn load(explicit: Option<&PathBuf>) -> (Config, Option<String>) {
     }
 }
 
+/// The file as it was read, so saving keeps per-OS sections intact.
+#[derive(Debug, Clone, Default)]
+pub struct RawConfig {
+    pub base: toml::Table,
+    pub sections: toml::Table,
+    pub effective: toml::Table,
+}
+
+/// Write back only what changed in the app: into the OS section when that key
+/// lives there, otherwise into the shared part.
+fn apply_changes(base: &mut toml::Table, section: &mut toml::Table, old: &toml::Table, new: &toml::Table) {
+    for (k, nv) in new {
+        if old.get(k) == Some(nv) {
+            continue;
+        }
+        match (nv, base.get_mut(k), section.get_mut(k)) {
+            (toml::Value::Table(nt), _, Some(toml::Value::Table(st))) => {
+                let empty = toml::Table::new();
+                let ot = old.get(k).and_then(|v| v.as_table()).unwrap_or(&empty).clone();
+                let mut bt = base.get(k).and_then(|v| v.as_table()).cloned().unwrap_or_default();
+                apply_changes(&mut bt, st, &ot, nt);
+                base.insert(k.clone(), toml::Value::Table(bt));
+            }
+            (_, _, Some(sv)) => *sv = nv.clone(),
+            (toml::Value::Table(nt), Some(toml::Value::Table(bt)), None) => {
+                let empty = toml::Table::new();
+                let ot = old.get(k).and_then(|v| v.as_table()).unwrap_or(&empty).clone();
+                let mut none = toml::Table::new();
+                apply_changes(bt, &mut none, &ot, nt);
+            }
+            _ => {
+                base.insert(k.clone(), nv.clone());
+            }
+        }
+    }
+}
+
+pub fn render(cfg: &Config, os: &str) -> Result<String, String> {
+    let new: toml::Table = toml::Value::try_from(cfg).map_err(|e| e.to_string())?.try_into().map_err(|e: toml::de::Error| e.to_string())?;
+    let (base, sections) = match &cfg.raw {
+        Some(raw) => {
+            let mut base = raw.base.clone();
+            let mut sections = raw.sections.clone();
+            let mut section = sections.get(os).and_then(|v| v.as_table()).cloned().unwrap_or_default();
+            apply_changes(&mut base, &mut section, &raw.effective, &new);
+            if !section.is_empty() {
+                sections.insert(os.to_string(), toml::Value::Table(section));
+            }
+            (base, sections)
+        }
+        None => (new, toml::Table::new()),
+    };
+    let mut body = toml::to_string_pretty(&base).map_err(|e| e.to_string())?;
+    for k in OS_SECTIONS {
+        if let Some(toml::Value::Table(t)) = sections.get(k) {
+            let mut wrap = toml::Table::new();
+            wrap.insert(k.to_string(), toml::Value::Table(t.clone()));
+            body.push('\n');
+            body.push_str(&toml::to_string_pretty(&wrap).map_err(|e| e.to_string())?);
+        }
+    }
+    Ok(body)
+}
+
 pub fn save(cfg: &Config, explicit: Option<&PathBuf>) -> Result<PathBuf, String> {
     let p = explicit.cloned().or_else(path).ok_or("no HOME directory")?;
     if let Some(dir) = p.parent() {
         std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     }
-    let body = toml::to_string_pretty(cfg).map_err(|e| e.to_string())?;
+    let body = render(cfg, crate::platform::Os::current().key())?;
     let text = format!(
         "# vigil configuration. Written on quit; edit freely.\n\
-         # themes: auto, {}\n\n{body}",
-        crate::theme::THEMES.iter().map(|t| t.name).collect::<Vec<_>>().join(", ")
+         # themes: auto, {}\n\
+         # Per-OS overrides: add [linux], [macos] or [windows] sections with any of the\n\
+         # settings below; they apply only on that OS (e.g. [windows] theme = \"ansi\").\n\n{body}",
+        crate::theme::names().join(", ")
     );
     // Write atomically so a crash never leaves a half-written config.
     let tmp = p.with_extension("toml.tmp");
@@ -256,6 +435,27 @@ mod tests {
         let pw = "root:x:0:0:root:/root:/bin/bash\nuser:x:1000:1000:User,,,:/home/user:/usr/bin/zsh\n";
         assert_eq!(home_from_passwd(pw, "user"), Some(PathBuf::from("/home/user")));
         assert_eq!(home_from_passwd(pw, "nobody"), None);
+    }
+
+    #[test]
+    fn per_os_sections() {
+        let text = "theme = \"nord\"\ninterval_ms = 1000\n[alerts]\ndisk_pct = 90.0\n[windows]\ntheme = \"ansi\"\n[windows.alerts]\ndisk_pct = 95.0\n[linux]\ninterval_ms = 500\n";
+        let (w, raw) = effective(text, "windows").unwrap();
+        assert_eq!(w.theme, "ansi");
+        assert_eq!(w.alerts.disk_pct, 95.0);
+        assert_eq!(w.interval_ms, 1000);
+        let (l, _) = effective(text, "linux").unwrap();
+        assert_eq!(l.theme, "nord");
+        assert_eq!(l.interval_ms, 500);
+        // Saving on Windows after changing the theme updates [windows], not the shared theme.
+        let mut c = w;
+        c.raw = Some(raw);
+        c.theme = "dracula".into();
+        let out = render(&c, "windows").unwrap();
+        let back: toml::Table = toml::from_str(&out).unwrap();
+        assert_eq!(back["theme"].as_str(), Some("nord"));
+        assert_eq!(back["windows"]["theme"].as_str(), Some("dracula"));
+        assert_eq!(back["linux"]["interval_ms"].as_integer(), Some(500));
     }
 
     #[test]

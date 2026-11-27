@@ -471,8 +471,11 @@ pub fn network(f: &mut Frame, app: &mut App, area: Rect) {
                 ]),
             ]
         }
-        None => vec![Line::styled(" kernel counters: Linux only", Style::new().fg(theme::dim()))],
+        None => vec![Line::styled(if cfg!(target_os = "macos") { " kernel counters: collecting…" } else { " kernel counters: not available here" }, Style::new().fg(theme::dim()))],
     };
+    if app.sampler.knet.tcp_hidden {
+        lines.insert(0, Line::styled(" TCP counters need sudo on macOS (UDP shown)", Style::new().fg(theme::yellow())));
+    }
     if let Ok(l) = app.net.limits.try_lock() {
         let mut x = crate::app::ExtraHealth::default();
         x.fill_limits(&l, &app.sampler, app.socket_snapshot());
@@ -510,7 +513,7 @@ pub fn network(f: &mut Frame, app: &mut App, area: Rect) {
         .collect();
     let talk_block = panel("top talkers", theme::green());
     if tk.is_empty() {
-        let msg = if cfg!(target_os = "linux") { " no TCP traffic measured yet" } else { " per-process bandwidth: Linux only" };
+        let msg = if cfg!(target_os = "linux") || crate::platform::get().tools.nettop { " no traffic measured yet" } else { " per-process bandwidth: Linux and macOS" };
         f.render_widget(Paragraph::new(Line::styled(msg, Style::new().fg(theme::dim()))).block(talk_block), talkers);
     } else {
         f.render_widget(

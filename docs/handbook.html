@@ -1,3 +1,7 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>vigil field handbook</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -147,13 +151,14 @@ footer { margin-top: 72px; color: var(--muted); font-size: 13px; }
 </style>
 
 <header class="hero col">
-  <span class="eyebrow">Field handbook · v0.5</span>
+  <span class="eyebrow">Field handbook · v0.6</span>
   <h1><span class="mark">◆</span> vigil</h1>
-  <p class="lead">A Rust terminal monitor for people who run servers and debug networks. Processes, sockets and open files live in one screen, with <code>lsof</code> built in. This handbook shows how it works and how to solve the usual incidents with it.</p>
+  <p class="lead">A Rust terminal monitor for people who run servers and debug networks, on Linux, macOS and Windows. Processes, sockets and open files live in one screen, with <code>lsof</code> built in, and a doctor walks the network layer by layer. This handbook shows how it works and how to solve the usual incidents with it.</p>
   <div class="cmds">
     <span class="cmd"><b>$</b> cargo install --git https://github.com/suleymenb/vigil</span>
     <span class="cmd"><b>$</b> sudo vigil</span>
     <span class="cmd"><b>$</b> sudo vigil -q :5432</span>
+    <span class="cmd"><b>$</b> vigil doctor</span>
   </div>
 </header>
 
@@ -426,8 +431,55 @@ footer { margin-top: 72px; color: var(--muted); font-size: 13px; }
       <tr><td>Routes</td><td>Routing table, neighbours (FAILED first), gateways, DNS</td><td class="num">ip -j · netstat · scutil</td></tr>
       <tr><td>Probes</td><td>ICMP / TCP / DNS latency with jitter and loss</td><td class="num">ping socket · connect()</td></tr>
       <tr><td>Firewall</td><td>Rule counters with live packets per second</td><td class="num">nft -j · iptables-save · pfctl</td></tr>
+      <tr><td>Troubleshoot</td><td>NIC error counters (CRC, frame, missed, flaps), LLDP neighbours, ARP watch for MAC changes</td><td class="num">/sys/class/net · lldpctl · ip neigh</td></tr>
     </tbody>
   </table></div>
+
+  <h2 id="troubleshoot">Troubleshooting layer by layer</h2>
+  <p style="margin-top:12px">v0.6 adds the tools you reach for when something is broken rather than slow. Press <kbd>W</kbd>, or run them from the shell. Nothing is contacted until you run one; the targets live in <code>[troubleshoot]</code> in the config.</p>
+  <div class="tbl"><table>
+    <thead><tr><th>Key</th><th>Command</th><th>What it does</th></tr></thead>
+    <tbody>
+      <tr><td><kbd>d</kbd></td><td class="num">vigil doctor</td><td>Checks every layer bottom-up and names the lowest one that fails, with what it means and the next command</td></tr>
+      <tr><td><kbd>c</kbd></td><td class="num">vigil calc 10.0.0.0/22 /24</td><td>Subnet calculator: mask, wildcard, broadcast, host range, binary, supernet, PTR zone, splitting, membership, IPv6</td></tr>
+      <tr><td><kbd>m</kbd></td><td class="num">vigil mtu HOST</td><td>Path MTU with don't-fragment pings; recognises PPPoE, GRE, VXLAN, WireGuard and IPsec, and PMTU black holes</td></tr>
+      <tr><td><kbd>n</kbd></td><td class="num">vigil dns NAME MX @10.0.0.53</td><td>Its own DNS client asks each resolver directly and compares answers, TTLs, DNSSEC flags and latency</td></tr>
+      <tr><td><kbd>p</kbd></td><td class="num">vigil perf HOST -P 4 -R</td><td>TCP throughput to a machine running <code>vigil perf --server</code>, per second, with parallel streams and reverse mode</td></tr>
+      <tr><td><kbd>h</kbd></td><td class="num">any view</td><td>Explain mode: what the selected state, event, counter, route, rule or check means and what to run next</td></tr>
+      <tr><td><kbd>F</kbd></td><td class="num">any view</td><td>Find anything: processes, ports, IPs, MACs, services, containers, routes, users; Enter jumps there</td></tr>
+    </tbody>
+  </table></div>
+  <h3>What the doctor checks</h3>
+  <p>The order matters. A broken lower layer explains every failure above it, so the verdict names the lowest failing layer as the place to start, exactly the way you would troubleshoot by hand.</p>
+  <div class="tbl"><table>
+    <thead><tr><th>Layer</th><th>Checks</th><th>Typical cause when it fails</th></tr></thead>
+    <tbody>
+      <tr><td>L1 Physical</td><td>carrier, speed, duplex, CRC / frame / collision / missed errors, link flaps</td><td>bad cable or optic, duplex mismatch, a flapping port</td></tr>
+      <tr><td>L2 Data link</td><td>gateway resolved in ARP, LLDP neighbour</td><td>wrong VLAN, port down, port security or DAI</td></tr>
+      <tr><td>L3 Network</td><td>usable IPv4, default route, gateway and internet loss, path MTU, IPv6</td><td>DHCP failure (169.254), missing route, upstream loss, tunnel MTU</td></tr>
+      <tr><td>L4 Transport</td><td>TCP connect to the internet target, retransmits, listen drops</td><td>firewall or proxy-only network, congestion</td></tr>
+      <tr><td>L5/6 Session, TLS</td><td>clock skew against the web server's <code>Date</code>, TLS handshake, certificate</td><td>no NTP, TLS-inspecting proxy, old CA bundle</td></tr>
+      <tr><td>L7 Application</td><td>system resolver, each DNS server directly, HTTP status and first byte, proxy variables</td><td>dead resolver, split-horizon DNS, server errors</td></tr>
+    </tbody>
+  </table></div>
+  <h3>From the switch CLI to vigil</h3>
+  <p>The same question asked on the network device and on the host. Useful while learning Junos or IOS: run both and compare what each side sees.</p>
+  <div class="tbl"><table>
+    <thead><tr><th>Question</th><th>Junos</th><th>Cisco IOS</th><th>vigil</th></tr></thead>
+    <tbody>
+      <tr><td>Is the link healthy?</td><td class="num">show interfaces ge-0/0/1 extensive</td><td class="num">show interfaces gi0/1</td><td><kbd>W</kbd> link layer: CRC, frame, flaps · doctor L1</td></tr>
+      <tr><td>Which port am I on?</td><td class="num">show lldp neighbors</td><td class="num">show lldp neighbors detail</td><td><kbd>W</kbd> LLDP neighbours (lldpd)</td></tr>
+      <tr><td>Who has this MAC / IP?</td><td class="num">show ethernet-switching table · show arp</td><td class="num">show mac address-table · show ip arp</td><td><kbd>7</kbd> neighbours · <kbd>W</kbd> ARP watch · <kbd>F</kbd> search a MAC</td></tr>
+      <tr><td>Which route is used?</td><td class="num">show route 1.1.1.1</td><td class="num">show ip route 1.1.1.1</td><td><kbd>7</kbd> routes, <kbd>h</kbd> on a route</td></tr>
+      <tr><td>Is the path lossy?</td><td class="num">ping 1.1.1.1 rapid count 100</td><td class="num">ping 1.1.1.1 repeat 100</td><td><kbd>8</kbd> probes (loss, jitter) · <kbd>t</kbd> trace</td></tr>
+      <tr><td>What is the MTU?</td><td class="num">ping 1.1.1.1 size 1472 do-not-fragment</td><td class="num">ping 1.1.1.1 size 1500 df-bit</td><td class="num">vigil mtu 1.1.1.1</td></tr>
+      <tr><td>Which rule drops it?</td><td class="num">show security policies hit-count</td><td class="num">show access-lists</td><td><kbd>9</kbd> firewall, <kbd>z</kbd> <kbd>s</kbd></td></tr>
+      <tr><td>Who is talking?</td><td class="num">show security flow session</td><td class="num">show ip nat translations</td><td><kbd>4</kbd> sockets (RTT, retransmits, bandwidth)</td></tr>
+      <tr><td>Subnet maths</td><td colspan="2">by hand</td><td class="num">vigil calc 10.0.0.0/22 /24</td></tr>
+    </tbody>
+  </table></div>
+  <h3>Windows</h3>
+  <p>On Windows 10 and 11 vigil reads sockets and TCP/UDP counters from the IP Helper API, routes, neighbours and DNS from <code>route print</code>, <code>arp -a</code> and <code>ipconfig /all</code>, services from the Service Control Manager, events from the System event log, and pings with <code>IcmpSendEcho</code>, so no administrator rights or extra tools are needed. Run it elevated to read the event log and every process. Windows 7 and 8.1 get an experimental build with the ASCII <code>classic</code> theme.</p>
 </main>
 <div class="wide">
   <div class="term-wrap" role="img" aria-label="Example of the Probes view">
@@ -562,7 +614,7 @@ footer { margin-top: 72px; color: var(--muted); font-size: 13px; }
   </table></div>
 
   <h2 id="config">Configuration</h2>
-  <p style="margin-top:12px">Settings live in <code>~/.config/vigil/config.toml</code>, on macOS too. Command-line flags win over the file, and the file wins over the defaults. A broken file never stops vigil: it starts with defaults and shows a warning in the footer.</p>
+  <p style="margin-top:12px">Settings live in <code>~/.config/vigil/config.toml</code>, on macOS too, and in <code>%APPDATA%\vigil\config.toml</code> on Windows. Command-line flags win over the file, and the file wins over the defaults. A broken file never stops vigil: it starts with defaults and shows a warning in the footer. vigil detects the OS at start and lays a <code>[linux]</code>, <code>[macos]</code> or <code>[windows]</code> section over the shared settings, so one file works on every machine.</p>
   <div class="tbl"><table>
     <thead><tr><th>Key</th><th>Default</th><th>Meaning</th></tr></thead>
     <tbody>
@@ -574,6 +626,10 @@ footer { margin-top: 72px; color: var(--muted); font-size: 13px; }
       <tr><td class="num">proc_sort / proc_desc / proc_tree</td><td class="num">cpu / true / false</td><td>Process view sorting and tree mode, remembered on quit</td></tr>
       <tr><td class="num">mouse</td><td class="num">true</td><td>Mouse wheel scrolling</td></tr>
       <tr><td class="num">[alerts]</td><td class="num">see above</td><td>Health badge thresholds</td></tr>
+      <tr><td class="num">[troubleshoot]</td><td class="num">1.1.1.1, example.com</td><td>Targets for the doctor, DNS, MTU and perf tools</td></tr>
+      <tr><td class="num">[keys]</td><td class="num">none</td><td>Remap keys: <code>"F5" = "R"</code>, <code>"ctrl-k" = "K"</code></td></tr>
+      <tr><td class="num">[[custom_themes]]</td><td class="num">none</td><td>Your own palette: a name, a base theme, glyphs and colour overrides</td></tr>
+      <tr><td class="num">[linux] [macos] [windows]</td><td class="num">none</td><td>Per-OS overrides of any key above</td></tr>
     </tbody>
   </table></div>
 
@@ -606,10 +662,10 @@ footer { margin-top: 72px; color: var(--muted); font-size: 13px; }
   </table></div>
 
   <h2 id="roadmap">Roadmap</h2>
-  <p style="margin-top:12px">What comes next. v0.5 shipped the process inspector with history graphs, needs-restart detection, users and SSH logins, copy/export/mouse and report diffs. v0.4 shipped containers, services and the journal, kernel events, fd/port/inode exhaustion, disk latency, HTTPS probes with certificate expiry and path tracing.</p>
+  <p style="margin-top:12px">What comes next. v0.6 shipped the layer-by-layer doctor, subnet calculator, DNS per resolver, path MTU and throughput tools, explain mode, global search, NIC errors, LLDP and ARP watch, Windows support, macOS counters and Docker containers, custom themes and keys, completions, a man page and .deb/.rpm packages. v0.5 shipped the process inspector with history graphs, needs-restart detection, users and SSH logins, copy/export/mouse and report diffs. v0.4 shipped containers, services and the journal, kernel events, fd/port/inode exhaustion, disk latency, HTTPS probes with certificate expiry and path tracing.</p>
   <div class="road">
     <div class="item"><span class="pri p2">Then</span><div><h3>UDP and QUIC bandwidth</h3><p>Per-flow byte counters for UDP need eBPF; TCP is covered by sock_diag today.</p></div></div>
-    <div class="item"><span class="pri p3">Later</span><div><h3>Custom themes in the config file</h3><p>Define your own palette in <code>config.toml</code>.</p></div></div>
+    <div class="item"><span class="pri p2">Then</span><div><h3>SNMP polling</h3><p>Interface counters and errors from switches and routers next to the host's own view.</p></div></div>
     <div class="item"><span class="pri p3">Later</span><div><h3>GPU</h3><p>Utilisation and memory per GPU and per process, for machines that have one.</p></div></div>
   </div>
 
@@ -618,7 +674,7 @@ footer { margin-top: 72px; color: var(--muted); font-size: 13px; }
 <div class="wide">
   <div class="cheat">
     <div><h3>Everywhere</h3><dl>
-      <dt><kbd>1</kbd>–<kbd>6</kbd> <kbd>Tab</kbd></dt><dd>switch view</dd>
+      <dt><kbd>1</kbd>–<kbd>9</kbd> <kbd>Tab</kbd></dt><dd>switch view</dd>
       <dt><kbd>↑</kbd><kbd>↓</kbd> <kbd>j</kbd><kbd>k</kbd></dt><dd>navigate (mouse wheel too)</dd>
       <dt><kbd>g</kbd> <kbd>G</kbd></dt><dd>top / bottom</dd>
       <dt><kbd>/</kbd></dt><dd>filter, <kbd>Esc</kbd> clears</dd>
@@ -627,7 +683,9 @@ footer { margin-top: 72px; color: var(--muted); font-size: 13px; }
       <dt><kbd>R</kbd></dt><dd>write a report</dd>
       <dt><kbd>N</kbd></dt><dd>reverse DNS on/off</dd>
       <dt><kbd>7</kbd> <kbd>8</kbd> <kbd>9</kbd></dt><dd>routes · probes · firewall</dd>
-      <dt><kbd>0</kbd> <kbd>S</kbd> <kbd>U</kbd></dt><dd>containers · system · users</dd>
+      <dt><kbd>0</kbd> <kbd>S</kbd> <kbd>U</kbd> <kbd>W</kbd></dt><dd>containers · system · users · troubleshoot</dd>
+      <dt><kbd>F</kbd></dt><dd>find anything, ↵ jumps there</dd>
+      <dt><kbd>h</kbd></dt><dd>explain the selected item</dd>
       <dt><kbd>y</kbd></dt><dd>copy selected value</dd>
       <dt><kbd>E</kbd></dt><dd>export table to CSV</dd>
       <dt><kbd>space</kbd></dt><dd>pause</dd>

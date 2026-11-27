@@ -144,12 +144,9 @@ pub fn truncate_left(s: &str, width: usize) -> String {
     format!("…{tail}")
 }
 
+/// Root on Unix, an elevated prompt on Windows.
 pub fn is_root() -> bool {
-    std::process::Command::new("id")
-        .arg("-u")
-        .output()
-        .map(|o| String::from_utf8_lossy(&o.stdout).trim() == "0")
-        .unwrap_or(false)
+    crate::platform::get().admin
 }
 
 /// Days since 1970-01-01 for a civil date (Howard Hinnant's algorithm).
@@ -234,14 +231,19 @@ pub fn csv(headers: &[&str], rows: &[Vec<String>]) -> String {
     o
 }
 
+/// The user's home directory: $HOME, or %USERPROFILE% on Windows.
+pub fn home_dir() -> Option<std::path::PathBuf> {
+    std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")).map(std::path::PathBuf::from)
+}
+
 /// Write `vigil-<name>-<unix time>.csv` to the current directory, or $HOME.
 pub fn write_csv(name: &str, headers: &[&str], rows: &[Vec<String>]) -> Result<std::path::PathBuf, String> {
     let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
     let file = format!("vigil-{name}-{stamp}.csv");
     let text = csv(headers, rows);
     let mut dirs = vec![std::path::PathBuf::from(".")];
-    if let Some(h) = std::env::var_os("HOME") {
-        dirs.push(std::path::PathBuf::from(h));
+    if let Some(h) = home_dir() {
+        dirs.push(h);
     }
     let mut err = String::from("no writable directory");
     for d in dirs {
@@ -269,5 +271,63 @@ mod io_tests {
     fn csv_quoting() {
         let c = csv(&["a", "b"], &[vec!["x,y".into(), "say \"hi\"".into()]]);
         assert_eq!(c, "a,b\n\"x,y\",\"say \"\"hi\"\"\"\n");
+    }
+}
+
+/// Runs a slow probe (an external command) on its own thread every
+/// `interval` and keeps the latest result, so the UI thread never waits for
+/// it. `latest(seen)` returns the result only when it is newer than `seen`.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub struct Poller<T: Send + 'static> {
+    slot: std::sync::Arc<std::sync::Mutex<Option<(std::time::Instant, u64, T)>>>,
+}
+
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+impl<T: Clone + Send + 'static> Poller<T> {
+    pub fn spawn(interval: std::time::Duration, mut f: impl FnMut() -> Option<T> + Send + 'static) -> Self {
+        let slot = std::sync::Arc::new(std::sync::Mutex::new(None));
+        let s2 = slot.clone();
+        std::thread::spawn(move || {
+            let mut seq = 0u64;
+            loop {
+                let t0 = std::time::Instant::now();
+                if let Some(v) = f() {
+                    seq += 1;
+                    if let Ok(mut s) = s2.lock() {
+                        *s = Some((std::time::Instant::now(), seq, v));
+                    }
+                }
+                std::thread::sleep(interval.saturating_sub(t0.elapsed()));
+            }
+        });
+        Self { slot }
+    }
+
+    pub fn latest(&self, seen: u64) -> Option<(std::time::Instant, u64, T)> {
+        let s = self.slot.lock().ok()?;
+        s.as_ref().filter(|(_, seq, _)| *seq > seen).cloned()
+    }
+}
+
+#[cfg(test)]
+mod poller_tests {
+    #[test]
+    fn poller_delivers_each_sample_once() {
+        let mut n = 0;
+        let p = super::Poller::spawn(std::time::Duration::from_millis(20), move || {
+            n += 1;
+            Some(n)
+        });
+        let mut seen = 0;
+        let mut got = Vec::new();
+        for _ in 0..50 {
+            if let Some((_, seq, v)) = p.latest(seen) {
+                seen = seq;
+                got.push(v);
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        assert!(got.len() >= 3 && got.windows(2).all(|w| w[0] < w[1]), "{got:?}");
+        assert!(p.latest(u64::MAX).is_none());
     }
 }

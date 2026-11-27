@@ -4,17 +4,17 @@
 
 **The terminal monitor for people who run servers and debug networks.**
 
-Processes, containers, services, users, sockets, open files, routes, latency and firewall counters on one screen.<br>
-One static binary. `lsof` built in. Linux and macOS.
+Processes, containers, services, users, sockets, open files, routes, latency and firewall counters on one screen,<br>
+plus a layer-by-layer network doctor. One binary. `lsof` built in. Linux, macOS and Windows.
 
 [![CI](https://github.com/suleymenb/vigil/actions/workflows/ci.yml/badge.svg)](https://github.com/suleymenb/vigil/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/suleymenb/vigil?color=7aa2f7)](https://github.com/suleymenb/vigil/releases/latest)
 [![License: MIT](https://img.shields.io/badge/license-MIT-9ece6a)](LICENSE)
-![Platforms](https://img.shields.io/badge/platforms-linux%20%7C%20macOS-bb9af7)
+![Platforms](https://img.shields.io/badge/platforms-linux%20%7C%20macOS%20%7C%20windows-bb9af7)
 
 <img src="docs/img/overview.svg" alt="vigil showing CPU, memory, network, top processes, listening ports and TCP states" width="100%">
 
-[Install](#install) · [Cookbook](#cookbook) · [Views](#views) · [Keys](#keys) · [Reports](#reports) · [Config](#configuration) · [FAQ](#faq) · [Handbook](docs/handbook.html) · [Course](docs/course.html)
+[Install](#install) · [Cookbook](#cookbook) · [Views](#views) · [Troubleshoot](#troubleshoot) · [Keys](#keys) · [Reports](#reports) · [Config](#configuration) · [Platforms](#platform-support) · [FAQ](#faq) · [Handbook](docs/handbook.html) · [Course](docs/course.html)
 
 </div>
 
@@ -22,6 +22,8 @@ One static binary. `lsof` built in. Linux and macOS.
 
 ## Why vigil
 
+- **Troubleshoot layer by layer.** `vigil doctor` (or `W`, `d`) walks the OSI layers bottom-up: link and NIC errors, ARP, IP, gateway, internet, path MTU, TCP, clock, TLS, DNS per resolver, HTTP. It names the lowest broken layer and the next command to run, with the Junos and Cisco equivalent.
+- **Explains what you see.** Press `h` on any row: what `CLOSE_WAIT`, a `STALE` neighbour, a `D` process, an `OOM` event or a `DROP` rule means, and what to do about it.
 - **Built for incidents.** Health badges in the header tell you what's wrong before you start looking: memory, disk, inodes, file descriptors, ephemeral ports, disk latency, OOM kills, failed services, container throttling, retransmits, listen-queue drops, conntrack, packet loss, expiring certificates.
 - **lsof built in.** Who uses this port, who holds this file, which deleted file is filling the disk: one keystroke or one flag.
 - **Network internals without five other tools.** RTT, retransmits and bandwidth per connection (`ss -ti`), kernel counters (`nstat`), routes and neighbours (`ip`), latency and path probes (`ping`, `mtr`), HTTP and TLS checks (`curl`), firewall hits (`nft`) and one-key packet capture (`tcpdump`).
@@ -32,14 +34,40 @@ One static binary. `lsof` built in. Linux and macOS.
 
 ## Install
 
-**One line** (Linux x86_64/arm64, macOS Apple Silicon/Intel):
+**Linux and macOS**, one line (x86_64/arm64, Apple Silicon/Intel):
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/suleymenb/vigil/master/install.sh | sh
 ```
 
 The script picks the right binary, checks its SHA-256 and installs to `/usr/local/bin`.
-Install somewhere else with `VIGIL_INSTALL_DIR=~/.local/bin`, or a fixed version with `VIGIL_VERSION=v0.3.0`.
+Install somewhere else with `VIGIL_INSTALL_DIR=~/.local/bin`, or a fixed version with `VIGIL_VERSION=v0.6.0`.
+
+**Windows 10 / 11** (x64 and ARM64), in PowerShell, no administrator rights needed:
+
+```powershell
+irm https://raw.githubusercontent.com/suleymenb/vigil/master/install.ps1 | iex
+```
+
+**Windows 7 / 8.1** (experimental: built in CI, not tested there), in PowerShell 2+:
+
+```powershell
+(New-Object Net.WebClient).DownloadString('https://raw.githubusercontent.com/suleymenb/vigil/master/install.ps1') | iex
+```
+
+The PowerShell script detects the Windows version and CPU, verifies the SHA-256, installs `vigil.exe` to `%LOCALAPPDATA%\Programs\vigil` and adds it to your user `PATH`.
+
+**Debian / Ubuntu** and **Fedora / RHEL / Rocky / Alma**: packages with the man page and shell completions:
+
+```bash
+curl -fsSLO https://github.com/suleymenb/vigil/releases/latest/download/vigil-amd64.deb && sudo apt install ./vigil-amd64.deb
+```
+
+```bash
+sudo dnf install https://github.com/suleymenb/vigil/releases/latest/download/vigil-x86_64.rpm
+```
+
+(ARM: `vigil-arm64.deb`, `vigil-aarch64.rpm`.)
 
 <details>
 <summary><b>Manual download, or build from source</b></summary>
@@ -50,6 +78,12 @@ Install somewhere else with `VIGIL_INSTALL_DIR=~/.local/bin`, or a fixed version
 | Linux arm64 (static) | [vigil-aarch64-unknown-linux-musl.tar.gz](https://github.com/suleymenb/vigil/releases/latest/download/vigil-aarch64-unknown-linux-musl.tar.gz) |
 | macOS Apple Silicon | [vigil-aarch64-apple-darwin.tar.gz](https://github.com/suleymenb/vigil/releases/latest/download/vigil-aarch64-apple-darwin.tar.gz) |
 | macOS Intel | [vigil-x86_64-apple-darwin.tar.gz](https://github.com/suleymenb/vigil/releases/latest/download/vigil-x86_64-apple-darwin.tar.gz) |
+| Windows 10/11 x64 | [vigil-x86_64-pc-windows-msvc.zip](https://github.com/suleymenb/vigil/releases/latest/download/vigil-x86_64-pc-windows-msvc.zip) |
+| Windows 10/11 ARM64 | [vigil-aarch64-pc-windows-msvc.zip](https://github.com/suleymenb/vigil/releases/latest/download/vigil-aarch64-pc-windows-msvc.zip) |
+| Windows 7/8.1 x64 (experimental) | [vigil-x86_64-win7-windows-msvc.zip](https://github.com/suleymenb/vigil/releases/latest/download/vigil-x86_64-win7-windows-msvc.zip) |
+| Debian/Ubuntu | [vigil-amd64.deb](https://github.com/suleymenb/vigil/releases/latest/download/vigil-amd64.deb) · [vigil-arm64.deb](https://github.com/suleymenb/vigil/releases/latest/download/vigil-arm64.deb) |
+| Fedora/RHEL | [vigil-x86_64.rpm](https://github.com/suleymenb/vigil/releases/latest/download/vigil-x86_64.rpm) · [vigil-aarch64.rpm](https://github.com/suleymenb/vigil/releases/latest/download/vigil-aarch64.rpm) |
+| Completions + man page | [vigil-completions-and-man.tar.gz](https://github.com/suleymenb/vigil/releases/latest/download/vigil-completions-and-man.tar.gz) |
 
 ```bash
 tar xzf vigil-*.tar.gz && sudo install -m 755 vigil-*/vigil /usr/local/bin/vigil
@@ -63,6 +97,13 @@ cargo install --git https://github.com/suleymenb/vigil --locked
 
 `cargo install` puts the binary in `~/.cargo/bin`, which `sudo` doesn't search. Use `sudo "$(which vigil)"` or the release binary above.
 
+Shell completions and the man page come with the packages, or generate them:
+
+```bash
+vigil completions bash | sudo tee /etc/bash_completion.d/vigil >/dev/null   # also zsh, fish, powershell, elvish
+vigil man | sudo tee /usr/local/share/man/man1/vigil.1 >/dev/null
+```
+
 </details>
 
 Then run it:
@@ -71,7 +112,7 @@ Then run it:
 sudo vigil
 ```
 
-Root is optional, but without it lsof, sockets and firewall counters only show your own processes.
+Root is optional, but without it lsof, sockets and firewall counters only show your own processes. On Windows run it from an elevated terminal to read the event log and every process.
 
 ## Cookbook
 
@@ -80,6 +121,14 @@ Every common question, as one command.
 | I want to… | Run |
 |---|---|
 | See everything at a glance | `sudo vigil` |
+| Find out where the network breaks (L1 → L7) | `vigil doctor` |
+| Understand what a state, event or counter means | select it and press `h` |
+| Find anything: a process, port, IP, MAC, service | press `F` and type |
+| Calculate a subnet, split it, check membership | `vigil calc 10.0.0.0/22 /24` · `vigil calc 10.0.0.0/22 10.0.4.1` |
+| See if my resolvers disagree or one is dead | `vigil dns github.com` · `vigil dns example.com MX @10.0.0.53` |
+| Find the path MTU (PPPoE, VPN, black holes) | `vigil mtu 1.1.1.1` |
+| Measure throughput between two machines | `vigil perf --server` there, `vigil perf HOST -t 10 -P 4` here (`-R` for download) |
+| See which switch port I'm plugged into, CRC errors, ARP changes | `vigil -t troubleshoot` (link layer panel) |
 | See everything about one process | Procs view, select it, press `Enter` |
 | Spot a memory or fd leak | `Enter` on the process: the inspector shows the trend, e.g. `+38 % in 2 min` |
 | Find services still running old libraries after `apt upgrade` | `sudo vigil`: the `NEEDS RESTART` badge, details in the inspector |
@@ -116,7 +165,7 @@ Every common question, as one command.
 
 ## Views
 
-Switch with `1`–`9`, `0`, `S`, `U`, `Tab`, `←` `→`, or click a tab.
+Switch with `1`–`9`, `0`, `S`, `U`, `W`, `Tab`, `←` `→`, or click a tab.
 
 | Key | View | What you see |
 |:---:|---|---|
@@ -131,11 +180,47 @@ Switch with `1`–`9`, `0`, `S`, `U`, `Tab`, `←` `→`, or click a tab.
 | `9` | **Firewall** | nftables, iptables or pf rules with packets, bytes and live packets per second |
 | `0` | **Containers** | Docker, containerd/Kubernetes, CRI-O, Podman: CPU, **throttling**, memory vs limit, **OOM kills**, I/O, network |
 | `U` | **Users** | Logged-in sessions (who, from where, idle, running what), failed SSH logins in the last hour by source and the usernames tried, accepted logins |
-| `S` | **System** | systemd units (failed and restarting first), the **journal** of the selected unit, and **kernel events**: OOM kills, link flaps, NIC resets, segfaults, I/O errors |
+| `S` | **System** | systemd / launchd / Windows services (failed and restarting first), the **journal** of the selected unit, and **kernel events** (Windows: the System event log): OOM kills, link flaps, NIC resets, segfaults, I/O errors, unexpected reboots |
+| `W` | **Troubleshoot** | The **doctor**, **subnet calculator**, **path MTU**, **DNS per resolver** and **throughput** tools, next to a **link layer** panel: NIC error counters (CRC, frame, missed, flaps), **LLDP** neighbours (switch, port, VLAN) and an **ARP watch** that flags MAC changes |
 
 Press `Enter` on any process (or `i` on a socket) for the **inspector**: identity, parent chain, children, systemd unit, container, cgroup, two-minute graphs of CPU, memory and open fds with a trend (`+38 % in 2 min` flags a leak), its sockets with RTT, open files, the unit's journal, and its environment with keys like `*_TOKEN` and `*_PASSWORD` hidden.
 
 <img src="docs/img/probes.svg" alt="Probes view: gateway, DNS and database under a millisecond, 12 percent loss to 1.1.1.1" width="100%">
+
+## Troubleshoot
+
+Press `W` (or run the same tools from the shell). Nothing is contacted until you run a tool; the targets live in `[troubleshoot]` in the config.
+
+| Key | Command | What it does |
+|:---:|---|---|
+| `d` | `vigil doctor` | Checks every layer bottom-up and names the lowest one that fails, with what it means and the next command (Linux, Junos, Cisco) |
+| `c` | `vigil calc 10.0.0.0/22 /24` | Network, mask, wildcard, broadcast, host range, binary, supernet, PTR zone; splits into subnets; tests membership; IPv6 too |
+| `m` | `vigil mtu HOST` | Path MTU with don't-fragment pings; explains the value (PPPoE, GRE, VXLAN, WireGuard, IPsec) and detects PMTU black holes |
+| `n` | `vigil dns NAME [TYPE] [@server]` | Asks every configured resolver *and* public ones directly, compares answers, TTLs, DNSSEC flags and latency |
+| `p` | `vigil perf HOST` | TCP throughput to a machine running `vigil perf --server` (iperf-style, per-second rates, parallel streams, reverse); blank = HTTP download test |
+
+`vigil doctor` checks, in order:
+
+| Layer | Checks |
+|---|---|
+| L1 Physical | link/carrier, speed and duplex (half duplex = negotiation mismatch), CRC / frame / collision / missed errors, link flaps |
+| L2 Data link | gateway resolved in ARP (or `FAILED`: VLAN, port, port security), LLDP neighbour |
+| L3 Network | usable IPv4 (169.254 = DHCP failed), default route, gateway and internet loss/latency, path MTU, IPv6 reachability |
+| L4 Transport | TCP connect to the internet target (works while ping fails = ICMP filtered), retransmits and listen drops |
+| L5/6 Session / TLS | clock skew against the web server's `Date` header, TLS handshake and certificate |
+| L7 Application | system resolver, every DNS server directly, HTTP status and time to first byte, proxy variables |
+
+`vigil doctor --json` prints the checks for scripts; the exit code is 1 when any check fails.
+
+```text
+L2 · Data link
+  ✖ Gateway MAC        10.0.0.1: ARP failed
+      → the gateway does not answer ARP: wrong VLAN on the switch port, gateway down, or a port-security / DAI block.
+        Switch: show ethernet-switching table (Junos) · show mac address-table (Cisco)
+...
+11 passed · 1 warnings · 1 failed · 2.1 s
+→ start at L2 Data link (Gateway MAC): the layers above depend on it
+```
 
 ## Health badges
 
@@ -164,6 +249,8 @@ The right side of the tab row shows a badge for every threshold that is crossed,
 | `FAILED UNITS` | any | systemd units in the failed state |
 | `NEEDS RESTART` | any | Processes still running a replaced binary or library after an update |
 | `SSH FAILS` | 100 / hour | Failed SSH logins in the last hour |
+| `<iface> ERR` | 1/s | NIC error counters rising (CRC, frame, missed): cable, optics or duplex |
+| `GATEWAY MAC CHANGED` | on | The default gateway's MAC changed: VRRP/HSRP failover, a replaced router, or ARP spoofing |
 
 ## Keys
 
@@ -184,7 +271,9 @@ The right side of the tab row shows a badge for every threshold that is crossed,
 | `T` | theme picker |
 | `space` | pause |
 | `+` / `-` | refresh ±250 ms |
-| `0` `S` `U` | containers / system / users |
+| `0` `S` `U` `W` | containers / system / users / troubleshoot |
+| `F` | find anything, `↵` jumps there |
+| `h` | explain the selected item |
 | `y` | copy selected value |
 | `E` | export view to CSV |
 | `?` / `q` | help / quit |
@@ -239,6 +328,14 @@ The right side of the tab row shows a badge for every threshold that is crossed,
 |---|---|
 | `z` | rules with hits only |
 | `s` | sort by packets/s |
+
+**Troubleshoot**
+
+| Key | Action |
+|---|---|
+| `d` | doctor |
+| `c` `m` `n` `p` | calc, mtu, dns, perf |
+| `↑` `↓` / `esc` | scroll / follow |
 
 </td></tr>
 </table>
@@ -301,15 +398,50 @@ vigil report --diff before.json                 # what changed since an earlier 
 
 Press `T` for a live preview. `↑` `↓` to browse, `Enter` to keep, `b` for transparent background.
 
-`tokyo-night` · `catppuccin-mocha` · `gruvbox` · `nord` · `dracula` · `rose-pine` · `solarized-light` · **`cyberpunk`** · **`phosphor`** · `ansi`
+`tokyo-night` · `catppuccin-mocha` · `gruvbox` · `nord` · `dracula` · `rose-pine` · `solarized-light` · **`cyberpunk`** · **`phosphor`** · **`okabe-ito`** · `ansi` · `classic`
 
 - **cyberpunk**: neon on near-black, thick frames, `▰▱` meters.
 - **phosphor**: a green CRT in pure ASCII (`+--+`, `[####....]`), monochrome, severity by brightness only.
+- **okabe-ito**: a colour-blind-safe palette (Okabe & Ito); no meaning depends on telling red from green.
 - **ansi**: your terminal's own 16 colours, for plain SSH, tmux without truecolor and serial consoles. `auto` (the default) picks it only on terminals that can't do 24-bit colour.
+- **classic**: the 16 colours with ASCII lines, the default on the Windows 7/8 console.
+
+Make your own in the config: start from any theme and override colours (`#rrggbb`, ANSI names like `light-red`, or `ansi:N`):
+
+```toml
+[[custom_themes]]
+name = "noc-wall"
+base = "nord"
+glyphs = "neon"            # modern | neon | ascii
+[custom_themes.colors]
+bg = "#000000"
+red = "#ff3355"
+green = "light-green"
+```
 
 ## Configuration
 
-`~/.config/vigil/config.toml`, created on first quit. Command-line flags win over the file. Under `sudo`, vigil uses the config of the user who ran sudo.
+`~/.config/vigil/config.toml` (Windows: `%APPDATA%\vigil\config.toml`), created on first quit. Command-line flags win over the file. Under `sudo`, vigil uses the config of the user who ran sudo.
+
+vigil detects the OS at start and lays a `[linux]`, `[macos]` or `[windows]` section over the shared settings, so one file can follow you everywhere (dotfiles, roaming profiles):
+
+```toml
+theme = "tokyo-night"
+[windows]
+theme = "classic"            # this machine only
+[windows.alerts]
+disk_pct = 95.0
+[linux.network]
+probes = ["tcp:db.internal:5432"]
+```
+
+Remap any key in `[keys]` (names like `F5`, `ctrl-k`, `alt-x`, `esc`, `pgdn` work):
+
+```toml
+[keys]
+"F5" = "R"         # F5 writes a report
+"ctrl-k" = "K"     # signal dialog
+```
 
 <details>
 <summary><b>All options</b></summary>
@@ -358,6 +490,16 @@ throttle_pct = 25.0
 failed_units = true
 needs_restart = true
 ssh_failures_per_hour = 100
+nic_errors_per_s = 1.0
+gateway_mac_change = true
+
+[troubleshoot]              # only contacted when you run a tool
+internet_target = "1.1.1.1"
+internet_target6 = "2606:4700:4700::1111"
+dns_test_name = "example.com"
+http_test_url = "https://example.com/"
+public_resolvers = ["1.1.1.1", "8.8.8.8", "9.9.9.9"]
+perf_url = "https://speed.cloudflare.com/__down?bytes=25000000"
 ```
 
 </details>
@@ -367,7 +509,7 @@ ssh_failures_per_hour = 100
 
 ```
 vigil [OPTIONS]
-  -t, --tab <name>            start view: overview procs network sockets files storage routes probes firewall containers system users
+  -t, --tab <name>            start view: overview procs network sockets files storage routes probes firewall containers system users troubleshoot
   -q, --query <query>         run an lsof query at start, e.g. ":443" or "1234"
   -i, --interval <ms>         sampling interval (default 1000)
       --theme <name>          colour theme, or "auto"
@@ -379,39 +521,51 @@ vigil [OPTIONS]
       --no-mouse              disable the mouse
 
 vigil report [-f md|json] [-o FILE] [--top N] [--sample-ms MS] [--fail-on-alert] [--diff FILE]
+vigil doctor [--json]
+vigil calc NET [/PREFIX | ADDR]
+vigil dns NAME [TYPE] [@SERVER …]
+vigil mtu [HOST]
+vigil perf HOST [-t SECS] [-P STREAMS] [-R] [-p PORT] | --server [-p PORT] | --internet
+vigil completions bash|zsh|fish|powershell|elvish
+vigil man
 ```
 
 </details>
 
 ## Platform support
 
-| Feature | Linux | macOS |
-|---|:---:|:---:|
-| Processes, CPU, memory, disks, sensors | ✅ | ✅ |
-| lsof queries, sockets with owners | ✅ native `/proc/net` | ✅ `lsof` |
-| RTT, retransmits, bandwidth per connection and process | ✅ sock_diag | – |
-| Container namespaces on sockets | ✅ | – |
-| Kernel counters (retrans %, listen drops, UDP drops, conntrack) | ✅ | – |
-| Link speed, duplex, drops, utilisation | ✅ | MTU only |
-| Routes, neighbours, DNS | ✅ `ip -j` | ✅ `netstat`, `arp`, `scutil` |
-| Latency probes (ICMP, TCP, DNS) | ✅ | ✅ |
-| Firewall counters | ✅ nft / iptables | ✅ pf |
-| Packet capture (`C`) | ✅ | ✅ |
-| Close one connection (`D`) | ✅ root | – |
-| PSI pressure | ✅ | – |
-| Open fds per process | ✅ with limits | ✅ counts |
-| Inodes per filesystem | ✅ | ✅ |
-| Disk latency per device (iostat) | ✅ | – |
-| HTTPS probes with certificate expiry | ✅ | ✅ |
-| Path trace (mtr / traceroute) | ✅ | ✅ |
-| Containers (cgroup v2) | ✅ | – (Docker Desktop runs in a VM) |
-| Services | ✅ systemd + journal | ✅ launchd |
-| Kernel events (OOM, link, NIC, segfault) | ✅ root | – |
-| Process inspector | ✅ | ✅ (no threads/cgroup) |
-| Needs restart after updates | ✅ | – |
-| Logged-in users | ✅ | ✅ |
-| Failed / accepted SSH logins | ✅ journal | – |
-| Copy (OSC 52), CSV export, mouse | ✅ | ✅ |
+vigil detects the OS and the helper tools (`lsof`, `tcpdump`, `mtr`, `lldpctl`, `nft`, `curl`, Docker, …) once at start; anything missing is explained in place instead of failing. The help screen (`?`) and every report list what this machine is missing.
+
+| Feature | Linux | macOS | Windows 10/11 |
+|---|:---:|:---:|:---:|
+| Processes, CPU, memory, disks, sensors | ✅ | ✅ | ✅ |
+| Sockets with owners | ✅ native `/proc/net` | ✅ `lsof` | ✅ IP Helper API |
+| lsof queries (`:`) | ✅ | ✅ | – (Sysinternals `handle`) |
+| RTT, retransmits, bandwidth per connection | ✅ sock_diag | – | – |
+| Bandwidth per process | ✅ | ✅ `nettop` | – |
+| Kernel counters (retrans %, listen drops, UDP drops) | ✅ + conntrack | ✅ (TCP needs root) | ✅ |
+| Link speed, duplex, drops | ✅ | MTU | MTU |
+| NIC error counters (CRC, frame, flaps) | ✅ | errors, collisions | errors |
+| LLDP neighbours | ✅ `lldpd` | – | – |
+| ARP watch (gateway MAC changes) | ✅ | ✅ | ✅ |
+| Routes, neighbours, DNS | ✅ `ip -j` | ✅ `netstat`, `arp`, `ndp`, `scutil` | ✅ `route`, `arp`, `ipconfig` |
+| Latency probes (ICMP, TCP, DNS, HTTPS) | ✅ | ✅ | ✅ (HTTPS needs curl: built in since 10 1803) |
+| Path trace | ✅ mtr / traceroute | ✅ mtr / traceroute | ✅ tracert |
+| Doctor, calc, DNS, MTU, perf | ✅ | ✅ | ✅ (MTU: IPv4) |
+| Firewall counters | ✅ nft / iptables | ✅ pf | – (no per-rule counters) |
+| Packet capture (`C`) | ✅ | ✅ | – (`pktmon`) |
+| Close one connection (`D`) | ✅ root | – | – |
+| Disk latency per device (iostat) | ✅ | ✅ IOKit | – |
+| Containers | ✅ cgroup v2 (Docker API on v1) | ✅ Docker Desktop API | ✅ Docker Desktop API |
+| Services | ✅ systemd + journal | ✅ launchd | ✅ SCM + its events |
+| Kernel / system events | ✅ `/dev/kmsg` | – | ✅ System event log |
+| PSI pressure, needs-restart | ✅ | – | – |
+| Logged-in users | ✅ | ✅ | ✅ `quser` |
+| Failed / accepted SSH logins | ✅ journal | – | – |
+| Signals | all | all | terminate |
+| Copy (OSC 52), CSV export, mouse, search, explain | ✅ | ✅ | ✅ |
+
+Windows 7 and 8.1 get an experimental build (`x86_64-win7-windows-msvc`, Rust's tier-3 target) with the `classic` ASCII theme; it is built in CI but not tested there.
 
 ## FAQ
 
@@ -464,9 +618,21 @@ Copying uses the terminal's OSC 52 clipboard escape, so it also works over SSH. 
 </details>
 
 <details>
+<summary><b>Windows: colours or lines look wrong</b></summary>
+
+Use Windows Terminal (or Windows 10 1703+ conhost) for 24-bit colour. On the old console, `vigil --theme classic` sticks to 16 colours and ASCII lines; vigil picks it automatically on Windows 7/8.
+</details>
+
+<details>
+<summary><b>The doctor says "neighbour table is empty or unreadable"</b></summary>
+
+The ARP table couldn't be read in this environment (some sandboxes and containers hide it). Run `arp -a` / `ip neigh` yourself to compare; the other checks still run.
+</details>
+
+<details>
 <summary><b>How do I update?</b></summary>
 
-Run the install one-liner again. From source: `git pull && cargo install --path . --locked --force`.
+Run the install one-liner again (Windows: the PowerShell line). From source: `git pull && cargo install --path . --locked --force`.
 </details>
 
 ## Performance
@@ -495,7 +661,9 @@ cargo run --release --example prof                    # collector micro-profile
 python3 scripts/term2svg.py                           # regenerate README screenshots
 ```
 
-CI runs clippy and the tests on Linux x86_64, Linux arm64 and macOS. Pushing a `v*` tag builds static release binaries with checksums.
+CI runs clippy and the tests on Linux x86_64, Linux arm64, macOS and Windows, and builds the experimental Windows 7 target. Pushing a `v*` tag builds release binaries for all of them, `.deb` and `.rpm` packages, completions and the man page, with checksums.
+
+Cross-check the other platforms locally: `cargo clippy --all-targets --target x86_64-pc-windows-gnu -- -D warnings` (and `x86_64-unknown-linux-musl`).
 
 The [handbook](docs/handbook.html) explains the architecture, every view and step-by-step playbooks for DevOps and network incidents. The [course](docs/course.html) teaches vigil lesson by lesson, with quizzes, a key trainer, incident drills and a final exam (open the file in a browser).
 

@@ -2,6 +2,7 @@ mod inspect;
 mod netviews;
 mod overview;
 mod sysviews;
+mod troubleshoot;
 mod views;
 pub mod widgets;
 
@@ -13,7 +14,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Clear, Paragraph, Tabs, Wrap};
 use ratatui::Frame;
 
-use crate::app::{App, Mode, Tab, SIGNALS};
+use crate::app::{signals, App, Mode, Tab};
 use crate::theme;
 use crate::util::fmt_duration;
 use widgets::panel;
@@ -52,7 +53,14 @@ pub fn draw(f: &mut Frame, app: &mut App) {
         Tab::Containers => sysviews::containers(f, app, body),
         Tab::System => sysviews::system(f, app, body),
         Tab::Users => sysviews::users(f, app, body),
+        Tab::Troubleshoot => troubleshoot::draw(f, app, body),
     }
+    }
+    if app.explain {
+        draw_explain(f, app, body);
+    }
+    if app.mode == Mode::Search {
+        draw_search(f, app, body);
     }
     draw_footer(f, app, footer);
 
@@ -183,6 +191,7 @@ fn hints(app: &App) -> Vec<(&'static str, &'static str)> {
         Tab::Containers => vec![("↑↓", "select")],
         Tab::System => vec![("e", "units ⇄ kernel events"), ("↵", "reload journal")],
         Tab::Users => vec![("↑↓", "select")],
+        Tab::Troubleshoot => vec![("d", "doctor"), ("c", "subnet calc"), ("m", "mtu"), ("n", "dns"), ("p", "perf"), ("↑↓", "scroll"), ("esc", "follow")],
         Tab::Firewall => vec![("z", "hide zero"), ("s", "sort by rate")],
         Tab::Files => vec![("↵", "who uses this"), ("p", "proc files"), ("r", "rerun"), ("x", "signal")],
         Tab::Storage => vec![],
@@ -193,7 +202,7 @@ fn hints(app: &App) -> Vec<(&'static str, &'static str)> {
     if app.inspect.is_some() {
         return vec![("esc", "close"), ("v", "journal ⇄ env"), ("f", "all files"), ("x", "signal"), ("r", "refresh"), ("y", "copy cmd")];
     }
-    h.extend([("y", "copy"), ("E", "export"), (":", "lsof query"), ("R", "report"), ("T", "theme"), ("space", "pause"), ("?", "help"), ("q", "quit")]);
+    h.extend([("F", "find"), ("h", "explain"), ("y", "copy"), ("E", "export"), (":", "lsof query"), ("R", "report"), ("T", "theme"), ("space", "pause"), ("?", "help"), ("q", "quit")]);
     h
 }
 
@@ -220,6 +229,22 @@ fn draw_footer(f: &mut Frame, app: &App, area: Rect) {
             Span::styled("█", Style::new().fg(theme::cyan())),
             Span::styled("   1.1.1.1 · icmp:2606:4700::1111 · tcp:db.internal:5432 · dns:github.com", Style::new().fg(theme::dim())),
         ]),
+        Mode::ToolInput => {
+            let (label, example) = match app.tool_kind {
+                crate::tools::Kind::Calc => ("CALC", "10.0.0.0/22 /24 · 192.168.1.7 255.255.255.0 · 10.0.0.0/22 10.0.4.1 · 2001:db8::/48"),
+                crate::tools::Kind::Mtu => ("MTU", "host or IP (blank = [troubleshoot] internet_target)"),
+                crate::tools::Kind::Dns => ("DNS", "github.com · github.com MX · 8.8.8.8 · name AAAA @10.0.0.53 (blank = dns_test_name)"),
+                crate::tools::Kind::Perf => ("PERF", "host[:port] running `vigil perf --server` · add \" -R\" to download · blank = HTTP download"),
+                crate::tools::Kind::Doctor => ("DOCTOR", ""),
+            };
+            Line::from(vec![
+                Span::styled(format!(" {label} "), Style::new().fg(theme::header_bg()).bg(theme::green()).bold()),
+                Span::raw(" "),
+                Span::styled(app.input.clone(), Style::new().fg(theme::fg())),
+                Span::styled("█", Style::new().fg(theme::green())),
+                Span::styled(format!("   {example}"), Style::new().fg(theme::dim())),
+            ])
+        }
         Mode::Query => Line::from(vec![
             Span::styled(" LSOF ", Style::new().fg(theme::header_bg()).bg(theme::purple()).bold()),
             Span::raw(" "),
@@ -277,12 +302,12 @@ fn draw_confirm_close(f: &mut Frame, app: &App, area: Rect) {
 }
 
 fn draw_theme_picker(f: &mut Frame, app: &App, area: Rect) {
-    let n = theme::THEMES.len() as u16;
+    let n = theme::all().len() as u16;
     let r = centered(area, 58, n + 6);
     f.render_widget(Clear, r);
     let cur = theme::index();
     let mut lines = vec![Line::raw("")];
-    for (i, t) in theme::THEMES.iter().enumerate() {
+    for (i, t) in theme::all().iter().enumerate() {
         let sel = i == cur;
         let mut spans = vec![
             Span::styled(if sel { " ▶ " } else { "   " }, Style::new().fg(theme::blue())),
@@ -324,11 +349,11 @@ pub fn centered(area: Rect, w: u16, h: u16) -> Rect {
 
 fn draw_signal_dialog(f: &mut Frame, app: &App, area: Rect) {
     let Some((pid, name)) = &app.signal_target else { return };
-    let r = centered(area, 52, SIGNALS.len() as u16 + 5);
+    let r = centered(area, 52, signals().len() as u16 + 5);
     f.render_widget(Clear, r);
     let block = panel(format!("send signal → {name} ({pid})"), theme::red());
     let mut lines = vec![Line::raw("")];
-    for (i, (sname, desc, _)) in SIGNALS.iter().enumerate() {
+    for (i, (sname, desc, _)) in signals().iter().enumerate() {
         let sel = i == app.signal_idx;
         let style = if sel {
             Style::new().fg(theme::header_bg()).bg(theme::red()).bold()
@@ -346,8 +371,85 @@ fn draw_signal_dialog(f: &mut Frame, app: &App, area: Rect) {
     f.render_widget(Paragraph::new(lines).block(block), r);
 }
 
+/// Global search (F): live results from every view.
+fn draw_search(f: &mut Frame, app: &App, body: Rect) {
+    let w = body.width.saturating_sub(8).clamp(30, 130).min(body.width);
+    let h = body.height.saturating_sub(4).clamp(5, 24).min(body.height);
+    let r = Rect { x: body.x + (body.width - w) / 2, y: body.y + u16::from(body.height > h), width: w, height: h };
+    f.render_widget(Clear, r);
+    let mut lines = vec![Line::from(vec![
+        Span::styled(" find ", Style::new().fg(theme::header_bg()).bg(theme::cyan()).bold()),
+        Span::raw(" "),
+        Span::styled(app.input.clone(), Style::new().fg(theme::fg()).bold()),
+        Span::styled("█", Style::new().fg(theme::cyan())),
+    ])];
+    if app.input.is_empty() {
+        lines.push(Line::styled(" processes, ports, addresses, services, containers, routes, MACs, users, rules, probes", Style::new().fg(theme::dim())));
+    } else if app.search_hits.is_empty() {
+        lines.push(Line::styled(" no matches", Style::new().fg(theme::dim())));
+    }
+    let rows = h.saturating_sub(4) as usize;
+    let off = app.search_sel.saturating_sub(rows.saturating_sub(1));
+    for (i, hit) in app.search_hits.iter().enumerate().skip(off).take(rows) {
+        let sel = i == app.search_sel;
+        let style = if sel { Style::new().fg(theme::fg()).bg(theme::sel_bg()).bold() } else { Style::new().fg(theme::fg()) };
+        lines.push(Line::from(vec![
+            Span::styled(format!(" {:<10}", hit.kind), Style::new().fg(theme::purple()).bg(if sel { theme::sel_bg() } else { theme::bg() })),
+            Span::styled(crate::util::truncate(&hit.text, w.saturating_sub(16) as usize), style),
+        ]));
+    }
+    let total = app.search_hits.len();
+    f.render_widget(
+        Paragraph::new(lines).style(Style::new().bg(theme::bg())).block(
+            panel("search", theme::cyan())
+                .title_bottom(Line::styled(format!(" {}{} · ↑↓ choose · ↵ jump · esc close ", total, if total >= 200 { "+" } else { "" }), Style::new().fg(theme::dim())).right_aligned()),
+        ),
+        r,
+    );
+}
+
+/// Explain mode: a panel over the bottom of the view about the selected item.
+fn draw_explain(f: &mut Frame, app: &App, body: Rect) {
+    let term = app.explain_term();
+    let entry = term.as_deref().and_then(crate::explain::lookup);
+    let mut lines = Vec::new();
+    let title = match entry {
+        Some(e) => {
+            lines.push(Line::styled(format!(" {}", e.text), Style::new().fg(theme::fg())));
+            if !e.next.is_empty() {
+                lines.push(Line::from(vec![
+                    Span::styled(" next ", Style::new().fg(theme::header_bg()).bg(theme::cyan()).bold()),
+                    Span::styled(format!(" {}", e.next), Style::new().fg(theme::cyan())),
+                ]));
+            }
+            format!("explain · {}", e.title)
+        }
+        None => {
+            lines.push(Line::styled(
+                match term {
+                    Some(t) if !t.is_empty() => format!(" Nothing to explain for “{t}” yet. Move the selection to a state, event, route, rule or check."),
+                    _ => " Select a row: socket states, process states, routes, neighbour states, kernel events, firewall verdicts, probes and doctor checks are explained here.".to_string(),
+                },
+                Style::new().fg(theme::muted()),
+            ));
+            "explain".to_string()
+        }
+    };
+    let w = body.width.saturating_sub(4).max(20) as usize;
+    let text_rows: usize = lines.iter().map(|l| l.width().div_ceil(w).max(1)).sum();
+    let h = (text_rows as u16 + 2).clamp(3, body.height.saturating_sub(2).max(3)).min(body.height);
+    let r = Rect { x: body.x, y: body.bottom().saturating_sub(h), width: body.width, height: h };
+    f.render_widget(Clear, r);
+    f.render_widget(
+        Paragraph::new(lines)
+            .wrap(Wrap { trim: false })
+            .block(widgets::panel(title, theme::cyan()).title_bottom(Line::styled(" h closes ", Style::new().fg(theme::dim())).right_aligned())),
+        r,
+    );
+}
+
 fn draw_help(f: &mut Frame, area: Rect) {
-    let r = centered(area, 104, 46);
+    let r = centered(area, 104, 49);
     f.render_widget(Clear, r);
     let sec = |t: &str| Line::styled(format!(" {t}"), Style::new().fg(theme::purple()).bold());
     let row = |k: &str, d: &str| {
@@ -368,6 +470,9 @@ fn draw_help(f: &mut Frame, area: Rect) {
         row("+ / -", "refresh interval ±250ms"),
         row("T", "theme picker (live preview, b = background on/off)"),
         row("R", "write a Markdown report to ./vigil-report-<time>.md"),
+        row("F", "find anything: processes, ports, IPs, MACs, services, containers, routes, users; ↵ jumps there"),
+        row("h", "explain the selected item: what it means and what to run next (Junos / Cisco too)"),
+        row("W", "troubleshoot: doctor (L1→L7), subnet calc, path MTU, DNS per resolver, throughput"),
         row("? / q", "help / quit"),
         sec("Processes"),
         row("c m p n u i o w e", "sort cpu · mem · pid · name · user · io · conns · net/s · fds"),
@@ -390,9 +495,10 @@ fn draw_help(f: &mut Frame, area: Rect) {
         row("p / r", "files of this pid / rerun query"),
         sec("Notes"),
         Line::styled(
-            "   Run with sudo to see sockets & files of all users.",
+            if cfg!(windows) { "   Run as administrator to see the event log and every process." } else { "   Run with sudo to see sockets & files of all users." },
             Style::new().fg(theme::muted()),
         ),
+        Line::styled(format!("   {}", crate::platform::get().summary()), Style::new().fg(theme::dim())),
         Line::raw(""),
         Line::styled("   press any key to close", Style::new().fg(theme::dim())),
     ];
@@ -463,6 +569,27 @@ mod tests {
                     std::fs::write(format!("{d}/{:?}.txt", tab), dump(&term)).unwrap();
                 }
             }
+            // Explain mode over every view.
+            app.explain = true;
+            for tab in Tab::ALL {
+                app.tab = tab;
+                term.draw(|f| super::draw(f, &mut app)).unwrap();
+                if let (Some(d), 180, Tab::Processes) = (&dir, w, tab) {
+                    std::fs::write(format!("{d}/explain-{:?}.txt", tab), dump(&term)).unwrap();
+                }
+            }
+            app.explain = false;
+            // Global search finds this test process by name and jumps to it.
+            app.input = "vigil".into();
+            app.search_hits = app.search("vigil");
+            assert!(app.search_hits.iter().any(|h| h.kind == "proc"), "own process not found");
+            app.mode = crate::app::Mode::Search;
+            term.draw(|f| super::draw(f, &mut app)).unwrap();
+            if let (Some(d), 180) = (&dir, w) {
+                std::fs::write(format!("{d}/search.txt"), dump(&term)).unwrap();
+            }
+            app.mode = crate::app::Mode::Normal;
+            app.input.clear();
             app.show_help = true;
             term.draw(|f| super::draw(f, &mut app)).unwrap();
             app.show_help = false;
@@ -477,16 +604,61 @@ mod tests {
             term.draw(|f| super::draw(f, &mut app)).unwrap();
             app.inspect = None;
             app.mode = crate::app::Mode::Theme;
-            for i in 0..crate::theme::THEMES.len() {
+            for i in 0..crate::theme::all().len() {
                 crate::theme::set(i);
                 term.draw(|f| super::draw(f, &mut app)).unwrap();
                 if let (Some(d), 180) = (&dir, w) {
-                    std::fs::write(format!("{d}/theme-{}.txt", crate::theme::THEMES[i].name), dump(&term)).unwrap();
+                    std::fs::write(format!("{d}/theme-{}.txt", crate::theme::all()[i].name), dump(&term)).unwrap();
                 }
             }
             crate::theme::set(0);
             app.mode = crate::app::Mode::Normal;
         }
+    }
+
+    #[test]
+    fn renders_troubleshoot_output_and_link_layer() {
+        use crate::tools::{Line, Tone};
+        let net = crate::app::NetHandles::idle();
+        {
+            let mut t = net.tools.lock().unwrap();
+            t.kind = Some(crate::tools::Kind::Doctor);
+            if std::env::var_os("VIGIL_SNAP_LIVE").is_some() {
+                let lines = std::sync::Mutex::new(Vec::new());
+                t.checks = crate::tools::doctor::run(&crate::tools::Settings::from(&crate::config::Troubleshoot::default()), &|tone, text| lines.lock().unwrap().push(Line { tone, text }));
+                t.lines = lines.into_inner().unwrap();
+            } else {
+                for (tone, text) in [(Tone::Head, "L1 · Physical"), (Tone::Warn, "  ▲ NIC errors         eth0: 1234 CRC, 2 frame"), (Tone::Dim, "      → CRC/frame errors are damage on the wire: bad cable, dirty fibre or SFP, EMI, or a duplex mismatch. Missed/overrun = the host is too slow to drain the NIC ring (ethtool -G). Switch side: show interfaces IF extensive (Junos)")] {
+                    t.lines.push(Line { tone, text: text.into() });
+                }
+                t.checks.push(crate::tools::doctor::Check { layer: 1, name: "NIC errors", status: crate::tools::doctor::Status::Warn, detail: String::new(), hint: String::new() });
+            }
+        }
+        {
+            let mut l = net.l2.lock().unwrap();
+            l.nics.push(crate::collect::l2::NicStats { name: "eth0".into(), carrier: Some(true), speed_mbps: Some(1000), duplex: Some("full".into()), rx_packets: 10, rx_crc: 1234, rx_errors: 1236, carrier_changes: Some(4), ..Default::default() });
+            l.lldp.push(crate::collect::l2::Lldp { local_port: "eth0".into(), chassis: "sw-core-1".into(), port: "ge-0/0/12".into(), vlan: "10".into(), mgmt_ip: "10.0.0.2".into(), sys_descr: "Juniper Networks, Inc. ex4300-48t".into(), ..Default::default() });
+        }
+        let sockets = Arc::new(Mutex::new(SocketStore::default()));
+        let files = Arc::new(Mutex::new(FilesStore::default()));
+        let mut app = App::new(Sampler::new(), sockets, files, Duration::from_secs(1), Tab::Troubleshoot, Default::default(), net);
+        let dir = std::env::var("VIGIL_SNAP_DIR").ok();
+        for (w, h) in [(180u16, 50u16), (100, 30), (60, 15), (20, 6)] {
+            let mut term = Terminal::new(TestBackend::new(w, h)).unwrap();
+            term.draw(|f| super::draw(f, &mut app)).unwrap();
+            let out = dump(&term);
+            if w >= 100 && std::env::var_os("VIGIL_SNAP_LIVE").is_none() {
+                assert!(out.contains("NIC errors"), "{out}");
+                assert!(out.contains("sw-core-1"), "{out}");
+            }
+            if let (Some(d), 180) = (&dir, w) {
+                std::fs::write(format!("{d}/Troubleshoot.txt"), out).unwrap();
+            }
+        }
+        app.net.tools.lock().unwrap().lines.clear();
+        let mut term = Terminal::new(TestBackend::new(140, 30)).unwrap();
+        term.draw(|f| super::draw(f, &mut app)).unwrap();
+        assert!(dump(&term).contains("subnet calculator"));
     }
 }
 

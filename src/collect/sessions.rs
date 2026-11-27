@@ -133,6 +133,11 @@ fn run(cmd: &str, args: &[&str]) -> Option<String> {
 
 fn collect() -> SessionStore {
     let linux = cfg!(target_os = "linux");
+    if cfg!(windows) {
+        // quser ships with Pro/Enterprise/Server; Home editions have no remote sessions.
+        let sessions = run("quser", &[]).map(|t| super::windows::parse_quser(&t)).unwrap_or_default();
+        return SessionStore { sessions, ssh_note: Some("SSH login history: Linux only (Windows logs logons as Security event 4624/4625)".into()), ..Default::default() };
+    }
     let sessions = if linux {
         run("w", &["-h", "-s", "-i"]).map(|t| parse_w(&t, true)).unwrap_or_default()
     } else {

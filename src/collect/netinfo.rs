@@ -4,7 +4,8 @@
 //!
 //! Linux: `ip -j route|neigh` (iproute2 JSON) with /proc/net/route + arp as
 //! fallback; /etc/resolv.conf (+ systemd-resolved upstreams).
-//! macOS: `netstat -rn`, `arp -an`, `ndp -an`, `scutil --dns`.
+//! macOS: `netstat -rn`, `arp -an`, `ndp -an` (IPv6 neighbours), `scutil --dns`.
+//! Windows: `route print`, `arp -a`, `ipconfig /all` (parsers in `windows.rs`).
 //!
 //! Runs on its own thread: once at start (probes need the gateway), then every
 //! 5 s while the Routes view is open, otherwise once a minute.
@@ -188,6 +189,30 @@ pub fn parse_arp_an(text: &str) -> Vec<Neighbor> {
         .collect()
 }
 
+/// macOS `ndp -an`: IPv6 neighbours. "permanent" rows are this host's own addresses.
+pub fn parse_ndp_an(text: &str) -> Vec<Neighbor> {
+    text.lines()
+        .skip(1)
+        .filter_map(|l| {
+            let f: Vec<&str> = l.split_whitespace().collect();
+            if f.len() < 4 || f[3] == "permanent" || f[2].starts_with("lo") {
+                return None;
+            }
+            let incomplete = f[1].starts_with('(');
+            let state = match f.get(4).copied().unwrap_or("") {
+                _ if incomplete => "INCOMPLETE",
+                "R" => "REACHABLE",
+                "S" => "STALE",
+                "D" => "DELAY",
+                "P" => "PROBE",
+                "I" => "INCOMPLETE",
+                _ => "NOSTATE",
+            };
+            Some(Neighbor { ip: f[0].to_string(), mac: if incomplete { String::new() } else { f[1].to_string() }, dev: f[2].to_string(), state: state.into() })
+        })
+        .collect()
+}
+
 pub fn parse_resolv_conf(text: &str) -> Dns {
     let mut d = Dns::default();
     for l in text.lines() {
@@ -221,7 +246,7 @@ pub fn parse_scutil_dns(text: &str) -> Dns {
 
 // ───────────────────────────── collection ─────────────────────────────
 
-fn collect() -> (Vec<Route>, Vec<Neighbor>, Dns, Option<String>) {
+pub fn collect() -> (Vec<Route>, Vec<Neighbor>, Dns, Option<String>) {
     #[cfg(target_os = "linux")]
     {
         let mut routes = Vec::new();
@@ -253,11 +278,20 @@ fn collect() -> (Vec<Route>, Vec<Neighbor>, Dns, Option<String>) {
     {
         let mut routes = run("netstat", &["-rn", "-f", "inet"]).map(|t| parse_netstat_rn(&t, "inet")).unwrap_or_default();
         routes.extend(run("netstat", &["-rn", "-f", "inet6"]).map(|t| parse_netstat_rn(&t, "inet6")).unwrap_or_default());
-        let neighbors = run("arp", &["-an"]).map(|t| parse_arp_an(&t)).unwrap_or_default();
+        let mut neighbors = run("arp", &["-an"]).map(|t| parse_arp_an(&t)).unwrap_or_default();
+        neighbors.extend(run("ndp", &["-an"]).map(|t| parse_ndp_an(&t)).unwrap_or_default());
         let dns = run("scutil", &["--dns"]).map(|t| parse_scutil_dns(&t)).unwrap_or_default();
         (routes, neighbors, dns, None)
     }
-    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+    #[cfg(windows)]
+    {
+        use super::windows as w;
+        let routes = run("route", &["print"]).map(|t| w::parse_route_print(&t)).unwrap_or_default();
+        let neighbors = run("arp", &["-a"]).map(|t| w::parse_arp_a(&t)).unwrap_or_default();
+        let dns = Dns { servers: run("ipconfig", &["/all"]).map(|t| w::parse_ipconfig_dns(&t)).unwrap_or_default(), ..Default::default() };
+        (routes, neighbors, dns, None)
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
     {
         (Vec::new(), Vec::new(), Dns::default(), Some("not supported on this OS".into()))
     }
@@ -346,6 +380,15 @@ mod tests {
         let s = store.lock().unwrap();
         assert!(s.updated.is_some(), "netinfo never collected");
         assert!(!s.routes.is_empty(), "no routes read (error: {:?})", s.error);
+    }
+
+    #[test]
+    fn ndp() {
+        let t = "Neighbor                                Linklayer Address  Netif Expire    St Flgs Prbs\n2a00:d10::133                  a8:4a:63:5:e1:44     en7 permanent R\nfe80::1%en0                     0:11:22:33:44:55     en0 23h59m58s S  R\nfe80::9%en0                     (incomplete)     en0 expired I\nfe80::1%lo0                             (incomplete)         lo0 permanent R\n";
+        let n = parse_ndp_an(t);
+        assert_eq!(n.len(), 2);
+        assert_eq!((n[0].ip.as_str(), n[0].state.as_str()), ("fe80::1%en0", "STALE"));
+        assert_eq!(n[1].state, "INCOMPLETE");
     }
 
     #[test]

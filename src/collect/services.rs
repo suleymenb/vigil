@@ -4,6 +4,8 @@
 //! Linux: `systemctl list-units` + one batched `systemctl show` for restart
 //! counts, main pid and memory; `journalctl -u <unit>` on demand.
 //! macOS: `launchctl list` (pid and last exit status).
+//! Windows: `sc queryex` (state, pid, exit code); Service Control Manager
+//! events from the System log instead of a journal.
 //! Polled every 5 s while the System view is open, every 60 s otherwise.
 
 use std::collections::HashMap;
@@ -122,6 +124,9 @@ fn collect() -> (Result<Vec<Unit>, String>, &'static str) {
     if cfg!(target_os = "macos") {
         return (run("launchctl", &["list"]).map(|t| parse_launchctl(&t)), "launchd");
     }
+    if cfg!(windows) {
+        return (run("sc", &["queryex", "type=", "service", "state=", "all"]).map(|t| super::windows::parse_sc_query(&t)), "scm");
+    }
     let mut units = match run("systemctl", &["list-units", "--type=service", "--all", "--plain", "--no-legend", "--no-pager"]) {
         Ok(t) => parse_list_units(&t),
         Err(e) => return (Err(format!("systemd not available: {e}")), "systemd"),
@@ -194,6 +199,8 @@ pub fn load_journal(store: Arc<Mutex<ServiceStore>>, unit: String) {
     thread::spawn(move || {
         let lines = if cfg!(target_os = "macos") {
             vec!["journal: Linux only (macOS keeps logs in the unified log: `log show`)".to_string()]
+        } else if cfg!(windows) {
+            super::windows::service_events(&unit)
         } else {
             match run("journalctl", &["-u", &unit, "-n", "200", "--no-pager", "-o", "short-iso", "-q"]) {
                 Ok(t) if !t.trim().is_empty() => t.lines().map(String::from).collect(),

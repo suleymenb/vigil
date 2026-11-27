@@ -1,7 +1,8 @@
 //! Latency probes: a tiny SmokePing inside vigil.
 //!
 //! Targets (config `[network] probes = [...]`, or `a` in the Probes view):
-//!   `icmp:1.1.1.1` / `1.1.1.1`   ICMP echo (unprivileged ping socket, raw as root)
+//!   `icmp:1.1.1.1` / `1.1.1.1`   ICMP echo (unprivileged ping socket, raw as root;
+//!                                IcmpSendEcho on Windows)
 //!   `tcp:db.internal:5432`       TCP connect time (a RST still proves reachability)
 //!   `dns:github.com`             system resolver lookup time
 //!   `https://api.example.com/`   HTTP status, time to first byte and days
@@ -242,8 +243,11 @@ pub fn run_once(t: &Target) -> Result<Outcome, String> {
 
 /// HTTP(S) via curl: status code, time to first byte, certificate expiry.
 fn http(url: &str) -> Result<Outcome, String> {
+    if !crate::platform::get().tools.curl {
+        return Err("curl not found (HTTP probes use curl; Windows 7/8 need it installed)".into());
+    }
     let out = std::process::Command::new("curl")
-        .args(["-sS", "-o", "/dev/null", "-v", "--max-time", "5", "-w", "%{http_code} %{time_starttransfer}"])
+        .args(["-sS", "-o", if cfg!(windows) { "NUL" } else { "/dev/null" }, "-v", "--max-time", "5", "-w", "%{http_code} %{time_starttransfer}"])
         .arg(url)
         .output()
         .map_err(|e| format!("curl: {e}"))?;
@@ -443,7 +447,59 @@ mod icmp {
     }
 }
 
-#[cfg(not(unix))]
+/// Windows: IcmpSendEcho from iphlpapi (Windows 2000+, no admin rights needed).
+/// IPv6 goes through `ping -6`, whose reply line is parsed language-independently.
+#[cfg(windows)]
+mod icmp {
+    use std::ffi::c_void;
+    use std::net::IpAddr;
+    use std::time::{Duration, Instant};
+
+    #[link(name = "iphlpapi")]
+    extern "system" {
+        fn IcmpCreateFile() -> isize;
+        fn IcmpCloseHandle(h: isize) -> i32;
+        fn IcmpSendEcho(h: isize, dst: u32, data: *const c_void, size: u16, opts: *const c_void, reply: *mut c_void, reply_size: u32, timeout: u32) -> u32;
+    }
+
+    pub fn ping(ip: IpAddr, timeout: Duration) -> Result<f64, String> {
+        match ip {
+            IpAddr::V4(a) => {
+                let h = unsafe { IcmpCreateFile() };
+                if h == -1 {
+                    return Err(std::io::Error::last_os_error().to_string());
+                }
+                let data = *b"vigil-probe-0123";
+                let mut reply = [0u8; 256];
+                let t0 = Instant::now();
+                let n = unsafe {
+                    IcmpSendEcho(h, u32::from_ne_bytes(a.octets()), data.as_ptr() as *const c_void, data.len() as u16, std::ptr::null(), reply.as_mut_ptr() as *mut c_void, reply.len() as u32, timeout.as_millis() as u32)
+                };
+                let rtt = t0.elapsed().as_secs_f64() * 1000.0;
+                unsafe { IcmpCloseHandle(h) };
+                // ICMP_ECHO_REPLY: Address, Status, RoundTripTime (all u32).
+                let status = u32::from_ne_bytes(reply[4..8].try_into().unwrap());
+                let reported = u32::from_ne_bytes(reply[8..12].try_into().unwrap()) as f64;
+                match (n, status) {
+                    (0, _) => Err("timeout".into()),
+                    (_, 0) => Ok(if reported >= 1.0 { reported.min(rtt) } else { rtt.min(1.0) }),
+                    (_, 11003) => Err("destination host unreachable".into()),
+                    (_, 11002) => Err("destination net unreachable".into()),
+                    (_, 11013) => Err("TTL expired in transit".into()),
+                    (_, 11010) => Err("timeout".into()),
+                    (_, s) => Err(format!("ICMP status {s}")),
+                }
+            }
+            IpAddr::V6(a) => {
+                let w = timeout.as_millis().to_string();
+                let o = std::process::Command::new("ping").args(["-6", "-n", "1", "-w", &w, &a.to_string()]).output().map_err(|e| format!("ping: {e}"))?;
+                String::from_utf8_lossy(&o.stdout).lines().find_map(crate::collect::windows::parse_ping_ms).ok_or_else(|| "timeout".into())
+            }
+        }
+    }
+}
+
+#[cfg(not(any(unix, windows)))]
 mod icmp {
     pub fn ping(_ip: std::net::IpAddr, _t: std::time::Duration) -> Result<f64, String> {
         Err("ICMP not supported on this OS".into())

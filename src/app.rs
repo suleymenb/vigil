@@ -15,6 +15,7 @@ use std::sync::atomic::AtomicBool;
 use crate::collect::capture::{self, CaptureState};
 use crate::collect::containers::{self, ContainerStore};
 use crate::collect::kmsg::{self, KmsgStore};
+use crate::collect::l2::{self, L2Store};
 use crate::collect::limits::{self, Limits};
 use crate::collect::services::{self, ServiceStore};
 use crate::collect::sessions::{self, SessionStore};
@@ -28,6 +29,7 @@ use crate::collect::probes::{self, ProbeStore};
 use crate::collect::system::{ProcInfo, Sampler};
 use crate::config::{Alerts, Config};
 use crate::theme;
+use crate::tools::{self, ToolStore};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Tab {
@@ -43,10 +45,11 @@ pub enum Tab {
     Containers,
     System,
     Users,
+    Troubleshoot,
 }
 
 impl Tab {
-    pub const ALL: [Tab; 12] = [
+    pub const ALL: [Tab; 13] = [
         Tab::Overview,
         Tab::Processes,
         Tab::Network,
@@ -59,6 +62,7 @@ impl Tab {
         Tab::Containers,
         Tab::System,
         Tab::Users,
+        Tab::Troubleshoot,
     ];
 
     pub fn title(self) -> &'static str {
@@ -75,6 +79,7 @@ impl Tab {
             Tab::Containers => "Containers",
             Tab::System => "System",
             Tab::Users => "Users",
+            Tab::Troubleshoot => "Troubleshoot",
         }
     }
 
@@ -84,6 +89,7 @@ impl Tab {
             Tab::Containers => '0',
             Tab::System => 'S',
             Tab::Users => 'U',
+            Tab::Troubleshoot => 'W',
             t => char::from(b'1' + t.index() as u8),
         }
     }
@@ -97,6 +103,7 @@ impl Tab {
         let s = match s.as_str() {
             "processes" => "procs".to_string(),
             "open files" | "openfiles" => "files".to_string(),
+            "tools" | "doctor" => "troubleshoot".to_string(),
             _ => s,
         };
         Tab::ALL
@@ -193,9 +200,21 @@ pub enum Mode {
     Theme,
     AddProbe,
     ConfirmClose,
+    ToolInput,
+    Search,
 }
 
-pub const SIGNALS: [(&str, &str, Signal); 9] = [
+/// One result of the global search (F).
+#[derive(Clone, Debug)]
+pub struct SearchHit {
+    pub tab: Tab,
+    pub kind: &'static str,
+    pub text: String,
+    /// Row to select in that view (pid for processes).
+    pub target: usize,
+}
+
+const SIGNALS: [(&str, &str, Signal); 9] = [
     ("SIGTERM", "15  graceful termination", Signal::Term),
     ("SIGKILL", " 9  force kill (cannot be caught)", Signal::Kill),
     ("SIGHUP", " 1  hangup / reload config", Signal::Hangup),
@@ -206,6 +225,88 @@ pub const SIGNALS: [(&str, &str, Signal); 9] = [
     ("SIGUSR1", "    user defined 1", Signal::User1),
     ("SIGUSR2", "    user defined 2", Signal::User2),
 ];
+
+/// Windows has no signals: TerminateProcess is the only thing sysinfo can send.
+const WIN_SIGNALS: [(&str, &str, Signal); 1] = [("TERMINATE", "end the process (TerminateProcess)", Signal::Kill)];
+
+/// Parse a key name from `[keys]`: `q`, `F5`, `ctrl-k`, `alt-x`, `esc`,
+/// `enter`, `tab`, `space`, `up`, `pgdn`, `del`, …
+pub fn parse_key(spec: &str) -> Option<KeyEvent> {
+    let mut mods = KeyModifiers::NONE;
+    let mut rest = spec.trim();
+    loop {
+        let low = rest.to_ascii_lowercase();
+        if let Some(r) = ["ctrl-", "ctrl+", "c-"].iter().find_map(|p| low.strip_prefix(p).map(|_| &rest[p.len()..])) {
+            mods |= KeyModifiers::CONTROL;
+            rest = r;
+        } else if let Some(r) = ["alt-", "alt+", "m-", "meta-"].iter().find_map(|p| low.strip_prefix(p).map(|_| &rest[p.len()..])) {
+            mods |= KeyModifiers::ALT;
+            rest = r;
+        } else {
+            break;
+        }
+    }
+    let code = match rest.to_ascii_lowercase().as_str() {
+        "esc" | "escape" => KeyCode::Esc,
+        "enter" | "return" => KeyCode::Enter,
+        "tab" => KeyCode::Tab,
+        "backtab" => KeyCode::BackTab,
+        "space" => KeyCode::Char(' '),
+        "up" => KeyCode::Up,
+        "down" => KeyCode::Down,
+        "left" => KeyCode::Left,
+        "right" => KeyCode::Right,
+        "home" => KeyCode::Home,
+        "end" => KeyCode::End,
+        "pgup" | "pageup" => KeyCode::PageUp,
+        "pgdn" | "pagedown" => KeyCode::PageDown,
+        "del" | "delete" => KeyCode::Delete,
+        "backspace" => KeyCode::Backspace,
+        "insert" | "ins" => KeyCode::Insert,
+        f if f.len() >= 2 && f.starts_with('f') && f[1..].parse::<u8>().is_ok_and(|n| (1..=24).contains(&n)) => KeyCode::F(f[1..].parse().ok()?),
+        _ => {
+            let mut ch = rest.chars();
+            let c = ch.next()?;
+            if ch.next().is_some() {
+                return None;
+            }
+            KeyCode::Char(if mods.contains(KeyModifiers::CONTROL) { c.to_ascii_lowercase() } else { c })
+        }
+    };
+    Some(KeyEvent::new(code, mods))
+}
+
+/// Terminals report `K` as Char('K') + SHIFT; the char already says it.
+fn normalize_key(k: KeyEvent) -> (KeyCode, KeyModifiers) {
+    match k.code {
+        KeyCode::Char(_) => (k.code, k.modifiers - KeyModifiers::SHIFT),
+        _ => (k.code, k.modifiers),
+    }
+}
+
+/// Build the `[keys]` map; returns warnings for entries that don't parse.
+pub fn key_map(keys: &std::collections::BTreeMap<String, String>) -> (HashMap<(KeyCode, KeyModifiers), KeyEvent>, Vec<String>) {
+    let mut m = HashMap::new();
+    let mut w = Vec::new();
+    for (from, to) in keys {
+        match (parse_key(from), parse_key(to)) {
+            (Some(f), Some(t)) => {
+                m.insert(normalize_key(f), t);
+            }
+            _ => w.push(format!("[keys] {from} = {to}: unknown key name")),
+        }
+    }
+    (m, w)
+}
+
+/// The signals this OS can deliver.
+pub fn signals() -> &'static [(&'static str, &'static str, Signal)] {
+    if cfg!(windows) {
+        &WIN_SIGNALS
+    } else {
+        &SIGNALS
+    }
+}
 
 /// Every `[alerts]` threshold that is exceeded. Shared by the header badges and `vigil report`.
 /// Inputs for health badges that come from collectors outside the sampler.
@@ -224,6 +325,9 @@ pub struct ExtraHealth {
     pub failed_units: usize,
     pub needs_restart: usize,
     pub ssh_failures: u32,
+    pub gateway_mac_changes: usize,
+    /// (interface, errors per second)
+    pub nic_errors: Vec<(String, f64)>,
 }
 
 impl ExtraHealth {
@@ -381,6 +485,16 @@ pub fn compute_alerts(
     if a.failed_units && x.failed_units > 0 {
         out.push((format!("FAILED UNITS {}", x.failed_units), theme::red()));
     }
+    if a.gateway_mac_change && x.gateway_mac_changes > 0 {
+        out.push(("GATEWAY MAC CHANGED".to_string(), theme::red()));
+    }
+    if a.nic_errors_per_s > 0.0 {
+        for (n, r) in &x.nic_errors {
+            if *r >= a.nic_errors_per_s {
+                out.push((format!("{n} ERR {r:.0}/s"), theme::red()));
+            }
+        }
+    }
     if let (Some(p), true) = (s.psi, a.psi_pct > 0.0) {
         for (name, v) in ["cpu", "mem", "io"].iter().zip(p) {
             if v >= a.psi_pct {
@@ -447,6 +561,12 @@ pub struct NetHandles {
     pub trace: Arc<Mutex<TraceStore>>,
     pub sessions: Arc<Mutex<SessionStore>>,
     pub sessions_active: Arc<AtomicBool>,
+    pub l2: Arc<Mutex<L2Store>>,
+    pub l2_active: Arc<AtomicBool>,
+    pub tools: Arc<Mutex<ToolStore>>,
+    /// macOS per-process bandwidth (nettop).
+    pub procbw: Arc<Mutex<crate::collect::procbw::ProcBw>>,
+    pub procbw_active: Arc<AtomicBool>,
 }
 
 impl NetHandles {
@@ -468,6 +588,11 @@ impl NetHandles {
             trace: Arc::default(),
             sessions: Arc::default(),
             sessions_active: Arc::default(),
+            l2: Arc::default(),
+            l2_active: Arc::default(),
+            tools: Arc::default(),
+            procbw: Arc::default(),
+            procbw_active: Arc::default(),
         }
     }
 
@@ -494,6 +619,8 @@ impl NetHandles {
         containers::spawn_worker(h.containers.clone(), h.containers_active.clone());
         services::spawn_worker(h.services.clone(), h.services_active.clone());
         sessions::spawn_worker(h.sessions.clone(), h.sessions_active.clone());
+        l2::spawn_worker(h.l2.clone(), h.netinfo.clone(), h.l2_active.clone());
+        crate::collect::procbw::spawn_worker(h.procbw.clone(), h.procbw_active.clone());
         (h, warnings)
     }
 }
@@ -506,6 +633,12 @@ pub struct App {
     pub interval: Duration,
     pub paused: bool,
     pub show_help: bool,
+    /// Explain mode (h): a panel explaining the selected item.
+    pub explain: bool,
+    /// `[keys]` from the config: pressed key → key it acts as.
+    key_map: HashMap<(KeyCode, KeyModifiers), KeyEvent>,
+    pub search_hits: Vec<SearchHit>,
+    pub search_sel: usize,
     pub quit: bool,
     pub mode: Mode,
     pub input: String,
@@ -554,6 +687,7 @@ pub struct App {
     pub show_names: bool,
     /// pid → (tx bytes/s, rx bytes/s), summed over its TCP connections.
     pub proc_net: HashMap<u32, (f64, f64)>,
+    procbw_version: u64,
     pub route_state: TableState,
     pub probe_state: TableState,
     pub fw_state: TableState,
@@ -567,6 +701,8 @@ pub struct App {
     pub sys_events_focus: bool,
     pub ev_state: TableState,
     pub users_state: TableState,
+    pub tool_state: TableState,
+    pub tool_kind: tools::Kind,
     /// Process shown in the inspector (Enter on a process).
     pub inspect: Option<u32>,
     pub inspect_info: Option<DeepInfo>,
@@ -602,6 +738,7 @@ impl App {
         net: NetHandles,
     ) -> Self {
         let show_names = cfg.network.reverse_dns;
+        let keys = key_map(&cfg.keys).0;
         let mut app = Self {
             tab,
             sampler,
@@ -646,6 +783,7 @@ impl App {
             resolver: show_names.then(Resolver::new),
             show_names,
             proc_net: HashMap::new(),
+            procbw_version: 0,
             route_state: TableState::default().with_selected(0),
             probe_state: TableState::default().with_selected(0),
             fw_state: TableState::default().with_selected(0),
@@ -658,6 +796,12 @@ impl App {
             sys_events_focus: false,
             ev_state: TableState::default().with_selected(0),
             users_state: TableState::default().with_selected(0),
+            tool_state: TableState::default(),
+            explain: false,
+            key_map: keys,
+            search_hits: Vec::new(),
+            search_sel: 0,
+            tool_kind: tools::Kind::Doctor,
             inspect: None,
             inspect_info: None,
             inspect_files: Arc::default(),
@@ -676,15 +820,24 @@ impl App {
     }
 
     pub fn rebuild(&mut self) {
+        // macOS: bandwidth per process comes from nettop, not from the sockets.
+        if let Ok(b) = self.net.procbw.try_lock() {
+            if b.version != self.procbw_version {
+                self.procbw_version = b.version;
+                self.proc_net = b.rates.clone();
+            }
+        }
         if let Ok(s) = self.sockets.lock() {
             if s.version != self.conn_version {
                 self.conn_version = s.version;
                 self.conn_counts.clear();
-                self.proc_net.clear();
+                if self.procbw_version == 0 {
+                    self.proc_net.clear();
+                }
                 self.close_wait = 0;
                 self.time_wait = 0;
                 for e in s.entries.iter() {
-                    if let (Some(n), true) = (&e.net, e.pid != 0) {
+                    if let (Some(n), true) = (&e.net, e.pid != 0 && self.procbw_version == 0) {
                         if n.tx_rate > 0.0 || n.rx_rate > 0.0 {
                             let v = self.proc_net.entry(e.pid).or_default();
                             v.0 += n.tx_rate;
@@ -716,6 +869,8 @@ impl App {
         self.net.containers_active.store(self.tab == Tab::Containers, Relaxed);
         self.net.services_active.store(self.tab == Tab::System, Relaxed);
         self.net.sessions_active.store(self.tab == Tab::Users, Relaxed);
+        self.net.l2_active.store(self.tab == Tab::Troubleshoot, Relaxed);
+        self.net.procbw_active.store(matches!(self.tab, Tab::Network | Tab::Processes) || self.proc_sort == ProcSort::Net, Relaxed);
     }
 
     /// Health badges for the header: every threshold from `[alerts]` that is exceeded.
@@ -753,6 +908,11 @@ impl App {
         }
         if let Ok(ss) = self.net.sessions.try_lock() {
             x.ssh_failures = ss.failed_total;
+        }
+        if let Ok(l) = self.net.l2.try_lock() {
+            x.gateway_mac_changes = l.gateway_changes();
+            x.nic_errors = l.err_rate.iter().filter(|(n, r)| **r > 0.0 && l2::is_physical(n)).map(|(n, r)| (n.clone(), *r)).collect();
+            x.nic_errors.sort_by(|a, b| a.0.cmp(&b.0));
         }
         compute_alerts(&self.sampler, &self.cfg.alerts, self.close_wait, self.time_wait, &x)
     }
@@ -873,6 +1033,11 @@ impl App {
             0
         };
         let tr = if self.tab == Tab::Probes { v(self.net.trace.try_lock().ok().map(|s| s.version)) } else { 0 }
+            + if self.tab == Tab::Troubleshoot {
+                v(self.net.tools.try_lock().ok().map(|s| s.version)) + v(self.net.l2.try_lock().ok().map(|s| s.version))
+            } else {
+                0
+            }
             + if self.tab == Tab::Users { v(self.net.sessions.try_lock().ok().map(|s| s.version)) } else { 0 }
             + if self.inspect.is_some() {
                 v(self.inspect_files.try_lock().ok().map(|s| s.version)) + v(self.net.services.try_lock().ok().map(|s| s.version))
@@ -1137,6 +1302,7 @@ impl App {
             Tab::System if self.sys_events_focus => self.net.kmsg.try_lock().map(|k| k.events.len()).unwrap_or(0),
             Tab::System => self.net.services.try_lock().map(|s| s.units.len()).unwrap_or(0),
             Tab::Users => self.net.sessions.try_lock().map(|s| s.sessions.len()).unwrap_or(0),
+            Tab::Troubleshoot => self.net.tools.try_lock().map(|s| s.lines.len()).unwrap_or(0),
             _ => 0,
         }
     }
@@ -1154,18 +1320,21 @@ impl App {
             Tab::System if self.sys_events_focus => Some(&mut self.ev_state),
             Tab::System => Some(&mut self.svc_state),
             Tab::Users => Some(&mut self.users_state),
+            Tab::Troubleshoot => Some(&mut self.tool_state),
             _ => None,
         }
     }
 
     fn move_sel(&mut self, delta: isize) {
         let len = self.list_len();
+        let tail = self.tab == Tab::Troubleshoot;
         if let Some(st) = self.table_state() {
             if len == 0 {
                 st.select(Some(0));
                 return;
             }
-            let cur = st.selected().unwrap_or(0) as isize;
+            // The Troubleshoot output follows the tail until you scroll: start from the end.
+            let cur = st.selected().unwrap_or(if tail { len } else { 0 }) as isize;
             let next = (cur + delta).clamp(0, len as isize - 1) as usize;
             st.select(Some(next));
         }
@@ -1304,6 +1473,215 @@ impl App {
                 s.sessions.get(self.users_state.selected()?).map(|u| ("address".into(), if u.from.is_empty() { u.user.clone() } else { u.from.clone() }))
             }
             Tab::Network => self.net_state.selected().and_then(|i| self.sampler.ifaces.get(i)).map(|i| ("interface".into(), i.name.clone())),
+            Tab::Troubleshoot => {
+                let t = self.net.tools.try_lock().ok()?;
+                t.lines.get(self.tool_state.selected()?).map(|l| ("line".into(), l.text.trim().to_string()))
+            }
+            _ => None,
+        }
+    }
+
+    /// Search everything vigil knows for `q` (case-insensitive), best first.
+    pub fn search(&self, q: &str) -> Vec<SearchHit> {
+        const MAX: usize = 200;
+        let q = q.trim().to_ascii_lowercase();
+        let mut out = Vec::new();
+        if q.is_empty() {
+            return out;
+        }
+        let mut push = |tab, kind, text: String, target| {
+            if out.len() < MAX {
+                out.push(SearchHit { tab, kind, text, target });
+            }
+        };
+        let pid_q: Option<u32> = q.parse().ok();
+        for p in &self.sampler.procs {
+            if pid_q == Some(p.pid) || icontains(&p.name, &q) || icontains(&p.cmd, &q) || icontains(&p.user, &q) {
+                push(Tab::Processes, "proc", format!("{} {}  {}  {}", p.pid, p.name, p.user, crate::util::truncate(&p.cmd, 90)), p.pid as usize);
+            }
+        }
+        for (i, e) in self.socket_rows().iter().enumerate() {
+            if icontains(&e.name, &q) || icontains(&e.command, &q) || icontains(&e.state, &q) || (q.starts_with(':') && e.name.contains(&q)) {
+                push(Tab::Sockets, "socket", format!("{} {} {}  {} ({})", e.proto, e.name, e.state, e.command, e.pid), i);
+            }
+        }
+        if let Ok(sv) = self.net.services.try_lock() {
+            for (i, u) in sv.units.iter().enumerate() {
+                if icontains(&u.name, &q) || icontains(&u.description, &q) {
+                    push(Tab::System, "service", format!("{}  {}/{}  {}", u.name, u.active, u.sub, u.description), i);
+                }
+            }
+        }
+        if let Ok(c) = self.net.containers.try_lock() {
+            for (i, k) in c.containers.iter().enumerate() {
+                if icontains(&k.name, &q) || icontains(&k.id, &q) || icontains(&k.path, &q) {
+                    push(Tab::Containers, "container", format!("{}  {}  {}", k.name, k.runtime, &k.id[..k.id.len().min(12)]), i);
+                }
+            }
+        }
+        if let Ok(n) = self.net.netinfo.try_lock() {
+            for (i, r) in n.routes.iter().enumerate() {
+                if icontains(&r.dst, &q) || icontains(&r.gateway, &q) || icontains(&r.dev, &q) {
+                    push(Tab::Routes, "route", format!("{} via {} dev {}", r.dst, if r.gateway.is_empty() { "-" } else { &r.gateway }, r.dev), i);
+                }
+            }
+            for nb in &n.neighbors {
+                if icontains(&nb.ip, &q) || icontains(&nb.mac, &q) {
+                    push(Tab::Routes, "neighbour", format!("{} {} {} {}", nb.ip, nb.mac, nb.dev, nb.state), usize::MAX);
+                }
+            }
+        }
+        if let Ok(ss) = self.net.sessions.try_lock() {
+            for (i, u) in ss.sessions.iter().enumerate() {
+                if icontains(&u.user, &q) || icontains(&u.from, &q) || icontains(&u.what, &q) {
+                    push(Tab::Users, "session", format!("{} {} {} {}", u.user, u.tty, u.from, u.what), i);
+                }
+            }
+        }
+        for (i, r) in self.fw_rows().iter().enumerate() {
+            if icontains(&r.rule, &q) || icontains(&r.chain, &q) {
+                push(Tab::Firewall, "rule", format!("{} {}  {}  {}", r.table, r.chain, crate::util::truncate(&r.rule, 80), r.verdict), i);
+            }
+        }
+        if let Ok(p) = self.net.probes.try_lock() {
+            for (i, pr) in p.probes.iter().enumerate() {
+                if icontains(&pr.name, &q) || icontains(&pr.target.spec(), &q) {
+                    push(Tab::Probes, "probe", format!("{}  {}", pr.name, pr.target.spec()), i);
+                }
+            }
+        }
+        for (i, f) in self.sampler.ifaces.iter().enumerate() {
+            if icontains(&f.name, &q) || f.addrs.iter().any(|a| icontains(a, &q)) || icontains(&f.mac, &q) {
+                push(Tab::Network, "interface", format!("{}  {}  {}", f.name, f.addrs.join(" "), f.mac), i);
+            }
+        }
+        out
+    }
+
+    fn key_search(&mut self, k: KeyEvent) {
+        match k.code {
+            KeyCode::Esc => {
+                self.input.clear();
+                self.mode = Mode::Normal;
+            }
+            KeyCode::Up => self.search_sel = self.search_sel.saturating_sub(1),
+            KeyCode::Down | KeyCode::Tab => self.search_sel = (self.search_sel + 1).min(self.search_hits.len().saturating_sub(1)),
+            KeyCode::Enter => {
+                self.mode = Mode::Normal;
+                if let Some(h) = self.search_hits.get(self.search_sel).cloned() {
+                    self.jump_to(&h);
+                }
+            }
+            KeyCode::Backspace => {
+                self.input.pop();
+                self.search_hits = self.search(&self.input);
+                self.search_sel = 0;
+            }
+            KeyCode::Char(c) => {
+                self.input.push(c);
+                self.search_hits = self.search(&self.input);
+                self.search_sel = 0;
+            }
+            _ => {}
+        }
+    }
+
+    fn jump_to(&mut self, h: &SearchHit) {
+        self.inspect = None;
+        self.tab = h.tab;
+        match h.tab {
+            Tab::Processes => {
+                let pid = h.target as u32;
+                if !self.proc_rows.iter().any(|r| self.sampler.procs[r.idx].pid == pid) {
+                    self.proc_filter.clear();
+                    self.rebuild_procs();
+                }
+                if let Some(i) = self.proc_rows.iter().position(|r| self.sampler.procs[r.idx].pid == pid) {
+                    self.proc_state.select(Some(i));
+                    self.sync_selected_pid();
+                }
+            }
+            Tab::System => {
+                self.sys_events_focus = false;
+                self.svc_state.select(Some(h.target));
+            }
+            _ => {
+                if h.target != usize::MAX {
+                    if let Some(st) = self.table_state() {
+                        st.select(Some(h.target));
+                    }
+                }
+            }
+        }
+        self.set_status(format!("{}: {}", h.kind, crate::util::truncate(&h.text, 70)), theme::cyan());
+    }
+
+    /// The term explain mode should describe for the current selection.
+    pub fn explain_term(&self) -> Option<String> {
+        match self.tab {
+            Tab::Processes => self.selected_proc().map(|p| p.status.to_string()),
+            Tab::Sockets => {
+                let s = self.sock_state.selected().and_then(|i| self.socket_rows().get(i))?;
+                Some(if s.proto == "UDP" { "UDP".into() } else { s.state.clone() })
+            }
+            Tab::Network => {
+                let i = self.sampler.ifaces.get(self.net_state.selected()?)?;
+                Some(if i.rx_errors + i.tx_errors > 0 { "CRC" } else if i.rx_dropped + i.tx_dropped > 0 { "drops" } else if i.duplex.as_deref() == Some("half") { "duplex" } else { "MTU" }.into())
+            }
+            Tab::Routes => {
+                let n = self.net.netinfo.try_lock().ok()?;
+                let r = n.routes.get(self.route_state.selected()?)?;
+                Some(if matches!(r.dst.as_str(), "default" | "0.0.0.0/0" | "::/0") {
+                    "default".into()
+                } else if r.gateway.is_empty() {
+                    if r.proto.is_empty() { "link".into() } else { r.proto.clone() }
+                } else if !r.proto.is_empty() {
+                    r.proto.clone()
+                } else {
+                    "metric".into()
+                })
+            }
+            Tab::Probes => {
+                let p = self.net.probes.try_lock().ok()?;
+                let k = p.probes.get(self.probe_state.selected()?)?.target.kind();
+                Some(if k.starts_with("http") { "https".into() } else { k.to_string() })
+            }
+            Tab::Firewall => {
+                let rows = self.fw_rows();
+                let r = rows.get(self.fw_state.selected()?)?;
+                Some(if r.verdict.is_empty() { "policy".into() } else { r.verdict.to_ascii_uppercase() })
+            }
+            Tab::System if self.sys_events_focus => {
+                let k = self.net.kmsg.try_lock().ok()?;
+                let n = k.events.len();
+                k.events.get(n.checked_sub(1 + self.ev_state.selected()?)?).map(|e| e.kind.to_string())
+            }
+            Tab::System => {
+                let sv = self.net.services.try_lock().ok()?;
+                let u = sv.units.get(self.svc_state.selected()?)?;
+                Some(if u.failed() { "failed" } else if u.restarts > 0 { "restarts" } else if u.active == "activating" { "activating" } else { return None }.into())
+            }
+            Tab::Containers => {
+                let c = self.net.containers.try_lock().ok()?;
+                let c = c.containers.get(self.ctr_state.selected()?)?;
+                Some(if c.oom_kills > 0 { "OOM" } else { "throttled" }.into())
+            }
+            Tab::Troubleshoot => {
+                let t = self.net.tools.try_lock().ok()?;
+                let line = match self.tool_state.selected() {
+                    Some(i) => t.lines.get(i)?.text.clone(),
+                    None => {
+                        let c = t.checks.iter().find(|c| c.status == tools::doctor::Status::Fail).or_else(|| t.checks.iter().find(|c| c.status == tools::doctor::Status::Warn))?;
+                        return Some(c.name.to_string());
+                    }
+                };
+                // "  ✔ Gateway ping       10.0.0.1: …" → the check name.
+                let body: String = line.trim_start().chars().skip_while(|c| !c.is_whitespace()).collect();
+                let names: Vec<&str> = t.checks.iter().map(|c| c.name).collect();
+                names.into_iter().find(|n| body.trim_start().starts_with(n)).map(String::from).or_else(|| {
+                    if line.contains("MTU") { Some("MTU".into()) } else if line.contains("ARP") { Some("ARP change".into()) } else { None }
+                })
+            }
             _ => None,
         }
     }
@@ -1492,6 +1870,14 @@ impl App {
                     })
                     .collect(),
             ),
+            Tab::Troubleshoot => {
+                let t = self.net.tools.try_lock().ok()?;
+                (
+                    "troubleshoot",
+                    vec!["tone", "text"],
+                    t.lines.iter().map(|l| vec![format!("{:?}", l.tone).to_ascii_lowercase(), l.text.clone()]).collect(),
+                )
+            }
             Tab::Users => {
                 let s = self.net.sessions.try_lock().ok()?;
                 (
@@ -1520,9 +1906,12 @@ impl App {
             self.quit = true;
             return;
         }
+        // `[keys]` remaps apply in normal mode only, never while typing.
+        let k = if self.mode == Mode::Normal { self.key_map.get(&normalize_key(k)).copied().unwrap_or(k) } else { k };
         match self.mode {
             Mode::Filter => self.key_filter(k),
-            Mode::Query | Mode::AddProbe => self.key_query(k),
+            Mode::Query | Mode::AddProbe | Mode::ToolInput => self.key_query(k),
+            Mode::Search => self.key_search(k),
             Mode::ConfirmClose => self.key_confirm_close(k),
             Mode::Signal => self.key_signal(k),
             Mode::Theme => self.key_theme(k),
@@ -1570,7 +1959,9 @@ impl App {
                 let mode = self.mode;
                 self.mode = Mode::Normal;
                 let input = std::mem::take(&mut self.input);
-                if mode == Mode::AddProbe {
+                if mode == Mode::ToolInput {
+                    self.run_tool(self.tool_kind, input);
+                } else if mode == Mode::AddProbe {
                     let res = self.net.probes.lock().map_err(|_| "busy".to_string()).and_then(|mut p| p.add(&input));
                     match res {
                         Ok(()) => self.set_status(format!("probe {input} added (saved on quit)"), theme::green()),
@@ -1596,14 +1987,14 @@ impl App {
             }
             KeyCode::Up | KeyCode::Char('k') => self.signal_idx = self.signal_idx.saturating_sub(1),
             KeyCode::Down | KeyCode::Char('j') => {
-                self.signal_idx = (self.signal_idx + 1).min(SIGNALS.len() - 1)
+                self.signal_idx = (self.signal_idx + 1).min(signals().len() - 1)
             }
             KeyCode::Char(c @ '1'..='9') => {
-                self.signal_idx = (c as usize - '1' as usize).min(SIGNALS.len() - 1)
+                self.signal_idx = (c as usize - '1' as usize).min(signals().len() - 1)
             }
             KeyCode::Enter | KeyCode::Char('y') => {
                 if let Some((pid, name)) = self.signal_target.take() {
-                    let (sname, _, sig) = SIGNALS[self.signal_idx];
+                    let (sname, _, sig) = signals()[self.signal_idx.min(signals().len() - 1)];
                     match self.sampler.send_signal(pid, sig) {
                         Ok(()) => self.set_status(format!("sent {sname} to {name} ({pid})"), theme::green()),
                         Err(e) => self.set_status(e, theme::red()),
@@ -1616,7 +2007,7 @@ impl App {
     }
 
     fn key_theme(&mut self, k: KeyEvent) {
-        let n = theme::THEMES.len();
+        let n = theme::all().len();
         match k.code {
             KeyCode::Esc | KeyCode::Char('q') => {
                 theme::set(self.theme_before);
@@ -1654,6 +2045,37 @@ impl App {
                 self.mode = Mode::Normal;
             }
         }
+    }
+
+    /// Start a troubleshooting tool; its output streams into the Troubleshoot view.
+    pub fn run_tool(&mut self, kind: tools::Kind, arg: String) {
+        if self.net.tools.try_lock().map(|t| t.running).unwrap_or(false) {
+            self.set_status("a tool is still running", theme::yellow());
+            return;
+        }
+        let dns = self.net.netinfo.try_lock().map(|n| n.dns.servers.clone()).unwrap_or_default();
+        tools::start(self.net.tools.clone(), kind, arg, tools::Settings::from(&self.cfg.troubleshoot), dns);
+        self.tool_kind = kind;
+        self.tool_state.select(None);
+        *self.tool_state.offset_mut() = 0;
+        self.tab = Tab::Troubleshoot;
+    }
+
+    fn key_troubleshoot(&mut self, k: KeyEvent) {
+        let kind = match k.code {
+            KeyCode::Char('d') => {
+                self.run_tool(tools::Kind::Doctor, String::new());
+                return;
+            }
+            KeyCode::Char('c') => tools::Kind::Calc,
+            KeyCode::Char('m') => tools::Kind::Mtu,
+            KeyCode::Char('n') => tools::Kind::Dns,
+            KeyCode::Char('p') => tools::Kind::Perf,
+            _ => return,
+        };
+        self.tool_kind = kind;
+        self.input.clear();
+        self.mode = Mode::ToolInput;
     }
 
     fn key_probes(&mut self, k: KeyEvent) {
@@ -1754,6 +2176,13 @@ impl App {
         match k.code {
             KeyCode::Char('q') => self.quit = true,
             KeyCode::Char('?') | KeyCode::F(1) => self.show_help = true,
+            KeyCode::Char('h') => self.explain = !self.explain,
+            KeyCode::Char('F') => {
+                self.input.clear();
+                self.search_hits.clear();
+                self.search_sel = 0;
+                self.mode = Mode::Search;
+            }
             KeyCode::Char('T') => {
                 self.theme_before = theme::index();
                 self.mode = Mode::Theme;
@@ -1772,6 +2201,7 @@ impl App {
             KeyCode::Char('0') => self.tab = Tab::Containers,
             KeyCode::Char('S') => self.tab = Tab::System,
             KeyCode::Char('U') => self.tab = Tab::Users,
+            KeyCode::Char('W') => self.tab = Tab::Troubleshoot,
             KeyCode::Char('y') => self.copy(),
             KeyCode::Char('E') => self.export(),
             KeyCode::Char('N') => {
@@ -1809,6 +2239,9 @@ impl App {
                 self.mode = Mode::Query;
             }
             KeyCode::Esc => {
+                if self.tab == Tab::Troubleshoot {
+                    self.tool_state.select(None);
+                }
                 if let Some(f) = self.filter_mut() {
                     f.clear();
                 }
@@ -1827,6 +2260,7 @@ impl App {
                 Tab::Probes => self.key_probes(k),
                 Tab::System => self.key_system(k),
                 Tab::Firewall => self.key_firewall(k),
+                Tab::Troubleshoot => self.key_troubleshoot(k),
                 _ => {}
             },
         }
@@ -1985,5 +2419,26 @@ impl App {
             }
             _ => {}
         }
+    }
+}
+
+#[cfg(test)]
+mod key_tests {
+    use super::*;
+
+    #[test]
+    fn parses_key_names_and_remaps() {
+        assert_eq!(parse_key("F5"), Some(KeyEvent::new(KeyCode::F(5), KeyModifiers::NONE)));
+        assert_eq!(parse_key("ctrl-K"), Some(KeyEvent::new(KeyCode::Char('k'), KeyModifiers::CONTROL)));
+        assert_eq!(parse_key("alt+x"), Some(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::ALT)));
+        assert_eq!(parse_key("PgDn"), Some(KeyEvent::new(KeyCode::PageDown, KeyModifiers::NONE)));
+        assert_eq!(parse_key("Q").map(|k| k.code), Some(KeyCode::Char('Q')));
+        assert_eq!(parse_key("nonsense"), None);
+        let keys = [("Q".to_string(), "q".to_string()), ("bad key".into(), "q".into())].into_iter().collect();
+        let (m, w) = key_map(&keys);
+        assert_eq!(w.len(), 1);
+        // Terminals send Shift+Q as Char('Q') with SHIFT set.
+        let pressed = KeyEvent::new(KeyCode::Char('Q'), KeyModifiers::SHIFT);
+        assert_eq!(m.get(&normalize_key(pressed)).map(|k| k.code), Some(KeyCode::Char('q')));
     }
 }
