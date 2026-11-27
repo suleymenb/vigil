@@ -120,21 +120,46 @@ fn draw_header(f: &mut Frame, app: &mut App, area: Rect) {
     .alignment(Alignment::Right);
     f.render_widget(Paragraph::new(right), top);
 
+    // Tab row: tabs on the left, health badges on the right, never overlapping.
+    // When both don't fit, inactive tabs shrink to their key, long badges are
+    // shortened, and the badges that still don't fit collapse into "+N".
+    let mut alerts = app.alerts();
+    alerts.sort_by_key(|(_, c)| *c != theme::red()); // urgent first (stable)
+    let avail = tabs_area.width as usize;
+    // Shrink inactive tabs to their key, longest names first, only until the
+    // badges fit; the active tab always keeps its name.
+    let label_w = |t: &Tab, short: bool| if short { t.key().len_utf8() } else { t.key().len_utf8() + 1 + t.title().chars().count() };
+    let mut short = [false; Tab::ALL.len()];
+    let total = |short: &[bool]| -> usize { Tab::ALL.iter().zip(short).map(|(t, s)| label_w(t, *s) + 2).sum::<usize>() + Tab::ALL.len() - 1 };
+    let need = avail.saturating_sub(badges_width(&alerts) + 2);
+    let mut order: Vec<usize> = (0..Tab::ALL.len()).filter(|i| Tab::ALL[*i] != app.tab).collect();
+    order.sort_by_key(|i| std::cmp::Reverse(Tab::ALL[*i].title().len()));
+    for i in order {
+        if total(&short) <= need {
+            break;
+        }
+        short[i] = true;
+    }
+    let tabs_w = total(&short).min(avail);
+    let badges = fit_badges(&alerts, avail.saturating_sub(tabs_w + 2));
+
     let titles: Vec<Line> = Tab::ALL
         .iter()
-        .map(|t| {
-            Line::from(vec![
-                Span::styled(t.key().to_string(), Style::new().fg(theme::dim())),
-                Span::raw(" "),
-                Span::raw(t.title()),
-            ])
+        .zip(short)
+        .map(|(t, s)| {
+            let key = Span::styled(t.key().to_string(), Style::new().fg(theme::dim()));
+            if s {
+                Line::from(key)
+            } else {
+                Line::from(vec![key, Span::raw(" "), Span::raw(t.title())])
+            }
         })
         .collect();
     // Record where each tab is drawn, for mouse clicks (Tabs: " title " + divider).
     app.hits.tabs.clear();
     let mut x = tabs_area.x;
-    for t in Tab::ALL {
-        let w = (t.key().len_utf8() + 1 + t.title().len()) as u16 + 2;
+    for (t, s) in Tab::ALL.into_iter().zip(short) {
+        let w = label_w(&t, s) as u16 + 2;
         app.hits.tabs.push((x, x + w, tabs_area.y, t));
         x += w + 1;
     }
@@ -144,23 +169,76 @@ fn draw_header(f: &mut Frame, app: &mut App, area: Rect) {
         .highlight_style(Style::new().fg(theme::blue()).bold().underlined())
         .divider(Span::styled(theme::glyphs().divider, Style::new().fg(theme::border())))
         .padding(" ", " ");
-    // Health badges, right-aligned on the tab row, visible from every view.
-    let alerts = app.alerts();
-    let mut badges: Vec<Span> = Vec::new();
-    if alerts.is_empty() {
-        badges.push(Span::styled(if theme::is_ascii() { "[ OK ] " } else { "✓ healthy " }, Style::new().fg(theme::green())));
-    } else {
-        for (text, color) in alerts {
-            badges.push(Span::styled(format!(" {text} "), Style::new().fg(theme::header_bg()).bg(color).bold()));
-            badges.push(Span::raw(" "));
-        }
-    }
     let bw: u16 = badges.iter().map(|s| s.width() as u16).sum();
-    let bw = bw.min(tabs_area.width / 2);
-    let [tabs_left, badge_area] =
-        Layout::horizontal([Constraint::Min(0), Constraint::Length(bw)]).areas(tabs_area);
+    let [tabs_left, badge_area] = Layout::horizontal([Constraint::Min(0), Constraint::Length(bw.min(tabs_area.width))]).areas(tabs_area);
     f.render_widget(tabs, tabs_left);
     f.render_widget(Paragraph::new(Line::from(badges)).alignment(Alignment::Right), badge_area);
+}
+
+/// Longest badge text before it is shortened (the value at the end is kept).
+const BADGE_MAX: usize = 28;
+
+/// "LOSS gateway fc00:d264:c6f5:748:: 100%" → "LOSS gateway fc00:d264… 100%".
+fn short_badge(text: &str) -> String {
+    shorten_badge(text, BADGE_MAX)
+}
+
+/// Shorten to `max` characters, keeping a short value at the end ("100%").
+fn shorten_badge(text: &str, max: usize) -> String {
+    if text.chars().count() <= max {
+        return text.to_string();
+    }
+    let (head, tail) = match text.rsplit_once(' ') {
+        Some((h, t)) if t.chars().count() < 10 => (h, format!(" {t}")),
+        _ => (text, String::new()),
+    };
+    let keep = max.saturating_sub(tail.chars().count() + 1);
+    format!("{}…{tail}", head.chars().take(keep).collect::<String>().trim_end())
+}
+
+fn badges_width(alerts: &[(String, ratatui::style::Color)]) -> usize {
+    if alerts.is_empty() {
+        return 10;
+    }
+    alerts.iter().map(|(t, _)| short_badge(t).chars().count() + 3).sum()
+}
+
+/// Badges that fit in `width` columns, plus a "+N" badge for the rest.
+fn fit_badges(alerts: &[(String, ratatui::style::Color)], width: usize) -> Vec<Span<'static>> {
+    let mut out = Vec::new();
+    if alerts.is_empty() {
+        let ok = if theme::is_ascii() { "[ OK ] " } else { "✓ healthy " };
+        if width >= ok.chars().count() {
+            out.push(Span::styled(ok, Style::new().fg(theme::green())));
+        }
+        return out;
+    }
+    let mut used = 0;
+    for (i, (text, color)) in alerts.iter().enumerate() {
+        let mut t = short_badge(text);
+        let rest = alerts.len() - i - 1;
+        let more_w = if rest > 0 { format!(" +{rest} ").len() + 1 } else { 0 };
+        // Squeeze a badge further rather than hide it, down to ~12 characters.
+        let room = width.saturating_sub(used + more_w + 3);
+        if t.chars().count() > room && room >= 12 {
+            t = shorten_badge(&t, room);
+        }
+        let w = t.chars().count() + 3; // " text " + gap
+        if used + w + more_w > width {
+            let hidden = alerts.len() - i;
+            let label = format!(" +{hidden} ");
+            if used + label.len() < width {
+                let col = if alerts[i..].iter().any(|(_, c)| *c == theme::red()) { theme::red() } else { theme::orange() };
+                out.push(Span::styled(label, Style::new().fg(theme::header_bg()).bg(col).bold()));
+                out.push(Span::raw(" "));
+            }
+            break;
+        }
+        out.push(Span::styled(format!(" {t} "), Style::new().fg(theme::header_bg()).bg(*color).bold()));
+        out.push(Span::raw(" "));
+        used += w;
+    }
+    out
 }
 
 fn hints(app: &App) -> Vec<(&'static str, &'static str)> {
@@ -613,6 +691,44 @@ mod tests {
             }
             crate::theme::set(0);
             app.mode = crate::app::Mode::Normal;
+        }
+    }
+
+    #[test]
+    fn tab_row_never_overlaps_badges() {
+        assert_eq!(super::short_badge("LOSS gateway fc00:d264:c6f5:748:: 100%"), "LOSS gateway fc00:d264… 100%");
+        assert!(super::short_badge("LOSS gateway fc00:d264:c6f5:748:: 100%").chars().count() <= super::BADGE_MAX);
+        assert_eq!(super::short_badge("MEM 96%"), "MEM 96%");
+        let alerts: Vec<(String, ratatui::style::Color)> = vec![("MEM 96%".into(), crate::theme::red()), ("LOSS gateway fc00:d264:c6f5:748:: 100%".into(), crate::theme::red()), ("LOAD 2.1/core".into(), crate::theme::orange())];
+        let w = |v: &[ratatui::text::Span]| v.iter().map(|s| s.width()).sum::<usize>();
+        assert!(w(&super::fit_badges(&alerts, 200)) <= 200);
+        let some = super::fit_badges(&alerts, 20);
+        assert!(w(&some) <= 20, "{some:?}");
+        assert!(some.iter().any(|s| s.content.contains('+')), "overflow badge expected: {some:?}");
+
+        // Thresholds low enough that several badges show on any machine.
+        let mut cfg = crate::config::Config::default();
+        cfg.alerts.mem_pct = 0.01;
+        cfg.alerts.disk_pct = 0.01;
+        cfg.alerts.load_per_core = 0.0001;
+        let sockets = Arc::new(Mutex::new(SocketStore::default()));
+        let files = Arc::new(Mutex::new(FilesStore::default()));
+        let mut app = App::new(Sampler::new(), sockets, files, Duration::from_secs(1), Tab::Users, cfg, crate::app::NetHandles::idle());
+        app.tick();
+        assert!(app.alerts().len() >= 2);
+        for width in [200u16, 160, 120, 100, 80] {
+            let mut term = Terminal::new(TestBackend::new(width, 20)).unwrap();
+            term.draw(|f| super::draw(f, &mut app)).unwrap();
+            let row: String = dump(&term).lines().nth(1).unwrap().to_string();
+            if std::env::var_os("VIGIL_SHOW_TABROW").is_some() {
+                eprintln!("{width:>3} |{}|", row.trim_end());
+            }
+            // Every tab key is still on the row, and the active tab keeps its name.
+            for t in Tab::ALL {
+                assert!(row.contains(&format!(" {} ", t.key())), "width {width}: tab {:?} missing in {row:?}", t);
+            }
+            assert!(row.contains("Users"), "width {width}: {row:?}");
+            assert!(row.contains("MEM") || row.contains('+'), "width {width}: no badges in {row:?}");
         }
     }
 
