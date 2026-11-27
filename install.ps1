@@ -2,14 +2,11 @@
 #
 #   irm https://raw.githubusercontent.com/suleymenb/vigil/master/install.ps1 | iex
 #
-# Windows 7 / PowerShell 2 (no irm):
-#   (New-Object Net.WebClient).DownloadString('https://raw.githubusercontent.com/suleymenb/vigil/master/install.ps1') | iex
-#
 # Options (environment variables):
-#   $env:VIGIL_VERSION = 'v0.6.0'          install a specific release (default: latest)
+#   $env:VIGIL_VERSION = 'v0.6.2'          install a specific release (default: latest)
 #   $env:VIGIL_INSTALL_DIR = 'C:\tools'    install somewhere else (default: %LOCALAPPDATA%\Programs\vigil)
 #
-# Downloads the binary for your Windows version and CPU from GitHub Releases,
+# Windows 10 and 11 (x64, ARM64). Downloads the binary for your CPU from GitHub Releases,
 # verifies its SHA-256 checksum, installs vigil.exe and adds the folder to
 # your user PATH. No administrator rights needed.
 
@@ -24,37 +21,41 @@ try { [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::S
 $build = [Environment]::OSVersion.Version.Build
 $arch = $env:PROCESSOR_ARCHITECTURE
 if ($env:PROCESSOR_ARCHITEW6432) { $arch = $env:PROCESSOR_ARCHITEW6432 }
+# $asset: the release file name since v0.6.2; $target: the name before that.
 if ($build -lt 10240) {
-    if ($arch -ne 'AMD64') { throw "vigil: Windows 7/8 builds exist for 64-bit x86 only (found $arch)" }
-    $target = 'x86_64-win7-windows-msvc'
-    Write-Host 'Windows 7/8 detected: installing the experimental build (built in CI, not tested there).' -ForegroundColor Yellow
+    throw 'vigil needs Windows 10 or 11.'
 } elseif ($arch -eq 'ARM64') {
-    $target = 'aarch64-pc-windows-msvc'
+    $asset = 'windows-arm64'; $target = 'aarch64-pc-windows-msvc'
 } elseif ($arch -eq 'AMD64') {
-    $target = 'x86_64-pc-windows-msvc'
+    $asset = 'windows-x86_64'; $target = 'x86_64-pc-windows-msvc'
 } else {
     throw "vigil: no prebuilt binary for $arch. Build from source: cargo install --git https://github.com/$repo"
 }
 
 if ($version -eq 'latest') { $base = "https://github.com/$repo/releases/latest/download" }
 else { $base = "https://github.com/$repo/releases/download/$version" }
-$asset = "vigil-$target.zip"
 $tmp = Join-Path ([IO.Path]::GetTempPath()) ('vigil-' + [Guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $tmp | Out-Null
-$zipPath = Join-Path $tmp $asset
 
 try {
     $wc = New-Object Net.WebClient
-    Write-Host "-> downloading $asset ($version)"
-    $wc.DownloadFile("$base/$asset", $zipPath)
-    $wc.DownloadFile("$base/$asset.sha256", "$zipPath.sha256")
+    $name = "vigil-$asset"
+    Write-Host "-> downloading $name.zip ($version)"
+    try {
+        $wc.DownloadFile("$base/$name.zip", (Join-Path $tmp "$name.zip"))
+    } catch {
+        $name = "vigil-$target" # releases before v0.6.2
+        $wc.DownloadFile("$base/$name.zip", (Join-Path $tmp "$name.zip"))
+    }
+    $zipPath = Join-Path $tmp "$name.zip"
+    $wc.DownloadFile("$base/$name.zip.sha256", "$zipPath.sha256")
 
     Write-Host '-> verifying checksum'
     $sha = [Security.Cryptography.SHA256]::Create()
     $fs = [IO.File]::OpenRead($zipPath)
     try { $hash = -join ($sha.ComputeHash($fs) | ForEach-Object { $_.ToString('x2') }) } finally { $fs.Close() }
     $expected = ((Get-Content "$zipPath.sha256" | Select-Object -First 1) -split '\s+')[0].ToLower()
-    if ($hash -ne $expected) { throw "vigil: checksum mismatch for $asset (expected $expected, got $hash)" }
+    if ($hash -ne $expected) { throw "vigil: checksum mismatch for $name.zip (expected $expected, got $hash)" }
 
     if (Get-Command Expand-Archive -ErrorAction SilentlyContinue) {
         Expand-Archive -Path $zipPath -DestinationPath $tmp -Force
@@ -65,7 +66,7 @@ try {
     }
 
     New-Item -ItemType Directory -Force -Path $dir | Out-Null
-    Copy-Item (Join-Path $tmp "vigil-$target\vigil.exe") (Join-Path $dir 'vigil.exe') -Force
+    Copy-Item (Join-Path $tmp "$name\vigil.exe") (Join-Path $dir 'vigil.exe') -Force
 } finally {
     Remove-Item -Recurse -Force $tmp -ErrorAction SilentlyContinue
 }

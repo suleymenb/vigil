@@ -39,6 +39,7 @@ pub enum Kind {
     Mtu,
     Dns,
     Perf,
+    Capture,
 }
 
 impl Kind {
@@ -49,6 +50,7 @@ impl Kind {
             Kind::Mtu => "path MTU",
             Kind::Dns => "DNS per resolver",
             Kind::Perf => "throughput",
+            Kind::Capture => "packet capture",
         }
     }
 }
@@ -72,6 +74,8 @@ pub struct Settings {
     pub http_url: String,
     pub public_resolvers: Vec<String>,
     pub perf_url: String,
+    /// Default length of a capture without a time or packet limit.
+    pub capture_secs: u64,
 }
 
 impl From<&crate::config::Troubleshoot> for Settings {
@@ -83,13 +87,14 @@ impl From<&crate::config::Troubleshoot> for Settings {
             http_url: t.http_test_url.clone(),
             public_resolvers: t.public_resolvers.clone(),
             perf_url: t.perf_url.clone(),
+            capture_secs: 20,
         }
     }
 }
 
 /// Status marks; plain ASCII on legacy consoles and ASCII themes.
 pub fn mark(t: Tone) -> &'static str {
-    let ascii = crate::platform::get().legacy_windows() || crate::theme::is_ascii();
+    let ascii = crate::theme::is_ascii();
     match (t, ascii) {
         (Tone::Good, false) => "✔",
         (Tone::Warn, false) => "▲",
@@ -143,6 +148,15 @@ pub fn start(store: Arc<Mutex<ToolStore>>, kind: Kind, arg: String, settings: Se
                         dnsq::compare(&name, qtype, &dns_servers, &settings.public_resolvers, &servers, &emit);
                     }
                     Err(e) => emit(Tone::Bad, e),
+                }
+                Vec::new()
+            }
+            Kind::Capture => {
+                use crate::collect::capture;
+                let res = capture::parse_spec(&arg, &capture::interfaces(), settings.capture_secs)
+                    .and_then(|spec| capture::run(&spec, capture::Out::File(capture::default_path(capture::ext())), &emit));
+                if let Err(e) = res {
+                    emit(Tone::Bad, e);
                 }
                 Vec::new()
             }

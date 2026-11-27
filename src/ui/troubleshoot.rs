@@ -58,12 +58,13 @@ pub fn wrap(text: &str, width: usize) -> Vec<String> {
     out
 }
 
-const MENU: [(&str, &str, &str); 5] = [
+const MENU: [(&str, &str, &str); 6] = [
     ("d", "doctor", "walk L1 → L7: link, NIC errors, ARP, IP, gateway, internet, MTU, TCP, clock, TLS, DNS, HTTP"),
     ("c", "calc", "subnet calculator: 10.0.0.0/22 /24 · 10.1.2.3 255.255.252.0 · 10.0.0.0/22 10.0.4.1 · 2001:db8::/48"),
     ("m", "mtu", "path MTU with don't-fragment pings; finds PPPoE, tunnels and PMTU black holes"),
     ("n", "dns", "ask every resolver directly: github.com MX · 8.8.8.8 (PTR) · name @10.0.0.53"),
     ("p", "perf", "throughput to a host running `vigil perf --server` (blank: HTTP download test)"),
+    ("t", "capture", "packets to a .pcap for Wireshark: en0 30s port 443 · 500p host 10.0.0.5 (Network view: C)"),
 ];
 
 pub fn draw(f: &mut Frame, app: &mut App, area: Rect) {
@@ -127,7 +128,7 @@ fn output(f: &mut Frame, app: &mut App, area: Rect) {
             ]));
         }
         lines.push(Line::raw(""));
-        lines.push(Line::styled("   The same tools on the command line: vigil doctor · vigil calc · vigil dns · vigil mtu · vigil perf", Style::new().fg(theme::dim())));
+        lines.push(Line::styled("   The same tools on the command line: vigil doctor · calc · dns · mtu · perf · capture", Style::new().fg(theme::dim())));
         lines.push(Line::styled("   Targets live in [troubleshoot] in the config file; nothing is contacted until you run a tool.", Style::new().fg(theme::dim())));
         f.render_widget(Paragraph::new(lines).wrap(ratatui::widgets::Wrap { trim: false }).block(block), area);
         return;

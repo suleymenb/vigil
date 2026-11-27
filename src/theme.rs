@@ -186,16 +186,81 @@ static BUILTIN: &[Palette] = &[
         green: rgb(0x1fb31f), yellow: rgb(0x66ff66), orange: rgb(0x99ff99), red: rgb(0xd9ffd9),
         pink: rgb(0x66ff66),
     },
-    // Uses the terminal's own 16 colours: works over plain SSH, tmux without
-    // truecolor, serial consoles, and follows whatever scheme the terminal has.
+    // Kanagawa (wave): ink and woodblock-print colours.
     Palette {
-        name: "ansi",
+        name: "kanagawa",
         glyphs: &MODERN,
-        bg: Color::Reset, fg: Color::Reset, dim: Color::DarkGray, muted: Color::Gray,
-        border: Color::DarkGray, sel_bg: Color::DarkGray, header_bg: Color::Black,
-        blue: Color::Blue, purple: Color::Magenta, cyan: Color::Cyan, teal: Color::LightCyan,
-        green: Color::Green, yellow: Color::Yellow, orange: Color::LightRed, red: Color::Red,
-        pink: Color::LightMagenta,
+        bg: rgb(0x1f1f28), fg: rgb(0xdcd7ba), dim: rgb(0x54546d), muted: rgb(0x727169),
+        border: rgb(0x363646), sel_bg: rgb(0x2d4f67), header_bg: rgb(0x16161d),
+        blue: rgb(0x7e9cd8), purple: rgb(0x957fb8), cyan: rgb(0x7fb4ca), teal: rgb(0x6a9589),
+        green: rgb(0x98bb6c), yellow: rgb(0xe6c384), orange: rgb(0xffa066), red: rgb(0xe46876),
+        pink: rgb(0xd27e99),
+    },
+    // Everforest (dark, medium): soft greens, easy on the eyes for long shifts.
+    Palette {
+        name: "everforest",
+        glyphs: &MODERN,
+        bg: rgb(0x2d353b), fg: rgb(0xd3c6aa), dim: rgb(0x7a8478), muted: rgb(0x9da9a0),
+        border: rgb(0x475258), sel_bg: rgb(0x3d484d), header_bg: rgb(0x232a2e),
+        blue: rgb(0x7fbbb3), purple: rgb(0xd699b6), cyan: rgb(0x83c092), teal: rgb(0x83c092),
+        green: rgb(0xa7c080), yellow: rgb(0xdbbc7f), orange: rgb(0xe69875), red: rgb(0xe67e80),
+        pink: rgb(0xd699b6),
+    },
+    Palette {
+        name: "one-dark",
+        glyphs: &MODERN,
+        bg: rgb(0x282c34), fg: rgb(0xabb2bf), dim: rgb(0x5c6370), muted: rgb(0x7f848e),
+        border: rgb(0x3e4451), sel_bg: rgb(0x2c313a), header_bg: rgb(0x21252b),
+        blue: rgb(0x61afef), purple: rgb(0xc678dd), cyan: rgb(0x56b6c2), teal: rgb(0x56b6c2),
+        green: rgb(0x98c379), yellow: rgb(0xe5c07b), orange: rgb(0xd19a66), red: rgb(0xe06c75),
+        pink: rgb(0xc678dd),
+    },
+    Palette {
+        name: "monokai",
+        glyphs: &MODERN,
+        bg: rgb(0x272822), fg: rgb(0xf8f8f2), dim: rgb(0x75715e), muted: rgb(0xa59f85),
+        border: rgb(0x49483e), sel_bg: rgb(0x3e3d32), header_bg: rgb(0x1e1f1c),
+        blue: rgb(0x66d9ef), purple: rgb(0xae81ff), cyan: rgb(0x66d9ef), teal: rgb(0xa6e22e),
+        green: rgb(0xa6e22e), yellow: rgb(0xe6db74), orange: rgb(0xfd971f), red: rgb(0xf92672),
+        pink: rgb(0xf92672),
+    },
+    Palette {
+        name: "github-dark",
+        glyphs: &MODERN,
+        bg: rgb(0x0d1117), fg: rgb(0xc9d1d9), dim: rgb(0x6e7681), muted: rgb(0x8b949e),
+        border: rgb(0x30363d), sel_bg: rgb(0x161b22), header_bg: rgb(0x010409),
+        blue: rgb(0x58a6ff), purple: rgb(0xbc8cff), cyan: rgb(0x39c5cf), teal: rgb(0x56d4dd),
+        green: rgb(0x3fb950), yellow: rgb(0xd29922), orange: rgb(0xdb6d28), red: rgb(0xf85149),
+        pink: rgb(0xdb61a2),
+    },
+    Palette {
+        name: "solarized-dark",
+        glyphs: &MODERN,
+        bg: rgb(0x002b36), fg: rgb(0x93a1a1), dim: rgb(0x586e75), muted: rgb(0x839496),
+        border: rgb(0x2b4c55), sel_bg: rgb(0x073642), header_bg: rgb(0x00212b),
+        blue: rgb(0x268bd2), purple: rgb(0x6c71c4), cyan: rgb(0x2aa198), teal: rgb(0x2aa198),
+        green: rgb(0x859900), yellow: rgb(0xb58900), orange: rgb(0xcb4b16), red: rgb(0xdc322f),
+        pink: rgb(0xd33682),
+    },
+    // A light theme for bright rooms and projectors.
+    Palette {
+        name: "catppuccin-latte",
+        glyphs: &MODERN,
+        bg: rgb(0xeff1f5), fg: rgb(0x4c4f69), dim: rgb(0x9ca0b0), muted: rgb(0x6c6f85),
+        border: rgb(0xccd0da), sel_bg: rgb(0xdce0e8), header_bg: rgb(0xe6e9ef),
+        blue: rgb(0x1e66f5), purple: rgb(0x8839ef), cyan: rgb(0x04a5e5), teal: rgb(0x179299),
+        green: rgb(0x40a02b), yellow: rgb(0xdf8e1d), orange: rgb(0xfe640b), red: rgb(0xd20f39),
+        pink: rgb(0xea76cb),
+    },
+    // Amber CRT (P3), like phosphor: monochrome, ASCII, severity by brightness.
+    Palette {
+        name: "amber",
+        glyphs: &ASCII,
+        bg: rgb(0x0f0a00), fg: rgb(0xffb000), dim: rgb(0x6b4a00), muted: rgb(0xa87400),
+        border: rgb(0x7a5300), sel_bg: rgb(0x3a2800), header_bg: rgb(0x080500),
+        blue: rgb(0xffb000), purple: rgb(0xe09a00), cyan: rgb(0xffc233), teal: rgb(0xe09a00),
+        green: rgb(0xcc8c00), yellow: rgb(0xffd066), orange: rgb(0xffe099), red: rgb(0xfff0cc),
+        pink: rgb(0xffd066),
     },
     // Okabe-Ito: distinguishable with every common form of colour blindness
     // (no red/green pair carries meaning on its own).
@@ -208,8 +273,19 @@ static BUILTIN: &[Palette] = &[
         green: rgb(0x009e73), yellow: rgb(0xf0e442), orange: rgb(0xe69f00), red: rgb(0xd55e00),
         pink: rgb(0xcc79a7),
     },
-    // The 16 terminal colours with 7-bit ASCII glyphs: Windows 7/8 consoles,
-    // raster fonts, serial lines and anything else without braille or blocks.
+    // Uses the terminal's own 16 colours: works over plain SSH, tmux without
+    // truecolor, serial consoles, and follows whatever scheme the terminal has.
+    Palette {
+        name: "ansi",
+        glyphs: &MODERN,
+        bg: Color::Reset, fg: Color::Reset, dim: Color::DarkGray, muted: Color::Gray,
+        border: Color::DarkGray, sel_bg: Color::DarkGray, header_bg: Color::Black,
+        blue: Color::Blue, purple: Color::Magenta, cyan: Color::Cyan, teal: Color::LightCyan,
+        green: Color::Green, yellow: Color::Yellow, orange: Color::LightRed, red: Color::Red,
+        pink: Color::LightMagenta,
+    },
+    // The 16 terminal colours with 7-bit ASCII glyphs: raster fonts, serial
+    // lines and anything else without box-drawing or block characters.
     Palette {
         name: "classic",
         glyphs: &ASCII,
@@ -390,9 +466,7 @@ pub fn auto_default() -> usize {
     } else {
         supports_truecolor(&env("COLORTERM"), &env("TERM"), &env("TERM_PROGRAM"))
     };
-    if p.legacy_windows() {
-        by_name("classic").unwrap_or(0)
-    } else if truecolor {
+    if truecolor {
         0
     } else {
         by_name("ansi").unwrap_or(0)

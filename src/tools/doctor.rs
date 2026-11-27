@@ -477,6 +477,7 @@ mod tests {
             http_url: "http://127.0.0.1:9/".into(),
             public_resolvers: vec![],
             perf_url: String::new(),
+            capture_secs: 20,
         };
         let lines = std::sync::Mutex::new(Vec::new());
         let checks = run(&s, &|_, l| lines.lock().unwrap().push(l));

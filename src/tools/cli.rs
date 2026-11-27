@@ -5,7 +5,7 @@ use std::io::{IsTerminal, Write};
 use super::{dnsq, doctor, mtu, netcalc, perf, Settings, Tone};
 
 fn color() -> bool {
-    std::io::stdout().is_terminal() && std::env::var_os("NO_COLOR").is_none() && !crate::platform::get().legacy_windows()
+    std::io::stdout().is_terminal() && std::env::var_os("NO_COLOR").is_none()
 }
 
 /// Print one tool line, coloured when stdout is a terminal.
@@ -87,6 +87,67 @@ pub fn perf(host: Option<&str>, server: bool, port: u16, secs: u32, streams: usi
         Ok(_) => 0,
         Err(e) => {
             eprintln!("vigil perf: {e}");
+            1
+        }
+    }
+}
+
+#[cfg(unix)]
+extern "C" fn ignore_sigint(_: libc::c_int) {}
+
+/// `vigil capture`: status goes to stderr, because stdout may be the pcap.
+pub fn capture(iface: Option<&str>, secs: Option<u64>, count: Option<u64>, write: Option<&std::path::Path>, open: bool, filter: &str) -> i32 {
+    use crate::collect::capture::{self, Out, Spec};
+    let out = match write {
+        Some(p) if p.as_os_str() == "-" => {
+            if std::io::stdout().is_terminal() {
+                eprintln!("vigil capture: -w - writes binary pcap to stdout; pipe it, e.g. | wireshark -k -i -");
+                return 2;
+            }
+            Out::Stdout
+        }
+        Some(p) => Out::File(p.to_path_buf()),
+        None => Out::File(capture::default_path(capture::ext())),
+    };
+    // pktmon runs detached, so Windows always needs an end time.
+    let secs = if secs.is_none() && count.is_none() && cfg!(windows) { Some(20) } else { secs };
+    let spec = Spec { iface: iface.unwrap_or("any").to_string(), filter: filter.trim().to_string(), secs, count };
+    if secs.is_none() && count.is_none() {
+        eprintln!("ctrl-c stops the capture");
+    }
+    // ctrl-c reaches tcpdump too; vigil itself keeps running to report the result.
+    #[cfg(unix)]
+    unsafe {
+        libc::signal(libc::SIGINT, ignore_sigint as *const () as libc::sighandler_t);
+    }
+    let emit = |tone: Tone, text: String| {
+        let code = match tone {
+            Tone::Head => "1",
+            Tone::Good => "32",
+            Tone::Warn => "33",
+            Tone::Bad => "31",
+            Tone::Dim => "2",
+            Tone::Normal => "",
+        };
+        if std::io::stderr().is_terminal() && std::env::var_os("NO_COLOR").is_none() && !code.is_empty() {
+            eprintln!("\x1b[{code}m{text}\x1b[0m");
+        } else {
+            eprintln!("{text}");
+        }
+    };
+    match capture::run(&spec, out, &emit) {
+        Ok(d) => {
+            if open {
+                if let Some(p) = &d.path {
+                    if let Err(e) = capture::open_in_wireshark(p) {
+                        eprintln!("vigil capture: {e}");
+                    }
+                }
+            }
+            0
+        }
+        Err(e) => {
+            eprintln!("vigil capture: {e}");
             1
         }
     }

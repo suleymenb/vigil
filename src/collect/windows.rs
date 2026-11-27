@@ -1,4 +1,4 @@
-//! Windows collectors (Windows 7 and newer).
+//! Windows collectors (Windows 10 and 11).
 //!
 //! Sockets and TCP/UDP counters come straight from the IP Helper API
 //! (`GetExtendedTcpTable`, `GetTcpStatisticsEx`), which is fast and does not

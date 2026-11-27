@@ -878,7 +878,9 @@ impl App {
         let mut x = ExtraHealth::default();
         if let Ok(p) = self.net.probes.try_lock() {
             for pr in &p.probes {
-                if pr.sent() >= 5 {
+                // Automatic probes only alarm once their target has answered at
+                // least once: many gateways and resolvers simply don't answer ping.
+                if pr.sent() >= 5 && (!pr.auto || pr.ever_ok) {
                     x.probe_losses.push((pr.name.clone(), pr.loss_pct()));
                 }
                 if let Some(d) = pr.cert_days {
@@ -1475,7 +1477,15 @@ impl App {
             Tab::Network => self.net_state.selected().and_then(|i| self.sampler.ifaces.get(i)).map(|i| ("interface".into(), i.name.clone())),
             Tab::Troubleshoot => {
                 let t = self.net.tools.try_lock().ok()?;
-                t.lines.get(self.tool_state.selected()?).map(|l| ("line".into(), l.text.trim().to_string()))
+                match self.tool_state.selected() {
+                    Some(i) => t.lines.get(i).map(|l| ("line".into(), l.text.trim().to_string())),
+                    // Nothing selected (following the output): copy all of it.
+                    None if !t.lines.is_empty() => {
+                        let all = t.lines.iter().map(|l| l.text.trim_end()).collect::<Vec<_>>().join("\n");
+                        Some((format!("{} lines of {}", t.lines.len(), t.kind.map(|k| k.title()).unwrap_or("output")), all))
+                    }
+                    None => None,
+                }
             }
             _ => None,
         }
@@ -1643,7 +1653,11 @@ impl App {
             }
             Tab::Probes => {
                 let p = self.net.probes.try_lock().ok()?;
-                let k = p.probes.get(self.probe_state.selected()?)?.target.kind();
+                let pr = p.probes.get(self.probe_state.selected()?)?;
+                if pr.silent() {
+                    return Some("no reply".into());
+                }
+                let k = pr.target.kind();
                 Some(if k.starts_with("http") { "https".into() } else { k.to_string() })
             }
             Tab::Firewall => {
@@ -2054,7 +2068,9 @@ impl App {
             return;
         }
         let dns = self.net.netinfo.try_lock().map(|n| n.dns.servers.clone()).unwrap_or_default();
-        tools::start(self.net.tools.clone(), kind, arg, tools::Settings::from(&self.cfg.troubleshoot), dns);
+        let mut settings = tools::Settings::from(&self.cfg.troubleshoot);
+        settings.capture_secs = self.cfg.network.capture_seconds;
+        tools::start(self.net.tools.clone(), kind, arg, settings, dns);
         self.tool_kind = kind;
         self.tool_state.select(None);
         *self.tool_state.offset_mut() = 0;
@@ -2071,6 +2087,7 @@ impl App {
             KeyCode::Char('m') => tools::Kind::Mtu,
             KeyCode::Char('n') => tools::Kind::Dns,
             KeyCode::Char('p') => tools::Kind::Perf,
+            KeyCode::Char('t') => tools::Kind::Capture,
             _ => return,
         };
         self.tool_kind = kind;
@@ -2261,6 +2278,14 @@ impl App {
                 Tab::System => self.key_system(k),
                 Tab::Firewall => self.key_firewall(k),
                 Tab::Troubleshoot => self.key_troubleshoot(k),
+                Tab::Network => {
+                    // C: capture on the selected interface (Troubleshoot shows the progress).
+                    if k.code == KeyCode::Char('C') {
+                        if let Some(name) = self.net_state.selected().and_then(|i| self.sampler.ifaces.get(i)).map(|i| i.name.clone()) {
+                            self.run_tool(tools::Kind::Capture, name);
+                        }
+                    }
+                }
                 _ => {}
             },
         }

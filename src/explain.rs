@@ -81,6 +81,7 @@ pub const ENTRIES: &[Entry] = &[
     e("duplex", "Duplex", "Full duplex sends and receives at once. Half duplex on a switched network means one side autonegotiated and the other was forced: late collisions and CRC errors follow.", "set both ends to auto · ethtool IF"),
     e("MTU", "MTU", "Largest packet an interface sends without fragmenting: 1500 on Ethernet, less inside tunnels (PPPoE 1492, GRE 1476, VXLAN 1450, WireGuard 1420), 9000 with jumbo frames.", "Troubleshoot view: m (path MTU) · Linux: ip link set IF mtu N"),
     e("drops", "Interface drops", "Packets the host discarded: ring buffer full (rx_missed), unknown protocol or VLAN, or a full qdisc on transmit.", "Linux: ethtool -S IF · ethtool -G IF rx 4096 · tc -s qdisc"),
+    e("capture", "Packet capture", "Records packets to a .pcap file (Linux/macOS: tcpdump; Windows: pktmon, .pcapng) that Wireshark opens directly. Filters use BPF syntax: port 443, host 10.0.0.5, tcp and not port 22. Needs root / administrator.", "vigil capture -i en0 -t 30 port 443 · live into Wireshark: sudo vigil capture -w - port 53 | wireshark -k -i - · over SSH: ssh host sudo vigil capture -w - port 443 | wireshark -k -i -"),
     e("LLDP", "LLDP neighbour", "Link Layer Discovery Protocol: the switch announces its name, port and VLAN. Tells you exactly where a server is plugged in.", "Linux: lldpctl · Junos: show lldp neighbors · Cisco: show lldp neighbors detail (or CDP)"),
     e("ARP change", "MAC address change", "An IP is now answered by a different MAC. For the gateway: a VRRP/HSRP failover, a replaced router, or ARP spoofing (someone in the VLAN intercepts traffic).", "compare with the router's real MAC · switch: show arp / show mac address-table · enable DAI"),
     // ── Firewall
@@ -93,6 +94,7 @@ pub const ENTRIES: &[Entry] = &[
     e("tcp", "TCP connect probe", "Time for the three-way handshake. A RST counts as reachable (the host answered, the port is closed).", ""),
     e("dns", "DNS probe", "Time for a lookup through the system resolver, including the cache.", "Troubleshoot view: n compares every resolver"),
     e("https", "HTTP probe", "Status code and time to first byte via curl, plus days until the TLS certificate expires.", ""),
+    e("no reply", "Probe target never answers", "This automatic probe (your gateway or DNS server) has not answered a single ping. Many routers, firewalls and VPN gateways drop ICMP to themselves, so vigil does not raise a LOSS alarm for it. If the target used to answer and stops, the alarm comes back.", "probe a real service instead: a tcp:HOST:PORT probe, or dns:NAME for a resolver"),
     e("jitter", "Jitter", "How much latency varies between probes. Voice and video need low jitter; high jitter with low loss = queueing (bufferbloat).", ""),
     // ── Services
     e("failed", "Failed unit / service", "The service exited with an error or crashed and is not running. Check its log (journal pane).", "Linux: systemctl status UNIT · journalctl -u UNIT -b · Windows: sc qc NAME, Event Viewer"),

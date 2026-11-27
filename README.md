@@ -61,13 +61,7 @@ cargo install vigil-tui --locked
 irm https://raw.githubusercontent.com/suleymenb/vigil/master/install.ps1 | iex
 ```
 
-**Windows 7 / 8.1** (experimental: built in CI, not tested there), in PowerShell 2+:
-
-```powershell
-(New-Object Net.WebClient).DownloadString('https://raw.githubusercontent.com/suleymenb/vigil/master/install.ps1') | iex
-```
-
-The PowerShell script detects the Windows version and CPU, verifies the SHA-256, installs `vigil.exe` to `%LOCALAPPDATA%\Programs\vigil` and adds it to your user `PATH`.
+The PowerShell script picks the binary for your CPU, verifies the SHA-256, installs `vigil.exe` to `%LOCALAPPDATA%\Programs\vigil` and adds it to your user `PATH`.
 
 **Debian / Ubuntu** and **Fedora / RHEL / Rocky / Alma**: packages with the man page and shell completions:
 
@@ -86,13 +80,12 @@ sudo dnf install https://github.com/suleymenb/vigil/releases/latest/download/vig
 
 | Platform | Download |
 |---|---|
-| Linux x86_64 (static) | [vigil-x86_64-unknown-linux-musl.tar.gz](https://github.com/suleymenb/vigil/releases/latest/download/vigil-x86_64-unknown-linux-musl.tar.gz) |
-| Linux arm64 (static) | [vigil-aarch64-unknown-linux-musl.tar.gz](https://github.com/suleymenb/vigil/releases/latest/download/vigil-aarch64-unknown-linux-musl.tar.gz) |
-| macOS Apple Silicon | [vigil-aarch64-apple-darwin.tar.gz](https://github.com/suleymenb/vigil/releases/latest/download/vigil-aarch64-apple-darwin.tar.gz) |
-| macOS Intel | [vigil-x86_64-apple-darwin.tar.gz](https://github.com/suleymenb/vigil/releases/latest/download/vigil-x86_64-apple-darwin.tar.gz) |
-| Windows 10/11 x64 | [vigil-x86_64-pc-windows-msvc.zip](https://github.com/suleymenb/vigil/releases/latest/download/vigil-x86_64-pc-windows-msvc.zip) |
-| Windows 10/11 ARM64 | [vigil-aarch64-pc-windows-msvc.zip](https://github.com/suleymenb/vigil/releases/latest/download/vigil-aarch64-pc-windows-msvc.zip) |
-| Windows 7/8.1 x64 (experimental) | [vigil-x86_64-win7-windows-msvc.zip](https://github.com/suleymenb/vigil/releases/latest/download/vigil-x86_64-win7-windows-msvc.zip) |
+| Linux x86_64 (static) | [vigil-linux-x86_64.tar.gz](https://github.com/suleymenb/vigil/releases/latest/download/vigil-linux-x86_64.tar.gz) |
+| Linux arm64 (static) | [vigil-linux-arm64.tar.gz](https://github.com/suleymenb/vigil/releases/latest/download/vigil-linux-arm64.tar.gz) |
+| macOS Apple Silicon | [vigil-macos-arm64.tar.gz](https://github.com/suleymenb/vigil/releases/latest/download/vigil-macos-arm64.tar.gz) |
+| macOS Intel | [vigil-macos-x86_64.tar.gz](https://github.com/suleymenb/vigil/releases/latest/download/vigil-macos-x86_64.tar.gz) |
+| Windows 10/11 x64 | [vigil-windows-x86_64.zip](https://github.com/suleymenb/vigil/releases/latest/download/vigil-windows-x86_64.zip) |
+| Windows 10/11 ARM64 | [vigil-windows-arm64.zip](https://github.com/suleymenb/vigil/releases/latest/download/vigil-windows-arm64.zip) |
 | Debian/Ubuntu | [vigil-amd64.deb](https://github.com/suleymenb/vigil/releases/latest/download/vigil-amd64.deb) · [vigil-arm64.deb](https://github.com/suleymenb/vigil/releases/latest/download/vigil-arm64.deb) |
 | Fedora/RHEL | [vigil-x86_64.rpm](https://github.com/suleymenb/vigil/releases/latest/download/vigil-x86_64.rpm) · [vigil-aarch64.rpm](https://github.com/suleymenb/vigil/releases/latest/download/vigil-aarch64.rpm) |
 | Completions + man page | [vigil-completions-and-man.tar.gz](https://github.com/suleymenb/vigil/releases/latest/download/vigil-completions-and-man.tar.gz) |
@@ -139,6 +132,9 @@ Every common question, as one command.
 | Calculate a subnet, split it, check membership | `vigil calc 10.0.0.0/22 /24` · `vigil calc 10.0.0.0/22 10.0.4.1` |
 | See if my resolvers disagree or one is dead | `vigil dns github.com` · `vigil dns example.com MX @10.0.0.53` |
 | Find the path MTU (PPPoE, VPN, black holes) | `vigil mtu 1.1.1.1` |
+| Capture traffic for Wireshark | `sudo vigil capture -i eth0 -t 30 port 443` (or `W`, `t`; Network view: `C`) |
+| Watch live in Wireshark | `sudo vigil capture -w - port 53 \| wireshark -k -i -` |
+| Capture a remote server in your local Wireshark | `ssh srv sudo vigil capture -w - port 443 \| wireshark -k -i -` |
 | Measure throughput between two machines | `vigil perf --server` there, `vigil perf HOST -t 10 -P 4` here (`-R` for download) |
 | See which switch port I'm plugged into, CRC errors, ARP changes | `vigil -t troubleshoot` (link layer panel) |
 | See everything about one process | Procs view, select it, press `Enter` |
@@ -210,6 +206,9 @@ Press `W` (or run the same tools from the shell). Nothing is contacted until you
 | `m` | `vigil mtu HOST` | Path MTU with don't-fragment pings; explains the value (PPPoE, GRE, VXLAN, WireGuard, IPsec) and detects PMTU black holes |
 | `n` | `vigil dns NAME [TYPE] [@server]` | Asks every configured resolver *and* public ones directly, compares answers, TTLs, DNSSEC flags and latency |
 | `p` | `vigil perf HOST` | TCP throughput to a machine running `vigil perf --server` (iperf-style, per-second rates, parallel streams, reverse); blank = HTTP download test |
+| `t` | `vigil capture` | Packet capture to a `.pcap` that Wireshark opens directly: any interface, BPF filter, a time or packet limit (`en0 30s port 443`, `500p host 10.0.0.5`). `C` in the Network view captures the selected interface |
+
+### The doctor
 
 `vigil doctor` checks, in order:
 
@@ -234,9 +233,20 @@ L2 · Data link
 → start at L2 Data link (Gateway MAC): the layers above depend on it
 ```
 
+### Packet capture for Wireshark
+
+```bash
+sudo vigil capture -i eth0 -t 30 port 443                 # 30 s on eth0 → ./vigil-capture-<time>.pcap
+sudo vigil capture -c 500 host 10.0.0.5 --open            # 500 packets, then open Wireshark
+sudo vigil capture -w - udp port 53 | wireshark -k -i -   # live into Wireshark
+ssh web1 sudo vigil capture -w - port 443 | wireshark -k -i -   # a remote server, live, in your local Wireshark
+```
+
+Linux and macOS use `tcpdump` (BPF filters: `port 443`, `host 10.0.0.5`, `tcp and not port 22`); Windows uses the built-in `pktmon` (Windows 10 2004+, administrator) and writes `.pcapng`, with `port`, `host` and `tcp`/`udp`/`icmp` filters. Without a limit the CLI captures until ctrl-c. macOS without sudo: install Wireshark's ChmodBPF.
+
 ## Health badges
 
-The right side of the tab row shows a badge for every threshold that is crossed, on every view. All thresholds live in the `[alerts]` section of the config; `0` turns a check off.
+A fixed row under the tabs shows a badge for every threshold that is crossed, on every view, most urgent first (`+N` when they don't fit). The tabs never move because of it. All thresholds live in the `[alerts]` section of the config; `0` turns a check off.
 
 | Badge | Default | Meaning |
 |---|---:|---|
@@ -249,7 +259,7 @@ The right side of the tab row shows a badge for every threshold that is crossed,
 | `CONNTRACK` | 80 % | Connection-tracking table nearly full |
 | `CLOSE_WAIT` / `TIME_WAIT` | 100 / 20 000 | App not closing sockets / too many short connections |
 | `<iface> DROPS` | 10/s | Interface dropping packets |
-| `LOSS <probe>` | 20 % | A latency probe is losing packets |
+| `LOSS <probe>` | 20 % | A latency probe is losing packets (automatic gateway/DNS probes only once they have answered at least once: many routers never answer ping) |
 | `PSI` | 20 % | Linux pressure stall: tasks waiting on CPU, memory or I/O |
 | `TEMP` | 90 °C | Hottest sensor |
 | `FDS <proc>` / `FILES` | 90 % / 80 % | A process near its open-file limit / system file table filling up |
@@ -347,7 +357,14 @@ The right side of the tab row shows a badge for every threshold that is crossed,
 |---|---|
 | `d` | doctor |
 | `c` `m` `n` `p` | calc, mtu, dns, perf |
-| `↑` `↓` / `esc` | scroll / follow |
+| `t` | packet capture |
+| `y` | copy the output (or the selected line) |
+
+**Network**
+
+| Key | Action |
+|---|---|
+| `C` | capture this interface |
 
 </td></tr>
 </table>
@@ -410,13 +427,14 @@ vigil report --diff before.json                 # what changed since an earlier 
 
 Press `T` for a live preview. `↑` `↓` to browse, `Enter` to keep, `b` for transparent background.
 
-`tokyo-night` · `catppuccin-mocha` · `gruvbox` · `nord` · `dracula` · `rose-pine` · `solarized-light` · **`cyberpunk`** · **`phosphor`** · **`okabe-ito`** · `ansi` · `classic`
+`tokyo-night` · `catppuccin-mocha` · `gruvbox` · `nord` · `dracula` · `rose-pine` · `kanagawa` · `everforest` · `one-dark` · `monokai` · `github-dark` · `solarized-dark` · `solarized-light` · `catppuccin-latte` · **`cyberpunk`** · **`phosphor`** · **`amber`** · **`okabe-ito`** · `ansi` · `classic`
 
 - **cyberpunk**: neon on near-black, thick frames, `▰▱` meters.
-- **phosphor**: a green CRT in pure ASCII (`+--+`, `[####....]`), monochrome, severity by brightness only.
+- **phosphor** / **amber**: a green or amber CRT in pure ASCII (`+--+`, `[####....]`), monochrome, severity by brightness only.
+- **solarized-light** / **catppuccin-latte**: light themes for bright rooms and projectors.
 - **okabe-ito**: a colour-blind-safe palette (Okabe & Ito); no meaning depends on telling red from green.
 - **ansi**: your terminal's own 16 colours, for plain SSH, tmux without truecolor and serial consoles. `auto` (the default) picks it only on terminals that can't do 24-bit colour.
-- **classic**: the 16 colours with ASCII lines, the default on the Windows 7/8 console.
+- **classic**: the 16 colours with ASCII lines, for raster fonts and serial consoles.
 
 Make your own in the config: start from any theme and override colours (`#rrggbb`, ANSI names like `light-red`, or `ansi:N`):
 
@@ -537,6 +555,7 @@ vigil doctor [--json]
 vigil calc NET [/PREFIX | ADDR]
 vigil dns NAME [TYPE] [@SERVER …]
 vigil mtu [HOST]
+vigil capture [-i IFACE] [-t SECS] [-c COUNT] [-w FILE|-] [--open] [BPF FILTER]
 vigil perf HOST [-t SECS] [-P STREAMS] [-R] [-p PORT] | --server [-p PORT] | --internet
 vigil completions bash|zsh|fish|powershell|elvish
 vigil man
@@ -565,7 +584,7 @@ vigil detects the OS and the helper tools (`lsof`, `tcpdump`, `mtr`, `lldpctl`, 
 | Path trace | ✅ mtr / traceroute | ✅ mtr / traceroute | ✅ tracert |
 | Doctor, calc, DNS, MTU, perf | ✅ | ✅ | ✅ (MTU: IPv4) |
 | Firewall counters | ✅ nft / iptables | ✅ pf | – (no per-rule counters) |
-| Packet capture (`C`) | ✅ | ✅ | – (`pktmon`) |
+| Packet capture for Wireshark (`C`, `t`, `vigil capture`) | ✅ tcpdump | ✅ tcpdump | ✅ pktmon (.pcapng) |
 | Close one connection (`D`) | ✅ root | – | – |
 | Disk latency per device (iostat) | ✅ | ✅ IOKit | – |
 | Containers | ✅ cgroup v2 (Docker API on v1) | ✅ Docker Desktop API | ✅ Docker Desktop API |
@@ -576,8 +595,6 @@ vigil detects the OS and the helper tools (`lsof`, `tcpdump`, `mtr`, `lldpctl`, 
 | Failed / accepted SSH logins | ✅ journal | – | – |
 | Signals | all | all | terminate |
 | Copy (OSC 52), CSV export, mouse, search, explain | ✅ | ✅ | ✅ |
-
-Windows 7 and 8.1 get an experimental build (`x86_64-win7-windows-msvc`, Rust's tier-3 target) with the `classic` ASCII theme; it is built in CI but not tested there.
 
 ## FAQ
 
@@ -608,7 +625,7 @@ Reading rule counters needs root: `sudo vigil -t firewall`. Linux uses `nft`, th
 <details>
 <summary><b><code>C</code> or <code>D</code> fails</b></summary>
 
-`C` needs `tcpdump` and root. `D` needs root on Linux and a kernel with `CONFIG_INET_DIAG_DESTROY` (most distribution kernels have it).
+Capture needs `tcpdump` and root (Windows: `pktmon` in an administrator terminal). Files land in the current directory, else your home directory; `vigil capture --open` opens Wireshark when done. `D` needs root on Linux and a kernel with `CONFIG_INET_DIAG_DESTROY` (most distribution kernels have it).
 </details>
 
 <details>
@@ -632,7 +649,7 @@ Copying uses the terminal's OSC 52 clipboard escape, so it also works over SSH. 
 <details>
 <summary><b>Windows: colours or lines look wrong</b></summary>
 
-Use Windows Terminal (or Windows 10 1703+ conhost) for 24-bit colour. On the old console, `vigil --theme classic` sticks to 16 colours and ASCII lines; vigil picks it automatically on Windows 7/8.
+Use Windows Terminal (or Windows 10 1703+ conhost) for 24-bit colour. On an old console font, `vigil --theme classic` sticks to 16 colours and ASCII lines. vigil needs Windows 10 or 11.
 </details>
 
 <details>
@@ -673,7 +690,7 @@ cargo run --release --example prof                    # collector micro-profile
 python3 scripts/term2svg.py                           # regenerate README screenshots
 ```
 
-CI runs clippy and the tests on Linux x86_64, Linux arm64, macOS and Windows, and builds the experimental Windows 7 target. Pushing a `v*` tag builds release binaries for all of them, `.deb` and `.rpm` packages, completions and the man page, with checksums.
+CI runs clippy, the tests and a real packet capture on Linux x86_64, Linux arm64, macOS and Windows. Pushing a `v*` tag builds release binaries for all of them, `.deb` and `.rpm` packages, completions and the man page, with checksums.
 
 Cross-check the other platforms locally: `cargo clippy --all-targets --target x86_64-pc-windows-gnu -- -D warnings` (and `x86_64-unknown-linux-musl`).
 

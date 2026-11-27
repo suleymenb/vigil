@@ -1,7 +1,7 @@
 name: release
 
 # Triggered by pushing a v* tag (or by `gh release create vX.Y.Z`).
-# Builds static Linux binaries (musl), macOS and Windows binaries, runs the
+# Builds static Linux binaries (musl), macOS and Windows 10/11 binaries, runs the
 # test suite on every native target, then builds .deb / .rpm packages, shell
 # completions and the man page, and attaches everything with SHA-256 sums.
 
@@ -18,29 +18,21 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { target: x86_64-unknown-linux-musl, os: ubuntu-latest, test: true }
-          - { target: aarch64-unknown-linux-musl, os: ubuntu-24.04-arm, test: true }
-          - { target: aarch64-apple-darwin, os: macos-latest, test: true }
-          - { target: x86_64-apple-darwin, os: macos-latest, test: false }
-          - { target: x86_64-pc-windows-msvc, os: windows-latest, test: true }
-          - { target: aarch64-pc-windows-msvc, os: windows-latest, test: false }
-          # Windows 7 / 8.1 (experimental, untested): tier-3 target on nightly.
-          - { target: x86_64-win7-windows-msvc, os: windows-latest, test: false, nightly: true }
+          - { target: x86_64-unknown-linux-musl, asset: linux-x86_64, os: ubuntu-latest, test: true }
+          - { target: aarch64-unknown-linux-musl, asset: linux-arm64, os: ubuntu-24.04-arm, test: true }
+          - { target: aarch64-apple-darwin, asset: macos-arm64, os: macos-latest, test: true }
+          - { target: x86_64-apple-darwin, asset: macos-x86_64, os: macos-latest, test: false }
+          - { target: x86_64-pc-windows-msvc, asset: windows-x86_64, os: windows-latest, test: true }
+          - { target: aarch64-pc-windows-msvc, asset: windows-arm64, os: windows-latest, test: false }
     runs-on: ${{ matrix.os }}
-    continue-on-error: ${{ matrix.nightly == true }}
     steps:
       - uses: actions/checkout@v4
 
       - name: Install Rust
         shell: bash
         run: |
-          if [ "${{ matrix.nightly }}" = "true" ]; then
-            rustup toolchain install nightly --profile minimal --component rust-src
-            rustup default nightly
-          else
-            rustup toolchain install stable --profile minimal --target ${{ matrix.target }}
-            rustup default stable
-          fi
+          rustup toolchain install stable --profile minimal --target ${{ matrix.target }}
+          rustup default stable
 
       - name: Install musl tools and lsof
         if: runner.os == 'Linux'
@@ -51,19 +43,13 @@ jobs:
         run: cargo test --release --locked --target ${{ matrix.target }}
 
       - name: Build
-        shell: bash
-        run: |
-          if [ "${{ matrix.nightly }}" = "true" ]; then
-            cargo build --release --locked -Z build-std=std,panic_abort --target ${{ matrix.target }}
-          else
-            cargo build --release --locked --target ${{ matrix.target }}
-          fi
+        run: cargo build --release --locked --target ${{ matrix.target }}
 
       - name: Package
         shell: bash
         run: |
           # Stable names (no version) so releases/latest/download/... always works.
-          name="vigil-${{ matrix.target }}"
+          name="vigil-${{ matrix.asset }}"
           mkdir "$name"
           cp README.md LICENSE "$name/"
           sum() { if command -v sha256sum >/dev/null; then sha256sum "$1"; else shasum -a 256 "$1"; fi; }
@@ -87,7 +73,7 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release upload "$GITHUB_REF_NAME" vigil-${{ matrix.target }}.* --clobber
+        run: gh release upload "$GITHUB_REF_NAME" vigil-${{ matrix.asset }}.* --clobber
 
   packages:
     needs: build

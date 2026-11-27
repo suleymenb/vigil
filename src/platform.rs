@@ -81,13 +81,6 @@ pub struct Platform {
     pub tools: Tools,
 }
 
-impl Platform {
-    /// Windows 7/8.x: legacy console without 24-bit colour and without curl.
-    pub fn legacy_windows(&self) -> bool {
-        self.os == Os::Windows && self.windows_build.is_some_and(|b| b < 10_240)
-    }
-}
-
 static PLATFORM: OnceLock<Platform> = OnceLock::new();
 
 pub fn get() -> &'static Platform {
@@ -152,7 +145,7 @@ fn is_admin() -> bool {
     }
     #[cfg(windows)]
     {
-        // `net session` only succeeds in an elevated prompt (Windows 7+).
+        // `net session` only succeeds in an elevated prompt.
         std::process::Command::new("net")
             .arg("session")
             .stdout(std::process::Stdio::null())
@@ -241,13 +234,7 @@ impl Platform {
     pub fn summary(&self) -> String {
         let mut s = self.os.label().to_string();
         if let Some(b) = self.windows_build {
-            let name = match b {
-                0..=7601 => "7",
-                7602..=9200 => "8",
-                9201..=9600 => "8.1",
-                9601..=21999 => "10",
-                _ => "11",
-            };
+            let name = if b >= 22_000 { "11" } else { "10" };
             s = format!("Windows {name} build {b}");
         }
         s.push_str(if self.admin { " · root/administrator" } else { " · unprivileged" });
@@ -277,8 +264,9 @@ mod tests {
         // Every CI runner has ping somewhere in PATH.
         assert!(which("ping").is_some() || cfg!(windows));
         assert!(p.summary().starts_with(p.os.label().split(' ').next().unwrap()) || p.windows_build.is_some());
-        let w = Platform { os: Os::Windows, windows_build: Some(7601), admin: false, tools: Tools { curl: true, ..Default::default() } };
-        assert!(w.legacy_windows());
-        assert!(w.summary().starts_with("Windows 7 build 7601 · unprivileged · missing: tracert"), "{}", w.summary());
+        let w = Platform { os: Os::Windows, windows_build: Some(19045), admin: false, tools: Tools { curl: true, ..Default::default() } };
+        assert!(w.summary().starts_with("Windows 10 build 19045 · unprivileged · missing: tracert"), "{}", w.summary());
+        let w11 = Platform { windows_build: Some(26100), ..w };
+        assert!(w11.summary().starts_with("Windows 11 build 26100"));
     }
 }

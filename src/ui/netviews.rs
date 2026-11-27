@@ -227,6 +227,7 @@ pub fn probes(f: &mut Frame, app: &mut App, area: Rect) {
                 Cell::from(truncate(&p.name, 28)).style(Style::new().fg(theme::fg()).bold()),
                 Cell::from(p.target.kind()).style(Style::new().fg(if p.auto { theme::dim() } else { theme::cyan() })),
                 match (&p.last_ms, &p.last_err) {
+                    _ if p.silent() => num("no reply", Style::new().fg(theme::dim())),
                     (Some(v), _) => num(format!("{v:.1}"), Style::new().fg(last_col)),
                     (None, Some(e)) => num(truncate(e, 14), Style::new().fg(last_col)),
                     _ => none(),
@@ -235,7 +236,11 @@ pub fn probes(f: &mut Frame, app: &mut App, area: Rect) {
                 ms(stats.map(|s| s.1), Style::new().fg(theme::fg())),
                 ms(stats.map(|s| s.2), Style::new().fg(theme::muted())),
                 ms(stats.map(|s| s.3), Style::new().fg(theme::purple())),
-                num(format!("{loss:.0}%"), Style::new().fg(theme::heat(loss * 2.0)).bold()),
+                if p.silent() {
+                    num("·", Style::new().fg(theme::dim()))
+                } else {
+                    num(format!("{loss:.0}%"), Style::new().fg(theme::heat(loss * 2.0)).bold())
+                },
                 match p.http_status {
                     Some(st) => num(
                         st.to_string(),

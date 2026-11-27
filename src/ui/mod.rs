@@ -28,7 +28,7 @@ pub fn draw(f: &mut Frame, app: &mut App) {
         );
     }
     let [header, body, footer] = Layout::vertical([
-        Constraint::Length(2),
+        Constraint::Length(3),
         Constraint::Min(0),
         Constraint::Length(1),
     ])
@@ -80,15 +80,26 @@ pub fn draw(f: &mut Frame, app: &mut App) {
 
 fn draw_header(f: &mut Frame, app: &mut App, area: Rect) {
     let s = &app.sampler;
-    let [top, tabs_area] = Layout::vertical([Constraint::Length(1), Constraint::Length(1)]).areas(area);
+    // Info line, tab row, and a fixed alerts row: tabs never move or hide
+    // because of alerts, and alerts always appear in the same place.
+    let [top, tabs_area, alert_area] = Layout::vertical([Constraint::Length(1), Constraint::Length(1), Constraint::Length(1)]).areas(area);
     f.render_widget(Block::new().style(Style::new().bg(theme::header_bg())), top);
 
+    // On a narrow window the kernel string goes first, then the OS name, so
+    // the left side never runs under "● live · root" on the right.
+    let right_w = 7 + format!("  {}ms ", app.interval.as_millis()).len() + 6 + 1;
+    let base_w = 9 + 1 + s.host.hostname.chars().count() + 5 + fmt_duration(s.uptime).len() + 6 + 14 + 8 + s.proc_count().to_string().len();
+    let os_txt = format!("  {}", s.host.os);
+    let kernel_txt = format!("  {} {}", s.host.kernel, s.host.arch);
+    let room = (top.width as usize).saturating_sub(right_w);
+    let show_os = base_w + os_txt.chars().count() <= room;
+    let show_kernel = show_os && base_w + os_txt.chars().count() + kernel_txt.chars().count() <= room;
     let mut spans = vec![
         Span::styled(if theme::is_ascii() { " VIGIL " } else { " ◆ vigil " }, Style::new().fg(theme::header_bg()).bg(theme::blue()).bold()),
         Span::raw(" "),
         Span::styled(s.host.hostname.clone(), Style::new().fg(theme::cyan()).bold()),
-        Span::styled(format!("  {}", s.host.os), Style::new().fg(theme::muted())),
-        Span::styled(format!("  {} {}", s.host.kernel, s.host.arch), Style::new().fg(theme::dim())),
+        Span::styled(if show_os { os_txt } else { String::new() }, Style::new().fg(theme::muted())),
+        Span::styled(if show_kernel { kernel_txt } else { String::new() }, Style::new().fg(theme::dim())),
         Span::styled("  up ", Style::new().fg(theme::dim())),
         Span::styled(fmt_duration(s.uptime), Style::new().fg(theme::green())),
         Span::styled("  load ", Style::new().fg(theme::dim())),
@@ -120,28 +131,22 @@ fn draw_header(f: &mut Frame, app: &mut App, area: Rect) {
     .alignment(Alignment::Right);
     f.render_widget(Paragraph::new(right), top);
 
-    // Tab row: tabs on the left, health badges on the right, never overlapping.
-    // When both don't fit, inactive tabs shrink to their key, long badges are
-    // shortened, and the badges that still don't fit collapse into "+N".
+    // Tab row: full names; on a narrow terminal inactive tabs shrink to their
+    // key, longest names first, only as far as the width requires.
     let mut alerts = app.alerts();
     alerts.sort_by_key(|(_, c)| *c != theme::red()); // urgent first (stable)
     let avail = tabs_area.width as usize;
-    // Shrink inactive tabs to their key, longest names first, only until the
-    // badges fit; the active tab always keeps its name.
     let label_w = |t: &Tab, short: bool| if short { t.key().len_utf8() } else { t.key().len_utf8() + 1 + t.title().chars().count() };
     let mut short = [false; Tab::ALL.len()];
     let total = |short: &[bool]| -> usize { Tab::ALL.iter().zip(short).map(|(t, s)| label_w(t, *s) + 2).sum::<usize>() + Tab::ALL.len() - 1 };
-    let need = avail.saturating_sub(badges_width(&alerts) + 2);
     let mut order: Vec<usize> = (0..Tab::ALL.len()).filter(|i| Tab::ALL[*i] != app.tab).collect();
     order.sort_by_key(|i| std::cmp::Reverse(Tab::ALL[*i].title().len()));
     for i in order {
-        if total(&short) <= need {
+        if total(&short) <= avail {
             break;
         }
         short[i] = true;
     }
-    let tabs_w = total(&short).min(avail);
-    let badges = fit_badges(&alerts, avail.saturating_sub(tabs_w + 2));
 
     let titles: Vec<Line> = Tab::ALL
         .iter()
@@ -169,14 +174,19 @@ fn draw_header(f: &mut Frame, app: &mut App, area: Rect) {
         .highlight_style(Style::new().fg(theme::blue()).bold().underlined())
         .divider(Span::styled(theme::glyphs().divider, Style::new().fg(theme::border())))
         .padding(" ", " ");
-    let bw: u16 = badges.iter().map(|s| s.width() as u16).sum();
-    let [tabs_left, badge_area] = Layout::horizontal([Constraint::Min(0), Constraint::Length(bw.min(tabs_area.width))]).areas(tabs_area);
-    f.render_widget(tabs, tabs_left);
-    f.render_widget(Paragraph::new(Line::from(badges)).alignment(Alignment::Right), badge_area);
+    f.render_widget(tabs, tabs_area);
+
+    // Alerts row: every crossed threshold, urgent first; "+N" when they don't fit.
+    let mut row = vec![Span::raw(" ")];
+    row.extend(fit_badges(&alerts, (alert_area.width as usize).saturating_sub(1)));
+    if alerts.is_empty() {
+        row.push(Span::styled("no thresholds crossed", Style::new().fg(theme::dim())));
+    }
+    f.render_widget(Paragraph::new(Line::from(row)), alert_area);
 }
 
 /// Longest badge text before it is shortened (the value at the end is kept).
-const BADGE_MAX: usize = 28;
+const BADGE_MAX: usize = 40;
 
 /// "LOSS gateway fc00:d264:c6f5:748:: 100%" → "LOSS gateway fc00:d264… 100%".
 fn short_badge(text: &str) -> String {
@@ -194,13 +204,6 @@ fn shorten_badge(text: &str, max: usize) -> String {
     };
     let keep = max.saturating_sub(tail.chars().count() + 1);
     format!("{}…{tail}", head.chars().take(keep).collect::<String>().trim_end())
-}
-
-fn badges_width(alerts: &[(String, ratatui::style::Color)]) -> usize {
-    if alerts.is_empty() {
-        return 10;
-    }
-    alerts.iter().map(|(t, _)| short_badge(t).chars().count() + 3).sum()
 }
 
 /// Badges that fit in `width` columns, plus a "+N" badge for the rest.
@@ -252,7 +255,7 @@ fn hints(app: &App) -> Vec<(&'static str, &'static str)> {
             ("c/m/p/n/u/i/o/w/e", "sort"),
             ("r", "reverse"),
         ],
-        Tab::Network => vec![("↑↓", "interface")],
+        Tab::Network => vec![("↑↓", "interface"), ("C", "capture (pcap)")],
         Tab::Sockets => vec![
             ("l", "listening"),
             ("s", "sort"),
@@ -269,7 +272,7 @@ fn hints(app: &App) -> Vec<(&'static str, &'static str)> {
         Tab::Containers => vec![("↑↓", "select")],
         Tab::System => vec![("e", "units ⇄ kernel events"), ("↵", "reload journal")],
         Tab::Users => vec![("↑↓", "select")],
-        Tab::Troubleshoot => vec![("d", "doctor"), ("c", "subnet calc"), ("m", "mtu"), ("n", "dns"), ("p", "perf"), ("↑↓", "scroll"), ("esc", "follow")],
+        Tab::Troubleshoot => vec![("d", "doctor"), ("c", "subnet calc"), ("m", "mtu"), ("n", "dns"), ("p", "perf"), ("t", "capture"), ("↑↓", "select line"), ("esc", "all")],
         Tab::Firewall => vec![("z", "hide zero"), ("s", "sort by rate")],
         Tab::Files => vec![("↵", "who uses this"), ("p", "proc files"), ("r", "rerun"), ("x", "signal")],
         Tab::Storage => vec![],
@@ -312,6 +315,7 @@ fn draw_footer(f: &mut Frame, app: &App, area: Rect) {
                 crate::tools::Kind::Calc => ("CALC", "10.0.0.0/22 /24 · 192.168.1.7 255.255.255.0 · 10.0.0.0/22 10.0.4.1 · 2001:db8::/48"),
                 crate::tools::Kind::Mtu => ("MTU", "host or IP (blank = [troubleshoot] internet_target)"),
                 crate::tools::Kind::Dns => ("DNS", "github.com · github.com MX · 8.8.8.8 · name AAAA @10.0.0.53 (blank = dns_test_name)"),
+                crate::tools::Kind::Capture => ("CAPTURE", "[iface] [30s|500p] [BPF filter]: en0 30s port 443 · 500p host 10.0.0.5 · udp port 53 (blank: everything, capture_seconds)"),
                 crate::tools::Kind::Perf => ("PERF", "host[:port] running `vigil perf --server` · add \" -R\" to download · blank = HTTP download"),
                 crate::tools::Kind::Doctor => ("DOCTOR", ""),
             };
@@ -380,12 +384,15 @@ fn draw_confirm_close(f: &mut Frame, app: &App, area: Rect) {
 }
 
 fn draw_theme_picker(f: &mut Frame, app: &App, area: Rect) {
-    let n = theme::all().len() as u16;
-    let r = centered(area, 58, n + 6);
+    let n = theme::all().len();
+    let r = centered(area, 58, (n as u16 + 6).min(area.height));
     f.render_widget(Clear, r);
     let cur = theme::index();
+    // Scroll the list on short terminals so the current theme stays visible.
+    let rows = (r.height as usize).saturating_sub(5).max(1);
+    let off = cur.saturating_sub(rows / 2).min(n.saturating_sub(rows));
     let mut lines = vec![Line::raw("")];
-    for (i, t) in theme::all().iter().enumerate() {
+    for (i, t) in theme::all().iter().enumerate().skip(off).take(rows) {
         let sel = i == cur;
         let mut spans = vec![
             Span::styled(if sel { " ▶ " } else { "   " }, Style::new().fg(theme::blue())),
@@ -404,7 +411,7 @@ fn draw_theme_picker(f: &mut Frame, app: &App, area: Rect) {
     }
     lines.push(Line::raw(""));
     lines.push(Line::from(vec![
-        Span::styled("  ↑↓ preview · ↵ keep · esc cancel · b background ", Style::new().fg(theme::dim())),
+        Span::styled(format!("  {}/{n} · ↑↓ preview · ↵ keep · esc cancel · b background ", cur + 1), Style::new().fg(theme::dim())),
         Span::styled(if app.cfg.background { "on" } else { "off" }, Style::new().fg(theme::teal())),
     ]));
     f.render_widget(
@@ -550,7 +557,7 @@ fn draw_help(f: &mut Frame, area: Rect) {
         row("R", "write a Markdown report to ./vigil-report-<time>.md"),
         row("F", "find anything: processes, ports, IPs, MACs, services, containers, routes, users; ↵ jumps there"),
         row("h", "explain the selected item: what it means and what to run next (Junos / Cisco too)"),
-        row("W", "troubleshoot: doctor (L1→L7), subnet calc, path MTU, DNS per resolver, throughput"),
+        row("W", "troubleshoot: doctor (L1→L7), subnet calc, path MTU, DNS per resolver, throughput, capture"),
         row("? / q", "help / quit"),
         sec("Processes"),
         row("c m p n u i o w e", "sort cpu · mem · pid · name · user · io · conns · net/s · fds"),
@@ -696,8 +703,8 @@ mod tests {
 
     #[test]
     fn tab_row_never_overlaps_badges() {
-        assert_eq!(super::short_badge("LOSS gateway fc00:d264:c6f5:748:: 100%"), "LOSS gateway fc00:d264… 100%");
-        assert!(super::short_badge("LOSS gateway fc00:d264:c6f5:748:: 100%").chars().count() <= super::BADGE_MAX);
+        assert_eq!(super::short_badge("LOSS gateway fc00:d264:c6f5:748:: 100%"), "LOSS gateway fc00:d264:c6f5:748:: 100%");
+        assert_eq!(super::short_badge("LOSS gateway 2001:db8:aaaa:bbbb:cccc:dddd:eeee:1 100%"), "LOSS gateway 2001:db8:aaaa:bbbb:cc… 100%");
         assert_eq!(super::short_badge("MEM 96%"), "MEM 96%");
         let alerts: Vec<(String, ratatui::style::Color)> = vec![("MEM 96%".into(), crate::theme::red()), ("LOSS gateway fc00:d264:c6f5:748:: 100%".into(), crate::theme::red()), ("LOAD 2.1/core".into(), crate::theme::orange())];
         let w = |v: &[ratatui::text::Span]| v.iter().map(|s| s.width()).sum::<usize>();
@@ -719,16 +726,22 @@ mod tests {
         for width in [200u16, 160, 120, 100, 80] {
             let mut term = Terminal::new(TestBackend::new(width, 20)).unwrap();
             term.draw(|f| super::draw(f, &mut app)).unwrap();
-            let row: String = dump(&term).lines().nth(1).unwrap().to_string();
+            let screen = dump(&term);
+            let row: String = screen.lines().nth(1).unwrap().to_string();
+            let alerts: String = screen.lines().nth(2).unwrap().to_string();
             if std::env::var_os("VIGIL_SHOW_TABROW").is_some() {
-                eprintln!("{width:>3} |{}|", row.trim_end());
+                eprintln!("{width:>3} |{}|\n    |{}|", row.trim_end(), alerts.trim_end());
             }
+            // Alerts live on their own row, so on a wide screen every tab keeps its name.
+            if width >= 160 {
+                assert!(row.contains("Troubleshoot") && row.contains("Overview"), "width {width}: {row:?}");
+            }
+            assert!(alerts.contains("MEM") || alerts.contains('+'), "width {width}: no badges in {alerts:?}");
             // Every tab key is still on the row, and the active tab keeps its name.
             for t in Tab::ALL {
                 assert!(row.contains(&format!(" {} ", t.key())), "width {width}: tab {:?} missing in {row:?}", t);
             }
             assert!(row.contains("Users"), "width {width}: {row:?}");
-            assert!(row.contains("MEM") || row.contains('+'), "width {width}: no badges in {row:?}");
         }
     }
 

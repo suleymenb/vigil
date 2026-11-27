@@ -136,6 +136,26 @@ enum Command {
         #[arg(long)]
         internet: bool,
     },
+    /// Capture packets to a .pcap for Wireshark: vigil capture -i en0 -t 30 port 443
+    Capture {
+        /// Interface (default: any)
+        #[arg(short, long)]
+        interface: Option<String>,
+        /// Stop after this many seconds (default: until ctrl-c; Windows: 20)
+        #[arg(short = 't', long)]
+        time: Option<u64>,
+        /// Stop after this many packets
+        #[arg(short = 'c', long)]
+        count: Option<u64>,
+        /// Output file, or - to stream pcap to stdout (… | wireshark -k -i -)
+        #[arg(short = 'w', long, value_name = "FILE")]
+        write: Option<std::path::PathBuf>,
+        /// Open the capture in Wireshark when it finishes
+        #[arg(long)]
+        open: bool,
+        /// BPF filter, e.g. port 443 · host 10.0.0.5 and tcp
+        filter: Vec<String>,
+    },
     /// Print a shell completion script: vigil completions bash > /etc/bash_completion.d/vigil
     Completions {
         #[arg(value_enum)]
@@ -191,6 +211,7 @@ fn main() -> Result<()> {
             Command::Calc { input } => tools::cli::calc(&input.join(" ")),
             Command::Dns { query } => tools::cli::dns(&query.join(" "), &settings),
             Command::Mtu { target } => tools::cli::mtu(target.as_deref().unwrap_or(&settings.internet4)),
+            Command::Capture { interface, time, count, write, open, filter } => tools::cli::capture(interface.as_deref(), *time, *count, write.as_deref(), *open, &filter.join(" ")),
             Command::Perf { host, server, port, time, parallel, reverse, internet } => {
                 tools::cli::perf(host.as_deref(), *server, *port, *time, *parallel, *reverse, *internet, &settings)
             }

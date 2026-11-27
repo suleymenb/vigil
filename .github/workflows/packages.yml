@@ -35,13 +35,16 @@ jobs:
 
       - name: Fetch the released Linux binaries
         run: |
-          for target in x86_64-unknown-linux-musl aarch64-unknown-linux-musl; do
-            gh release download "$TAG" --pattern "vigil-$target.tar.gz*"
-            sha256sum -c "vigil-$target.tar.gz.sha256"
-            tar xzf "vigil-$target.tar.gz"
+          # Asset names since v0.6.2: vigil-linux-<arch>; before: the Rust target triple.
+          for pair in "x86_64-unknown-linux-musl linux-x86_64" "aarch64-unknown-linux-musl linux-arm64"; do
+            set -- $pair
+            target=$1 asset=$2
+            gh release download "$TAG" --pattern "vigil-$asset.tar.gz*" || { asset=$target; gh release download "$TAG" --pattern "vigil-$target.tar.gz*"; }
+            sha256sum -c "vigil-$asset.tar.gz.sha256"
+            tar xzf "vigil-$asset.tar.gz"
             mkdir -p "bin-$target"
-            mv "vigil-$target/vigil" "bin-$target/vigil"
-            rm -rf "vigil-$target" "vigil-$target.tar.gz" "vigil-$target.tar.gz.sha256"
+            mv "vigil-$asset/vigil" "bin-$target/vigil"
+            rm -rf "vigil-$asset" "vigil-$asset.tar.gz" "vigil-$asset.tar.gz.sha256"
           done
 
       - name: Completions and man page

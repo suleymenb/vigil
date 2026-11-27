@@ -101,6 +101,9 @@ pub struct Probe {
     pub last_err: Option<String>,
     pub http_status: Option<u16>,
     pub cert_days: Option<i64>,
+    /// Has this target ever answered? Gateways and resolvers that filter ICMP
+    /// never do; their 100 % "loss" is not an outage.
+    pub ever_ok: bool,
 }
 
 impl Probe {
@@ -115,7 +118,13 @@ impl Probe {
             last_err: None,
             http_status: None,
             cert_days: None,
+            ever_ok: false,
         }
+    }
+
+    /// An automatic probe whose target has never answered (ICMP filtered).
+    pub fn silent(&self) -> bool {
+        self.auto && !self.ever_ok && self.recent.len() >= 3
     }
 
     pub fn loss_pct(&self) -> f64 {
@@ -153,6 +162,7 @@ impl Probe {
                 self.last_ms = Some(o.ms);
                 self.last_err = None;
                 self.recent.push(true);
+                self.ever_ok = true;
                 if o.status.is_some() {
                     self.http_status = o.status;
                 }
@@ -244,7 +254,7 @@ pub fn run_once(t: &Target) -> Result<Outcome, String> {
 /// HTTP(S) via curl: status code, time to first byte, certificate expiry.
 fn http(url: &str) -> Result<Outcome, String> {
     if !crate::platform::get().tools.curl {
-        return Err("curl not found (HTTP probes use curl; Windows 7/8 need it installed)".into());
+        return Err("curl not found (HTTP probes use curl)".into());
     }
     let out = std::process::Command::new("curl")
         .args(["-sS", "-o", if cfg!(windows) { "NUL" } else { "/dev/null" }, "-v", "--max-time", "5", "-w", "%{http_code} %{time_starttransfer}"])
@@ -509,6 +519,23 @@ mod icmp {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn silent_auto_probes_do_not_alarm() {
+        let mut p = Probe::new("gateway 10.0.0.1".into(), Target::Icmp("10.0.0.1".parse().unwrap()), true);
+        for _ in 0..5 {
+            p.record(Err("timeout".into()));
+        }
+        assert!(p.silent());
+        assert_eq!(p.loss_pct(), 100.0);
+        p.record(Ok(Outcome::ms(1.0)));
+        assert!(!p.silent(), "answered once: losses count again");
+        let mut user = Probe::new("1.1.1.1".into(), Target::Icmp("1.1.1.1".parse().unwrap()), false);
+        for _ in 0..5 {
+            user.record(Err("timeout".into()));
+        }
+        assert!(!user.silent(), "probes you added always alarm");
+    }
 
     #[test]
     fn parse_targets() {

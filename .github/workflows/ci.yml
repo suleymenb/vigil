@@ -21,19 +21,27 @@ jobs:
           rustup default stable
       - name: Install lsof
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y lsof
+        run: sudo apt-get update && sudo apt-get install -y lsof tcpdump
       - run: cargo clippy --all-targets --locked -- -D warnings
       - run: cargo test --locked
-
-  # Windows 7 / 8.1: Rust stable needs Windows 10+, so these builds use the
-  # tier-3 win7 target (nightly + build-std). Built, never run in CI.
-  windows7:
-    runs-on: windows-latest
-    continue-on-error: true
-    steps:
-      - uses: actions/checkout@v4
-      - name: Install nightly
+      # A real capture with root (the runners have passwordless sudo / admin).
+      - name: Capture smoke test (tcpdump)
+        if: runner.os != 'Windows'
         shell: bash
-        run: rustup toolchain install nightly --profile minimal --component rust-src
-      - name: Build x86_64-win7-windows-msvc
-        run: cargo +nightly build --release --locked -Z build-std=std,panic_abort --target x86_64-win7-windows-msvc
+        run: |
+          cargo build --locked
+          iface=lo; [ "$RUNNER_OS" = macOS ] && iface=lo0
+          ( ping -c 20 127.0.0.1 >/dev/null & )
+          sudo ./target/debug/vigil capture -i "$iface" -c 6 -t 30 -w "$RUNNER_TEMP/t.pcap" icmp
+          test -s "$RUNNER_TEMP/t.pcap"
+          sudo ./target/debug/vigil capture -i "$iface" -c 4 -t 30 -w - icmp > "$RUNNER_TEMP/s.pcap" &
+          sleep 1; ping -c 6 127.0.0.1 >/dev/null; wait
+          test -s "$RUNNER_TEMP/s.pcap"
+      - name: Capture smoke test (pktmon)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          cargo build --locked
+          $p = Start-Process ping -ArgumentList '-n','12','1.1.1.1' -PassThru -WindowStyle Hidden
+          ./target/debug/vigil.exe capture -t 6 -w "$env:RUNNER_TEMP\t.pcapng" icmp
+          if (!(Test-Path "$env:RUNNER_TEMP\t.pcapng")) { exit 1 }
