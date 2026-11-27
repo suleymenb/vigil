@@ -120,11 +120,13 @@ pub fn ext() -> &'static str {
     }
 }
 
-/// Count packets in a classic pcap file (pcapng: None).
-#[cfg_attr(windows, allow(dead_code))]
+/// Count packets in a pcap or pcapng file.
 pub fn count_pcap(path: &Path) -> Option<u64> {
     let b = std::fs::read(path).ok()?;
     let magic = u32::from_le_bytes(b.get(0..4)?.try_into().ok()?);
+    if magic == 0x0a0d0d0a {
+        return count_pcapng(&b);
+    }
     let le = match magic {
         0xa1b2c3d4 | 0xa1b23c4d => true,
         0xd4c3b2a1 | 0x4d3cb2a1 => false,
@@ -142,6 +144,27 @@ pub fn count_pcap(path: &Path) -> Option<u64> {
             break; // last record cut short by the stop
         }
         n += 1;
+    }
+    Some(n)
+}
+
+/// pcapng: count Enhanced (6) and Simple (3) Packet Blocks.
+fn count_pcapng(b: &[u8]) -> Option<u64> {
+    let le = u32::from_le_bytes(b.get(8..12)?.try_into().ok()?) == 0x1a2b3c4d;
+    let rd = |o: usize| -> Option<u32> {
+        let a: [u8; 4] = b.get(o..o + 4)?.try_into().ok()?;
+        Some(if le { u32::from_le_bytes(a) } else { u32::from_be_bytes(a) })
+    };
+    let (mut off, mut n) = (0usize, 0u64);
+    while off + 12 <= b.len() {
+        let (ty, len) = (rd(off)?, rd(off + 4)? as usize);
+        if len < 12 {
+            break;
+        }
+        if ty == 6 || ty == 3 {
+            n += 1;
+        }
+        off += len;
     }
     Some(n)
 }
@@ -294,7 +317,7 @@ pub fn finish(mut r: Running) -> Result<Done, String> {
             return Err(friendly(t.lines().find(|l| !l.trim().is_empty()).unwrap_or("pktmon produced no capture")));
         }
         let _ = &r.child;
-        Ok(Done { path: Some(file.clone()), bytes: std::fs::metadata(file).map(|m| m.len()).unwrap_or(0), packets: None })
+        Ok(Done { path: Some(file.clone()), bytes: std::fs::metadata(file).map(|m| m.len()).unwrap_or(0), packets: count_pcap(file) })
     }
     #[cfg(not(windows))]
     {
@@ -463,6 +486,27 @@ mod tests {
         }
         std::fs::write(&p, &b).unwrap();
         assert_eq!(count_pcap(&p), Some(2));
+        // pcapng: section header (28 bytes), interface block (20), two enhanced packet blocks (32 each).
+        let mut g = Vec::new();
+        g.extend(0x0a0d0d0au32.to_le_bytes());
+        g.extend(28u32.to_le_bytes());
+        g.extend(0x1a2b3c4du32.to_le_bytes());
+        g.extend([1, 0, 0, 0]);
+        g.extend([0xff; 8]);
+        g.extend(28u32.to_le_bytes());
+        g.extend(1u32.to_le_bytes());
+        g.extend(20u32.to_le_bytes());
+        g.extend([1, 0, 0, 0, 0, 0, 0, 0]);
+        g.extend(20u32.to_le_bytes());
+        for _ in 0..2 {
+            g.extend(6u32.to_le_bytes());
+            g.extend(32u32.to_le_bytes());
+            g.extend([0u8; 20]);
+            g.extend(32u32.to_le_bytes());
+        }
+        let q = dir.join("t.pcapng");
+        std::fs::write(&q, &g).unwrap();
+        assert_eq!(count_pcap(&q), Some(2));
         std::fs::remove_dir_all(&dir).ok();
     }
 }

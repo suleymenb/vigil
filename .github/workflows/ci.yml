@@ -42,6 +42,8 @@ jobs:
         shell: pwsh
         run: |
           cargo build --locked
-          $p = Start-Process ping -ArgumentList '-n','12','1.1.1.1' -PassThru -WindowStyle Hidden
-          ./target/debug/vigil.exe capture -t 6 -w "$env:RUNNER_TEMP\t.pcapng" icmp
-          if (!(Test-Path "$env:RUNNER_TEMP\t.pcapng")) { exit 1 }
+          $job = Start-Job { for ($i = 0; $i -lt 10; $i++) { try { Invoke-WebRequest https://example.com -UseBasicParsing | Out-Null } catch {} ; Start-Sleep -Milliseconds 500 } }
+          ./target/debug/vigil.exe capture -t 6 -w "$env:RUNNER_TEMP\t.pcapng" tcp and port 443
+          Stop-Job $job -ErrorAction SilentlyContinue
+          $f = Get-Item "$env:RUNNER_TEMP\t.pcapng"
+          if ($f.Length -lt 1000) { Write-Error "capture is empty ($($f.Length) bytes)"; exit 1 }
