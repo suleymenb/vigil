@@ -648,21 +648,29 @@ footer { margin-top: 72px; color: var(--muted); font-size: 13px; }
   </table></div>
 
   <h2 id="performance">Performance</h2>
-  <p style="margin-top:12px">A monitor you keep open all day should cost as little as possible itself. These are measurements of v0.1 before and after optimisation, on an Apple M4 Pro with about 860 processes and a 1000 ms refresh. Themes and health badges in v0.2 didn't change the numbers.</p>
+  <p style="margin-top:12px">A monitor you leave running on a server should not show up in its own list. These are v0.7.0 and v0.7.1 on Ubuntu (x86_64, 4 cores) with 320 processes and 4,400 threads, the shape of a server running a JVM or a database. Until 0.7.1 every thread of every process was read on every tick, although vigil lists processes only; now it is one small read per process.</p>
   <div class="perf">
-    <div class="legend"><span><i style="background:var(--muted);opacity:.55"></i>before</span><span><i style="background:var(--accent)"></i>after</span></div>
-    <div class="metric"><div class="lbl">vigil's own CPU<small>% of one core, averaged over 18 s</small></div>
-      <div class="bars"><div class="barrow"><div class="track"><div class="fill before" style="width:100%"></div></div><span>5.3 %</span></div><div class="barrow"><div class="track"><div class="fill after" style="width:45%"></div></div><span>2.4 %</span></div></div></div>
-    <div class="metric"><div class="lbl">Sampler per tick<small>cpu, mem, procs, net, disks, sensors</small></div>
-      <div class="bars"><div class="barrow"><div class="track"><div class="fill before" style="width:100%"></div></div><span>26.2 ms</span></div><div class="barrow"><div class="track"><div class="fill after" style="width:16%"></div></div><span>4.2 ms</span></div></div></div>
-    <div class="metric"><div class="lbl">Sensor refresh<small>all 17 temperature sensors</small></div>
-      <div class="bars"><div class="barrow"><div class="track"><div class="fill before" style="width:100%"></div></div><span>108 ms</span></div><div class="barrow"><div class="track"><div class="fill after" style="width:14%"></div></div><span>≈15 ms</span></div></div></div>
+    <div class="legend"><span><i style="background:var(--muted);opacity:.55"></i>v0.7.0</span><span><i style="background:var(--accent)"></i>v0.7.1</span></div>
+    <div class="metric"><div class="lbl">CPU, 250 ms refresh<small>% of one core, averaged over 30 s</small></div>
+      <div class="bars"><div class="barrow"><div class="track"><div class="fill before" style="width:100%"></div></div><span>35.3 %</span></div><div class="barrow"><div class="track"><div class="fill after" style="width:5%"></div></div><span>1.8 %</span></div></div></div>
+    <div class="metric"><div class="lbl">CPU, 1 s refresh<small>the default</small></div>
+      <div class="bars"><div class="barrow"><div class="track"><div class="fill before" style="width:35%"></div></div><span>12.5 %</span></div><div class="barrow"><div class="track"><div class="fill after" style="width:3%"></div></div><span>1.1 %</span></div></div></div>
+    <div class="metric"><div class="lbl">System calls<small>per second, all threads</small></div>
+      <div class="bars"><div class="barrow"><div class="track"><div class="fill before" style="width:100%"></div></div><span>27,000</span></div><div class="barrow"><div class="track"><div class="fill after" style="width:8%"></div></div><span>2,100</span></div></div></div>
+    <div class="metric"><div class="lbl">Open file handles</div>
+      <div class="bars"><div class="barrow"><div class="track"><div class="fill before" style="width:100%"></div></div><span>4,447</span></div><div class="barrow"><div class="track"><div class="fill after" style="width:1%"></div></div><span>9</span></div></div></div>
     <div class="metric"><div class="lbl">Memory (RSS)</div>
-      <div class="bars"><div class="barrow"><div class="track"><div class="fill before" style="width:100%"></div></div><span>17.8 MB</span></div><div class="barrow"><div class="track"><div class="fill after" style="width:87%"></div></div><span>15.5 MB</span></div></div></div>
+      <div class="bars"><div class="barrow"><div class="track"><div class="fill before" style="width:100%"></div></div><span>14.8 MB</span></div><div class="barrow"><div class="track"><div class="fill after" style="width:57%"></div></div><span>8.4 MB</span></div></div></div>
   </div>
+  <p>On arm64 the same run went from 26 % to 1.6 % of a core. On an Apple M4 Pro with about 900 processes at 250 ms it went from 8.3 % to about 2 %. <code>scripts/bench-linux.sh old-binary new-binary</code> repeats the measurement on your own server; <code>top -H -p $(pidof vigil)</code> shows vigil's threads by name.</p>
   <div class="tbl"><table>
     <thead><tr><th>Change</th><th>Why</th></tr></thead>
     <tbody>
+      <tr><td>Read processes straight from the OS</td><td>Linux: one <code>/proc/&lt;pid&gt;/stat</code> per process instead of <code>stat</code>, <code>statm</code> and <code>io</code> for every thread. macOS: one <code>proc_pidinfo</code> per process instead of copying each argument block twice. No file handles stay open.</td></tr>
+      <tr><td>Idle processes take turns</td><td>A process under 1 % CPU is looked at about once a second, however short the refresh interval; busy ones every tick.</td></tr>
+      <tr><td>One read for all interfaces</td><td><code>/proc/net/dev</code> instead of six files per interface (a container host has one veth per container); addresses and link state every two seconds.</td></tr>
+      <tr><td>Walk open files only for new sockets</td><td>Finding the process behind a socket means reading every process's fd directory. That now happens when a socket appears that wasn't seen before, not on every scan.</td></tr>
+      <tr><td>No helper processes on macOS</td><td>Disk statistics come from the I/O Registry instead of an <code>ioreg</code> process every two seconds.</td></tr>
       <tr><td>Refresh sensors one by one; re-enumerate only every 5 min</td><td><code>refresh(true)</code> re-enumerated every sensor through IOKit each time. That cost 108 ms, while refreshing one existing sensor costs 0.9 ms.</td></tr>
       <tr><td>sysinfo without rayon (single-threaded)</td><td>Every tick woke 14 threads for about 2 ms of work. The synchronisation cost more CPU than the parallelism saved.</td></tr>
       <tr><td>Disks and sensors on their own thread</td><td>The slow calls (statfs, CacheDelete, SMC) no longer hold up the tick.</td></tr>

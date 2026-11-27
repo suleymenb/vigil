@@ -726,19 +726,33 @@ Run the install one-liner again (Windows: the PowerShell line), `brew upgrade vi
 
 ## Performance
 
+A monitor you leave running on a server should not show up in its own list.
+
+| Ubuntu, 4 cores, 320 processes with 4,400 threads | v0.7.0 | v0.7.1 |
+|---|---|---|
+| CPU at a 250 ms refresh | 35 % of one core | **1.8 %** |
+| CPU at the default 1 s refresh | 12.5 % | **1.1 %** |
+| System calls per second | 27,000 | 2,100 |
+| Open file handles | 4,447 | 9 |
+| Memory | 14.8 MB | 8.4 MB |
+
+On arm64 the same run went from 26 % to 1.6 %. On an Apple M4 Pro with about 900 processes at 250 ms: from 8.3 % to about 2 %. `scripts/bench-linux.sh old-binary new-binary` repeats the measurement on your own server, and `top -H -p $(pidof vigil)` shows vigil's threads by name.
+
 <details>
 <summary><b>How vigil stays light</b></summary>
 
+- What changes every tick is read straight from the OS: one `/proc/<pid>/stat` per process and one `/proc/net/dev` for all interfaces on Linux, one `proc_pidinfo` per process on macOS. Threads, argument blocks and per-interface files that vigil doesn't show are never read, and no file handles are kept open.
+- Processes doing nothing (under 1 % CPU) are looked at about once a second, however short the refresh interval; busy ones every tick.
+- Addresses, link state and CPU frequency are read every two seconds, not every tick.
 - Collectors run on background threads; the UI thread only handles keys and drawing.
 - The screen is redrawn only when something changed: a key, a tick, or new data from a collector.
 - Routes, firewall, containers, services and reverse DNS poll fast only while their view is open; in the background they refresh rarely, just enough for the health badges.
-- On Linux, sockets come straight from `/proc/net` and netlink `sock_diag` instead of `lsof -i`.
+- On Linux, sockets come straight from `/proc/net` and netlink `sock_diag` instead of `lsof -i`. Which process owns a socket means walking every process's open files; that happens only when a socket appears that hasn't been seen before.
+- On macOS, disk statistics come from the I/O Registry instead of an `ioreg` process every two seconds.
 - Socket and file lists are views of one shared snapshot: filtering stores indices, not copies.
 - Tables only build the rows that are visible.
 - Sensors are refreshed one by one instead of re-enumerated (108 ms → ~1 ms each on macOS).
 - Per-process strings are cached per pid; a steady tick allocates almost nothing.
-
-Measured on an Apple M4 Pro with ~860 processes: about 2.5 % of one core and 16 MB of RAM.
 </details>
 
 ## Development

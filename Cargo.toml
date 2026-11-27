@@ -1,6 +1,6 @@
 [package]
 name = "vigil-tui"
-version = "0.7.0"
+version = "0.7.1"
 edition = "2021"
 description = "Terminal monitor and network troubleshooter: processes, sockets with lsof, routes, probes, firewall, containers, and a layer-by-layer network doctor"
 license = "MIT"
